@@ -1,0 +1,23 @@
+[package]
+name = "oxide"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gpui = "=0.2.2"
+alacritty_terminal = "=0.26.0"
+parking_lot = "0.12"
+futures = "0.3"
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+directories = "5"
+notify = "6"
+notify-debouncer-full = "0.3"
+ignore = "0.4"
+anyhow = "1"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"

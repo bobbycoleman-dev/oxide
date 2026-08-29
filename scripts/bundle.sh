@@ -1,0 +1,73 @@
+#!/bin/bash
+# Assemble Oxide.app from the release binary.
+#
+#   scripts/bundle.sh              build + bundle + ad-hoc sign
+#   SIGN_ID="Developer ID Application: ..." scripts/bundle.sh   real signature
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+ROOT="$PWD"
+APP="$ROOT/target/Oxide.app"
+BIN="$ROOT/target/release/oxide"
+SIGN_ID="${SIGN_ID:--}"
+
+cargo build --release
+
+rm -rf "$APP"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp "$BIN" "$APP/Contents/MacOS/oxide"
+
+# Icon: 1024 master -> .iconset -> .icns
+if [[ ! -f "$ROOT/assets/icon_1024.png" ]]; then
+  python3 "$ROOT/assets/make_icon.py" "$ROOT/assets/icon_1024.png"
+fi
+ICONSET="$ROOT/target/oxide.iconset"
+rm -rf "$ICONSET"
+mkdir -p "$ICONSET"
+for size in 16 32 128 256 512; do
+  sips -z $size $size "$ROOT/assets/icon_1024.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+  sips -z $((size * 2)) $((size * 2)) "$ROOT/assets/icon_1024.png" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/oxide.icns"
+
+VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+cat > "$APP/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>dev.bobbycoleman.oxide</string>
+	<key>CFBundleName</key>
+	<string>Oxide</string>
+	<key>CFBundleDisplayName</key>
+	<string>Oxide</string>
+	<key>CFBundleExecutable</key>
+	<string>oxide</string>
+	<key>CFBundleIconFile</key>
+	<string>oxide</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>${VERSION}</string>
+	<key>CFBundleVersion</key>
+	<string>${VERSION}</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>12.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+</dict>
+</plist>
+PLIST
+
+# Terminal emulators must not be sandboxed; ad-hoc signing ("-") is enough to
+# quiet Gatekeeper on your own machine. Hardened runtime only with a real ID.
+if [[ "$SIGN_ID" == "-" ]]; then
+  codesign --force --sign - "$APP"
+else
+  codesign --deep --force --options runtime --sign "$SIGN_ID" "$APP"
+fi
+
+echo "built $APP"

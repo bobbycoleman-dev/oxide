@@ -1,0 +1,4 @@
+#!/bin/bash
+# CLI shim: `oxide [dir]` opens the app bundle from another terminal.
+# Install: cp scripts/oxide-cli /usr/local/bin/oxide && chmod +x /usr/local/bin/oxide
+open -a Oxide --args "${1:-$PWD}"
