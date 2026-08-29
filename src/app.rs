@@ -27,8 +27,26 @@ pub struct Oxide {
     git_status: GitStatus,
     last_bounds: Option<gpui::Bounds<gpui::Pixels>>,
     bounds_save_scheduled: bool,
+    theme_picker: Option<ThemePicker>,
+    picker_focus: FocusHandle,
+    status_bar_override: Option<bool>,
+    update: UpdateState,
     _config_watcher: Option<notify_debouncer_full::Debouncer<notify::RecommendedWatcher, notify_debouncer_full::FileIdMap>>,
     _subscriptions: Vec<Subscription>,
+}
+
+struct ThemePicker {
+    selected: usize,
+    /// Theme to restore on cancel.
+    original: Rc<Theme>,
+}
+
+#[derive(Clone, PartialEq)]
+enum UpdateState {
+    Idle,
+    Checking,
+    Downloading(String),
+    Ready { version: String, dmg: PathBuf },
 }
 
 #[derive(Default, Clone, PartialEq)]
@@ -157,11 +175,136 @@ impl Oxide {
             git_status: GitStatus::default(),
             last_bounds: None,
             bounds_save_scheduled: false,
+            theme_picker: None,
+            picker_focus: cx.focus_handle(),
+            status_bar_override: None,
+            update: UpdateState::Idle,
             _config_watcher: config_watcher,
             _subscriptions: subscriptions,
         };
         this.refresh_git_status(cx);
+
+        // Auto-check for updates: installed bundles only (not cargo run),
+        // shortly after launch and then every 6 hours.
+        if crate::update::installed_bundle().is_some() && !cfg!(debug_assertions) {
+            cx.spawn(async move |this, cx| {
+                loop {
+                    let timer = match this.update(cx, |_, cx| {
+                        cx.background_executor().timer(std::time::Duration::from_secs(15))
+                    }) {
+                        Ok(timer) => timer,
+                        Err(_) => break,
+                    };
+                    timer.await;
+                    if this.update(cx, |this, cx| this.check_for_updates(false, cx)).is_err() {
+                        break;
+                    }
+                    let timer = match this.update(cx, |_, cx| {
+                        cx.background_executor().timer(std::time::Duration::from_secs(6 * 3600))
+                    }) {
+                        Ok(timer) => timer,
+                        Err(_) => break,
+                    };
+                    timer.await;
+                }
+            })
+            .detach();
+        }
         this
+    }
+
+    fn check_for_updates(&mut self, manual: bool, cx: &mut Context<Self>) {
+        if matches!(self.update, UpdateState::Checking | UpdateState::Downloading(_)) {
+            return;
+        }
+        if let UpdateState::Ready { .. } = self.update {
+            if manual {
+                self.show_transient_banner("update already downloaded — click the button to install".into(), cx);
+            }
+            return;
+        }
+        self.update = UpdateState::Checking;
+        let bg = cx.background_executor().clone();
+        cx.spawn(async move |this, cx| {
+            let latest = bg.spawn(async move { crate::update::fetch_latest() }).await;
+            let info = match latest {
+                Ok(Some(info))
+                    if crate::update::is_newer(&info.version, crate::update::current_version()) =>
+                {
+                    info
+                }
+                Ok(_) => {
+                    this.update(cx, |this, cx| {
+                        this.update = UpdateState::Idle;
+                        if manual {
+                            this.show_transient_banner(
+                                format!("Oxide is up to date (v{})", crate::update::current_version()),
+                                cx,
+                            );
+                        }
+                    })
+                    .ok();
+                    return;
+                }
+                Err(e) => {
+                    this.update(cx, |this, cx| {
+                        this.update = UpdateState::Idle;
+                        if manual {
+                            this.show_transient_banner(e, cx);
+                        }
+                    })
+                    .ok();
+                    return;
+                }
+            };
+            let version = info.version.clone();
+            if this
+                .update(cx, |this, cx| {
+                    this.update = UpdateState::Downloading(version.clone());
+                    cx.notify();
+                })
+                .is_err()
+            {
+                return;
+            }
+            let bg2 = cx.background_executor().clone();
+            let downloaded = bg2.spawn(async move { crate::update::download(&info) }).await;
+            this.update(cx, |this, cx| {
+                match downloaded {
+                    Ok(dmg) => {
+                        this.update = UpdateState::Ready { version: version.clone(), dmg };
+                    }
+                    Err(e) => {
+                        this.update = UpdateState::Idle;
+                        if manual {
+                            this.show_transient_banner(e, cx);
+                        }
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn install_update(&mut self, cx: &mut Context<Self>) {
+        if let UpdateState::Ready { dmg, .. } = &self.update {
+            match crate::update::install_and_restart(dmg) {
+                Ok(()) => {
+                    if crate::update::installed_bundle().is_some() {
+                        cx.quit();
+                    } else {
+                        self.show_transient_banner(
+                            "not running from an installed app — opened the DMG instead".into(),
+                            cx,
+                        );
+                    }
+                }
+                Err(e) => self.show_transient_banner(e, cx),
+            }
+        }
     }
 
     fn refresh_git_status(&mut self, cx: &mut Context<Self>) {
@@ -330,6 +473,199 @@ impl Oxide {
         cx.notify();
     }
 
+    // --- Theme picker ---
+
+    fn current_preset(&self) -> String {
+        self.config.colors.preset.clone().unwrap_or_else(|| "catppuccin-mocha".into())
+    }
+
+    fn open_theme_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let current = self.current_preset();
+        let selected = config::theme::PRESET_NAMES
+            .iter()
+            .position(|n| *n == current)
+            .unwrap_or(0);
+        self.theme_picker = Some(ThemePicker { selected, original: self.theme.clone() });
+        window.focus(&self.picker_focus);
+        cx.notify();
+    }
+
+    /// Swap the live theme everywhere without touching the config.
+    fn apply_theme(&mut self, theme: Rc<Theme>, cx: &mut Context<Self>) {
+        self.theme = theme.clone();
+        let config = self.config.clone();
+        self.terminal.update(cx, |t, cx| t.set_config(config.clone(), theme.clone(), cx));
+        self.tree.update(cx, |t, cx| t.set_config(config, theme, cx));
+        cx.notify();
+    }
+
+    /// Preview the selected preset. Pure preset palette: picking a theme
+    /// means "I want this theme", so explicit color overrides (including the
+    /// fully-pinned [colors] block older generated configs carry) don't apply.
+    fn preview_selected(&mut self, cx: &mut Context<Self>) {
+        let Some(picker) = &self.theme_picker else { return };
+        let name = config::theme::PRESET_NAMES[picker.selected];
+        let colors = crate::config::schema::ColorsConfig {
+            preset: Some(name.to_string()),
+            ..Default::default()
+        };
+        self.apply_theme(Rc::new(Theme::from_config(&colors)), cx);
+    }
+
+    fn close_theme_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.theme_picker = None;
+        window.focus(&self.term_focus(cx));
+        cx.notify();
+    }
+
+    fn picker_move(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let count = config::theme::PRESET_NAMES.len() as isize;
+        if let Some(picker) = &mut self.theme_picker {
+            picker.selected = (picker.selected as isize + delta).rem_euclid(count) as usize;
+            self.preview_selected(cx);
+        }
+    }
+
+    fn picker_confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(picker) = &self.theme_picker else { return };
+        let name = config::theme::PRESET_NAMES[picker.selected].to_string();
+        // Update in-memory config first so the file-watcher reload no-ops.
+        // Committing a preset replaces the whole [colors] block — explicit
+        // overrides would silently defeat the theme switch otherwise.
+        let mut config = (*self.config).clone();
+        config.colors = crate::config::schema::ColorsConfig {
+            preset: Some(name.clone()),
+            ..Default::default()
+        };
+        self.config = Rc::new(config);
+        if let Err(e) = persist_preset(&name) {
+            self.banner = Some(e);
+            self.banner_generation += 1;
+        }
+        self.preview_selected(cx);
+        self.close_theme_picker(window, cx);
+    }
+
+    fn picker_cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(picker) = &self.theme_picker {
+            let original = picker.original.clone();
+            self.apply_theme(original, cx);
+        }
+        self.close_theme_picker(window, cx);
+    }
+
+    fn render_theme_picker(&self, cx: &Context<Self>) -> gpui::Div {
+        let Some(picker) = &self.theme_picker else { return div() };
+        let theme = &self.theme;
+        let panel_bg = blend(theme.background, gpui::black(), 0.2);
+        let mut backdrop = gpui::black();
+        backdrop.a = 0.35;
+
+        let mut list = div().flex().flex_col().p_1().gap(px(1.0));
+        for (ix, name) in config::theme::PRESET_NAMES.iter().enumerate() {
+            let preset_theme = Theme::from_config(&crate::config::schema::ColorsConfig {
+                preset: Some(name.to_string()),
+                ..Default::default()
+            });
+            let is_selected = ix == picker.selected;
+            let mut swatches = div().flex().flex_row().gap(px(2.0)).items_center();
+            swatches = swatches.child(
+                div()
+                    .w(px(14.0))
+                    .h(px(14.0))
+                    .rounded_sm()
+                    .bg(preset_theme.background)
+                    .border_1()
+                    .border_color(preset_theme.ansi[8]),
+            );
+            for i in 1..7 {
+                swatches = swatches
+                    .child(div().w(px(8.0)).h(px(14.0)).rounded_sm().bg(preset_theme.ansi[i]));
+            }
+            list = list.child(
+                div()
+                    .id(ix)
+                    .px_3()
+                    .py_1p5()
+                    .rounded_md()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_3()
+                    .when(is_selected, |d| d.bg(theme.selection_bg))
+                    .on_mouse_move(cx.listener(move |this, _: &gpui::MouseMoveEvent, _w, cx| {
+                        if let Some(p) = &mut this.theme_picker
+                            && p.selected != ix
+                        {
+                            p.selected = ix;
+                            this.preview_selected(cx);
+                        }
+                    }))
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _: &gpui::MouseDownEvent, window, cx| {
+                            if let Some(p) = &mut this.theme_picker {
+                                p.selected = ix;
+                            }
+                            this.picker_confirm(window, cx);
+                        }),
+                    )
+                    .child(div().flex_1().child(*name))
+                    .child(swatches),
+            );
+        }
+
+        div()
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_start()
+            .justify_center()
+            .bg(backdrop)
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _: &gpui::MouseDownEvent, window, cx| {
+                    this.picker_cancel(window, cx);
+                }),
+            )
+            .child(
+                div()
+                    .key_context("ThemePicker")
+                    .track_focus(&self.picker_focus)
+                    .on_action(cx.listener(|this, _: &PickerNext, _w, cx| this.picker_move(1, cx)))
+                    .on_action(cx.listener(|this, _: &PickerPrev, _w, cx| this.picker_move(-1, cx)))
+                    .on_action(cx.listener(|this, _: &PickerConfirm, window, cx| {
+                        this.picker_confirm(window, cx);
+                    }))
+                    .on_action(cx.listener(|this, _: &PickerCancel, window, cx| {
+                        this.picker_cancel(window, cx);
+                    }))
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        |_: &gpui::MouseDownEvent, _w, cx| cx.stop_propagation(),
+                    )
+                    .mt(px(80.0))
+                    .w(px(360.0))
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(theme.ansi[8])
+                    .bg(panel_bg)
+                    .shadow_lg()
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .px_3()
+                            .py_2()
+                            .border_b_1()
+                            .border_color(blend(theme.foreground, theme.background, 0.85))
+                            .text_color(blend(theme.foreground, theme.background, 0.3))
+                            .child("Select Theme — ↑↓ preview, ⏎ apply, esc cancel"),
+                    )
+                    .child(list),
+            )
+    }
+
     fn render_status_bar(&self, cx: &Context<Self>) -> gpui::Div {
         let theme = &self.theme;
         let dim = blend(theme.foreground, theme.background, 0.35);
@@ -394,6 +730,22 @@ impl Oxide {
     }
 }
 
+/// Rewrite the `[colors]` section of config.toml to just the chosen preset,
+/// preserving the rest of the file's comments and formatting. Explicit color
+/// keys are dropped deliberately — they override presets, so leaving them
+/// would make the newly chosen theme a no-op.
+fn persist_preset(name: &str) -> Result<(), String> {
+    let path = config::config_path();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut doc = text
+        .parse::<toml_edit::DocumentMut>()
+        .map_err(|e| format!("couldn't edit config: {e}"))?;
+    let mut colors = toml_edit::Table::new();
+    colors["preset"] = toml_edit::value(name);
+    doc["colors"] = toml_edit::Item::Table(colors);
+    std::fs::write(&path, doc.to_string()).map_err(|e| format!("couldn't write config: {e}"))
+}
+
 /// Open an Oxide window: shared by startup and the NewWindow action.
 pub fn open_oxide_window(
     config: Config,
@@ -454,7 +806,7 @@ impl Render for Oxide {
             self.save_bounds_debounced(bounds, cx);
         }
 
-        let status_bar = self.config.status_bar.enabled;
+        let status_bar = self.status_bar_override.unwrap_or(self.config.status_bar.enabled);
         let bar_on_top = self.config.status_bar.position == StatusBarPosition::Top;
 
         let tree_focused = self.tree_focus(cx).is_focused(window);
@@ -468,6 +820,7 @@ impl Render for Oxide {
         div()
             .key_context("Root")
             .size_full()
+            .relative()
             .flex()
             .flex_col()
             .bg(root_bg)
@@ -508,6 +861,32 @@ impl Render for Oxide {
                 let cwd = this.terminal.read(cx).cwd.clone();
                 let (config, error) = config::load();
                 open_oxide_window(config, error, cwd, cx);
+            }))
+            .on_action(|_: &CloseWindow, window, _cx| window.remove_window())
+            .on_action(|_: &Minimize, window, _cx| window.minimize_window())
+            .on_action(|_: &Zoom, window, _cx| window.zoom_window())
+            .on_action(|_: &ToggleFullscreen, window, _cx| window.toggle_fullscreen())
+            .on_action(cx.listener(|this, _: &ToggleStatusBar, _w, cx| {
+                let current = this.status_bar_override.unwrap_or(this.config.status_bar.enabled);
+                this.status_bar_override = Some(!current);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &OpenSettings, window, cx| {
+                let command = format!(
+                    "${{EDITOR:-nvim}} {}\r",
+                    shell_quote(&config::config_path())
+                );
+                this.terminal.update(cx, |t, _| t.write_command(&command));
+                this.focus_terminal(Some(window), cx);
+            }))
+            .on_action(cx.listener(|this, _: &SelectTheme, window, cx| {
+                this.open_theme_picker(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &CheckForUpdates, _w, cx| {
+                this.check_for_updates(true, cx);
+            }))
+            .on_action(cx.listener(|this, _: &InstallUpdate, _w, cx| {
+                this.install_update(cx);
             }))
             .when_some(self.banner.clone(), |d, banner| {
                 d.child(
@@ -558,5 +937,43 @@ impl Render for Oxide {
                     ),
             )
             .when(status_bar && !bar_on_top, |d| d.child(self.render_status_bar(cx)))
+            .map(|d| match &self.update {
+                UpdateState::Downloading(version) => d.child(
+                    div()
+                        .absolute()
+                        .top(px(5.0))
+                        .right(px(8.0))
+                        .px_3()
+                        .py_0p5()
+                        .rounded_full()
+                        .bg(blend(theme.background, theme.foreground, 0.08))
+                        .text_size(px(11.0))
+                        .text_color(blend(theme.foreground, theme.background, 0.4))
+                        .child(format!("downloading v{version}…")),
+                ),
+                UpdateState::Ready { version, .. } => d.child(
+                    div()
+                        .id("install-update")
+                        .absolute()
+                        .top(px(5.0))
+                        .right(px(8.0))
+                        .px_3()
+                        .py_0p5()
+                        .rounded_full()
+                        .bg(accent)
+                        .text_size(px(11.0))
+                        .text_color(theme.background)
+                        .cursor_pointer()
+                        .on_mouse_down(
+                            gpui::MouseButton::Left,
+                            cx.listener(|this, _: &gpui::MouseDownEvent, _w, cx| {
+                                this.install_update(cx);
+                            }),
+                        )
+                        .child(format!("↓ v{version} ready — click to install")),
+                ),
+                _ => d,
+            })
+            .when(self.theme_picker.is_some(), |d| d.child(self.render_theme_picker(cx)))
     }
 }

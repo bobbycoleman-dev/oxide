@@ -26,7 +26,7 @@ use gpui::{
 
 use crate::config::schema::BellMode;
 use crate::config::{Config, Theme, theme::hsla_to_rgb8};
-use crate::keymap::actions::{Copy, Paste, PromptDown, PromptUp, Search};
+use crate::keymap::actions::{ClearScrollback, Copy, Paste, PromptDown, PromptUp, Search, SelectAll};
 use element::TerminalElement;
 use session::{SessionOptions, TermSize, TerminalSession, resolve_shell};
 
@@ -621,6 +621,28 @@ impl TerminalPane {
         }
     }
 
+    fn select_all(&mut self, _: &SelectAll, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(session) = &self.session else { return };
+        let mut term = session.term.lock();
+        let top = GridPoint::new(term.topmost_line(), Column(0));
+        let bottom = GridPoint::new(term.bottommost_line(), term.last_column());
+        let mut selection = Selection::new(SelectionType::Lines, top, Side::Left);
+        selection.update(bottom, Side::Right);
+        term.selection = Some(selection);
+        drop(term);
+        cx.notify();
+    }
+
+    fn clear_scrollback(&mut self, _: &ClearScrollback, _window: &mut Window, cx: &mut Context<Self>) {
+        use alacritty_terminal::vte::ansi::{ClearMode, Handler};
+        let Some(session) = &self.session else { return };
+        let mut term = session.term.lock();
+        term.clear_screen(ClearMode::Saved);
+        drop(term);
+        self.prompt_marks.clear();
+        cx.notify();
+    }
+
     /// Convert a window position to a grid point plus cell side.
     fn grid_point(&self, position: gpui::Point<Pixels>) -> Option<(GridPoint, Side, usize, usize)> {
         let layout = self.last_layout?;
@@ -844,6 +866,8 @@ impl Render for TerminalPane {
             .bg(bg)
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::copy))
+            .on_action(cx.listener(Self::select_all))
+            .on_action(cx.listener(Self::clear_scrollback))
             .on_action(cx.listener(Self::toggle_search))
             .on_action(cx.listener(Self::prompt_up))
             .on_action(cx.listener(Self::prompt_down))
