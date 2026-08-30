@@ -17,9 +17,9 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/oxide"
 
-# Icon: 1024 master -> .iconset -> .icns
+# Icon: source artwork -> 1024 master -> .iconset -> .icns
 if [[ ! -f "$ROOT/assets/icon_1024.png" ]]; then
-  python3 "$ROOT/assets/make_icon.py" "$ROOT/assets/icon_1024.png"
+  python3 "$ROOT/assets/prepare_icon.py"
 fi
 ICONSET="$ROOT/target/oxide.iconset"
 rm -rf "$ICONSET"
