@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -14,13 +15,21 @@ use crate::config::{self, Config, Theme};
 use crate::keymap::actions::*;
 use crate::terminal::colors::blend;
 use crate::terminal::{TerminalEvent, TerminalPane};
+use crate::panes::{Direction, Node};
 use crate::tree::{FileTree, TreeEvent};
+
+pub type PaneId = u64;
 
 pub struct Oxide {
     config: Rc<Config>,
     theme: Rc<Theme>,
     tree: gpui::Entity<FileTree>,
-    terminal: gpui::Entity<TerminalPane>,
+    /// Split layout. Leaves index into `panes`.
+    layout: Node<PaneId>,
+    panes: HashMap<PaneId, gpui::Entity<TerminalPane>>,
+    active: PaneId,
+    next_pane_id: PaneId,
+    pane_subscriptions: HashMap<PaneId, Subscription>,
     drawer_visible: bool,
     banner: Option<String>,
     banner_generation: usize,
@@ -134,7 +143,13 @@ impl Oxide {
 
         let mut subscriptions = Vec::new();
         subscriptions.push(cx.subscribe_in(&tree, window, Self::on_tree_event));
-        subscriptions.push(cx.subscribe_in(&terminal, window, Self::on_terminal_event));
+
+        const FIRST_PANE: PaneId = 0;
+        let mut panes = HashMap::new();
+        panes.insert(FIRST_PANE, terminal.clone());
+        let mut pane_subscriptions = HashMap::new();
+        pane_subscriptions
+            .insert(FIRST_PANE, cx.subscribe_in(&terminal, window, Self::on_terminal_event));
 
         // Live config reload.
         let mut config_watcher = None;
@@ -174,7 +189,11 @@ impl Oxide {
             config,
             theme,
             tree,
-            terminal,
+            layout: Node::leaf(FIRST_PANE),
+            panes,
+            active: FIRST_PANE,
+            next_pane_id: FIRST_PANE + 1,
+            pane_subscriptions,
             drawer_visible: true,
             banner: config_error,
             banner_generation: 0,
@@ -313,11 +332,218 @@ impl Oxide {
         }
     }
 
+    fn for_each_pane(
+        &mut self,
+        cx: &mut Context<Self>,
+        mut f: impl FnMut(&mut TerminalPane, &mut Context<TerminalPane>),
+    ) {
+        for pane in self.panes.values().cloned().collect::<Vec<_>>() {
+            pane.update(cx, |t, cx| f(t, cx));
+        }
+    }
+
+    fn active_pane(&self) -> gpui::Entity<TerminalPane> {
+        self.panes
+            .get(&self.active)
+            .cloned()
+            .expect("active pane id is always present in the pane map")
+    }
+
+    fn pane_bounds(&self, id: PaneId, cx: &Context<Self>) -> Option<gpui::Bounds<gpui::Pixels>> {
+        self.panes.get(&id)?.read(cx).last_layout.map(|l| l.bounds)
+    }
+
+    /// Nearest pane in `direction`, chosen geometrically so navigation follows
+    /// what is on screen rather than the shape of the split tree.
+    fn pane_in_direction(&self, direction: Direction, cx: &Context<Self>) -> Option<PaneId> {
+        let current = self.pane_bounds(self.active, cx)?;
+        let (cx0, cy0) = (
+            f32::from(current.origin.x) + f32::from(current.size.width) / 2.0,
+            f32::from(current.origin.y) + f32::from(current.size.height) / 2.0,
+        );
+        let mut best: Option<(f32, PaneId)> = None;
+        for id in self.layout.leaves() {
+            if id == self.active {
+                continue;
+            }
+            let Some(b) = self.pane_bounds(id, cx) else { continue };
+            let (left, top) = (f32::from(b.origin.x), f32::from(b.origin.y));
+            let (right, bottom) = (left + f32::from(b.size.width), top + f32::from(b.size.height));
+            let (bx, by) = ((left + right) / 2.0, (top + bottom) / 2.0);
+            let (cur_left, cur_top) = (f32::from(current.origin.x), f32::from(current.origin.y));
+            let (cur_right, cur_bottom) = (
+                cur_left + f32::from(current.size.width),
+                cur_top + f32::from(current.size.height),
+            );
+            // Require overlap on the perpendicular axis so we do not jump to a
+            // pane that merely happens to sit in that half of the window.
+            let (ok, distance) = match direction {
+                Direction::Left => (bx < cx0 && top < cur_bottom && bottom > cur_top, cx0 - bx),
+                Direction::Right => (bx > cx0 && top < cur_bottom && bottom > cur_top, bx - cx0),
+                Direction::Up => (by < cy0 && left < cur_right && right > cur_left, cy0 - by),
+                Direction::Down => (by > cy0 && left < cur_right && right > cur_left, by - cy0),
+            };
+            if ok && best.is_none_or(|(d, _)| distance < d) {
+                best = Some((distance, id));
+            }
+        }
+        best.map(|(_, id)| id)
+    }
+
+    /// Point the drawer at the focused pane's directory. Called whenever the
+    /// active pane changes so the tree tracks whichever split you're in.
+    fn sync_tree_to_active(&mut self, cx: &mut Context<Self>) {
+        if !self.config.tree.follow_cwd {
+            return;
+        }
+        let Some(cwd) = self.active_pane().read(cx).cwd.clone() else { return };
+        let tree = self.tree.clone();
+        // Deferred: this can run from render, where re-entrant entity updates
+        // are not allowed.
+        cx.defer(move |cx| {
+            tree.update(cx, |tree, cx| tree.set_root(cwd, cx));
+        });
+        self.refresh_git_status(cx);
+    }
+
+    fn focus_pane(&mut self, id: PaneId, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(pane) = self.panes.get(&id) {
+            self.active = id;
+            window.focus(&pane.focus_handle(cx));
+            self.sync_tree_to_active(cx);
+            cx.notify();
+        }
+    }
+
+    fn focus_in_direction(
+        &mut self,
+        direction: Direction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.tree_focus(cx).is_focused(window) {
+            if direction == Direction::Right {
+                let id = self.active;
+                self.focus_pane(id, window, cx);
+            }
+            return;
+        }
+        match self.pane_in_direction(direction, cx) {
+            Some(id) => self.focus_pane(id, window, cx),
+            // Off the left edge of the panes: the drawer is what is over there.
+            None if direction == Direction::Left => self.focus_tree(Some(window), cx),
+            None => {}
+        }
+    }
+
+    fn split_active(&mut self, direction: Direction, window: &mut Window, cx: &mut Context<Self>) {
+        let cwd = self
+            .active_pane()
+            .read(cx)
+            .cwd
+            .clone()
+            .or_else(home_dir)
+            .unwrap_or_else(|| PathBuf::from("/"));
+        let id = self.next_pane_id;
+        self.next_pane_id += 1;
+
+        let (config, theme) = (self.config.clone(), self.theme.clone());
+        let pane = cx.new(|cx| TerminalPane::new(config, theme, cwd, cx));
+        let subscription = cx.subscribe_in(&pane, window, Self::on_terminal_event);
+        self.panes.insert(id, pane);
+        self.pane_subscriptions.insert(id, subscription);
+
+        let target = self.active;
+        self.layout.split(&target, direction, id);
+        self.focus_pane(id, window, cx);
+    }
+
+    /// Close a pane. Returns false when it is the last one, leaving the
+    /// caller to decide whether that means closing the window.
+    fn close_pane(&mut self, id: PaneId, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.layout.len() <= 1 {
+            return false;
+        }
+        let before = self.layout.leaves();
+        if !self.layout.remove(&id) {
+            return false;
+        }
+        self.panes.remove(&id);
+        self.pane_subscriptions.remove(&id);
+
+        if self.active == id {
+            // Focus whatever took its place, falling back to the new last pane.
+            let ix = before.iter().position(|l| *l == id).unwrap_or(0);
+            let remaining = self.layout.leaves();
+            let next = remaining
+                .get(ix.min(remaining.len().saturating_sub(1)))
+                .copied();
+            if let Some(next) = next {
+                self.focus_pane(next, window, cx);
+            }
+        }
+        cx.notify();
+        true
+    }
+
+    fn render_pane_node(
+        &self,
+        node: &Node<PaneId>,
+        accent: gpui::Hsla,
+        window: &Window,
+        cx: &Context<Self>,
+    ) -> gpui::AnyElement {
+        match node {
+            Node::Leaf(id) => {
+                let Some(pane) = self.panes.get(id) else {
+                    return div().into_any_element();
+                };
+                let focused = pane.focus_handle(cx).is_focused(window);
+                // Only mark the active pane when there is a choice to make.
+                let show_ring = focused && (self.layout.len() > 1 || self.drawer_visible);
+                div()
+                    .size_full()
+                    .overflow_hidden()
+                    .border_1()
+                    .border_color(if show_ring { accent } else { gpui::transparent_black() })
+                    .child(pane.clone())
+                    .into_any_element()
+            }
+            Node::Split { axis, children } => {
+                let horizontal = *axis == crate::panes::Axis::Horizontal;
+                let mut container = div().size_full().flex().min_w_0().min_h_0();
+                container = if horizontal { container.flex_row() } else { container.flex_col() };
+                // A hairline between siblings; the focus ring stays the only
+                // coloured edge, so the active pane still reads at a glance.
+                let divider = blend(self.theme.foreground, self.theme.background, 0.72);
+                for (ix, child) in children.iter().enumerate() {
+                    if ix > 0 {
+                        let line = div().flex_none().bg(divider);
+                        container = container.child(if horizontal {
+                            line.w(px(1.0)).h_full()
+                        } else {
+                            line.h(px(1.0)).w_full()
+                        });
+                    }
+                    container = container.child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .min_h_0()
+                            .overflow_hidden()
+                            .child(self.render_pane_node(child, accent, window, cx)),
+                    );
+                }
+                container.into_any_element()
+            }
+        }
+    }
+
     fn refresh_git_status(&mut self, cx: &mut Context<Self>) {
         if !self.config.status_bar.enabled {
             return;
         }
-        let Some(cwd) = self.terminal.read(cx).cwd.clone() else { return };
+        let Some(cwd) = self.active_pane().read(cx).cwd.clone() else { return };
         let bg = cx.background_executor().clone();
         cx.spawn(async move |this, cx| {
             let status = bg.spawn(async move { read_git_status(&cwd) }).await;
@@ -374,7 +600,7 @@ impl Oxide {
                 self.theme = Rc::new(Theme::from_config(&self.config.colors));
                 let config = self.config.clone();
                 let theme = self.theme.clone();
-                self.terminal
+                self.active_pane()
                     .update(cx, |t, cx| t.set_config(config.clone(), theme.clone(), cx));
                 self.tree.update(cx, |t, cx| t.set_config(config, theme, cx));
                 if shell_or_prompt_changed {
@@ -426,12 +652,12 @@ impl Oxide {
         match event {
             TreeEvent::OpenFile(path) => {
                 let command = format!("${{EDITOR:-nvim}} {}\r", shell_quote(path));
-                self.terminal.update(cx, |t, _| t.write_command(&command));
+                self.active_pane().update(cx, |t, _| t.write_command(&command));
                 self.focus_terminal(Some(window), cx);
             }
             TreeEvent::ChangedRoot(path) => {
                 let path = path.clone();
-                self.terminal.update(cx, |t, _| t.request_cd(&path));
+                self.active_pane().update(cx, |t, _| t.request_cd(&path));
             }
             TreeEvent::FocusTerminal => self.focus_terminal(Some(window), cx),
         }
@@ -439,19 +665,45 @@ impl Oxide {
 
     fn on_terminal_event(
         &mut self,
-        _: &gpui::Entity<TerminalPane>,
+        emitter: &gpui::Entity<TerminalPane>,
         event: &TerminalEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match event {
+            TerminalEvent::Exited(code) => {
+                // Follow Terminal.app: a clean `exit` closes the pane, and the
+                // window along with the last pane. A crash or non-zero status
+                // keeps the overlay so the failure stays readable.
+                if *code != Some(0) {
+                    return;
+                }
+                let id = self
+                    .panes
+                    .iter()
+                    .find(|(_, p)| p.entity_id() == emitter.entity_id())
+                    .map(|(id, _)| *id);
+                if let Some(id) = id
+                    && !self.close_pane(id, window, cx)
+                {
+                    window.remove_window();
+                }
+            }
             TerminalEvent::TitleChanged => cx.notify(),
             TerminalEvent::CwdChanged(cwd) => {
-                if self.config.tree.follow_cwd {
-                    let cwd = cwd.clone();
-                    self.tree.update(cx, |tree, cx| tree.set_root(cwd, cx));
+                // Background panes change directory too; only the focused one
+                // should move the tree or the status bar.
+                let is_active = self
+                    .panes
+                    .get(&self.active)
+                    .is_some_and(|p| p.entity_id() == emitter.entity_id());
+                if is_active {
+                    if self.config.tree.follow_cwd {
+                        let cwd = cwd.clone();
+                        self.tree.update(cx, |tree, cx| tree.set_root(cwd, cx));
+                    }
+                    self.refresh_git_status(cx);
                 }
-                self.refresh_git_status(cx);
             }
         }
     }
@@ -461,7 +713,7 @@ impl Oxide {
     }
 
     fn term_focus(&self, cx: &Context<Self>) -> FocusHandle {
-        self.terminal.focus_handle(cx)
+        self.active_pane().focus_handle(cx)
     }
 
     fn focus_tree(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
@@ -500,7 +752,7 @@ impl Oxide {
     fn apply_theme(&mut self, theme: Rc<Theme>, cx: &mut Context<Self>) {
         self.theme = theme.clone();
         let config = self.config.clone();
-        self.terminal.update(cx, |t, cx| t.set_config(config.clone(), theme.clone(), cx));
+        self.for_each_pane(cx, |t, cx| t.set_config(config.clone(), theme.clone(), cx));
         self.tree.update(cx, |t, cx| t.set_config(config, theme, cx));
         cx.notify();
     }
@@ -692,7 +944,7 @@ impl Oxide {
         let dim = blend(theme.foreground, theme.background, 0.35);
         let bar_bg = blend(theme.background, gpui::black(), 0.25);
         let cwd_text = self
-            .terminal
+            .active_pane()
             .read(cx)
             .cwd
             .as_ref()
@@ -818,10 +1070,26 @@ pub fn open_oxide_window(
 
 impl Render for Oxide {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Focus can move without going through our actions — clicking a pane
+        // is the common case — so adopt whatever is actually focused before
+        // anything reads `active`. Otherwise close/split/status-bar all act on
+        // a stale pane. Focus on the drawer leaves the last active pane alone.
+        let focused_pane = self.layout.leaves().into_iter().find(|id| {
+            self.panes
+                .get(id)
+                .is_some_and(|p| p.focus_handle(cx).is_focused(window))
+        });
+        if let Some(id) = focused_pane
+            && self.active != id
+        {
+            self.active = id;
+            self.sync_tree_to_active(cx);
+        }
+
         let theme = self.theme.clone();
         let config = self.config.clone();
 
-        let title = self.terminal.read(cx).title.clone();
+        let title = self.active_pane().read(cx).title.clone();
         window.set_window_title(&title);
 
         let bounds = window.bounds();
@@ -833,7 +1101,6 @@ impl Render for Oxide {
         let bar_on_top = self.config.status_bar.position == StatusBarPosition::Top;
 
         let tree_focused = self.tree_focus(cx).is_focused(window);
-        let term_focused = self.term_focus(cx).is_focused(window);
         let accent = theme.ansi[4];
         let hidden_titlebar = config.window.titlebar == TitlebarMode::Hidden;
 
@@ -872,16 +1139,16 @@ impl Render for Oxide {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &FontIncrease, _w, cx| {
-                this.terminal.update(cx, |t, cx| t.adjust_font(Some(1.0), cx));
+                this.for_each_pane(cx, |t, cx| t.adjust_font(Some(1.0), cx));
             }))
             .on_action(cx.listener(|this, _: &FontDecrease, _w, cx| {
-                this.terminal.update(cx, |t, cx| t.adjust_font(Some(-1.0), cx));
+                this.for_each_pane(cx, |t, cx| t.adjust_font(Some(-1.0), cx));
             }))
             .on_action(cx.listener(|this, _: &FontReset, _w, cx| {
-                this.terminal.update(cx, |t, cx| t.adjust_font(None, cx));
+                this.for_each_pane(cx, |t, cx| t.adjust_font(None, cx));
             }))
             .on_action(cx.listener(|this, _: &NewWindow, _w, cx| {
-                let cwd = this.terminal.read(cx).cwd.clone();
+                let cwd = this.active_pane().read(cx).cwd.clone();
                 let (config, error) = config::load();
                 open_oxide_window(config, error, cwd, cx);
             }))
@@ -889,7 +1156,7 @@ impl Render for Oxide {
                 let cwd = match this.config.window.new_tab_directory {
                     crate::config::schema::NewTabDirectory::Home => home_dir(),
                     crate::config::schema::NewTabDirectory::Pwd => {
-                        this.terminal.read(cx).cwd.clone().or_else(home_dir)
+                        this.active_pane().read(cx).cwd.clone().or_else(home_dir)
                     }
                 };
                 let (config, error) = config::load();
@@ -903,7 +1170,44 @@ impl Render for Oxide {
             }))
             .on_action(|_: &MergeAllWindows, window, _cx| window.merge_all_windows())
             .on_action(|_: &MoveTabToNewWindow, window, _cx| window.move_tab_to_new_window())
-            .on_action(|_: &CloseWindow, window, _cx| window.remove_window())
+            .on_action(cx.listener(|this, _: &SplitRight, window, cx| {
+                this.split_active(Direction::Right, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SplitLeft, window, cx| {
+                this.split_active(Direction::Left, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SplitUp, window, cx| {
+                this.split_active(Direction::Up, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SplitDown, window, cx| {
+                this.split_active(Direction::Down, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &FocusPaneLeft, window, cx| {
+                this.focus_in_direction(Direction::Left, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &FocusPaneRight, window, cx| {
+                this.focus_in_direction(Direction::Right, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &FocusPaneUp, window, cx| {
+                this.focus_in_direction(Direction::Up, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &FocusPaneDown, window, cx| {
+                this.focus_in_direction(Direction::Down, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ClosePane, window, cx| {
+                let id = this.active;
+                if !this.close_pane(id, window, cx) {
+                    window.remove_window();
+                }
+            }))
+            // cmd-w closes the focused split first; the window goes with the
+            // last pane, which is what every other terminal does.
+            .on_action(cx.listener(|this, _: &CloseWindow, window, cx| {
+                let id = this.active;
+                if !this.close_pane(id, window, cx) {
+                    window.remove_window();
+                }
+            }))
             .on_action(|_: &Minimize, window, _cx| window.minimize_window())
             .on_action(|_: &Zoom, window, _cx| window.zoom_window())
             .on_action(|_: &ToggleFullscreen, window, _cx| window.toggle_fullscreen())
@@ -917,7 +1221,7 @@ impl Render for Oxide {
                     "${{EDITOR:-nvim}} {}\r",
                     shell_quote(&config::config_path())
                 );
-                this.terminal.update(cx, |t, _| t.write_command(&command));
+                this.active_pane().update(cx, |t, _| t.write_command(&command));
                 this.focus_terminal(Some(window), cx);
             }))
             .on_action(cx.listener(|this, _: &SelectTheme, window, cx| {
@@ -967,14 +1271,9 @@ impl Render for Oxide {
                         div()
                             .flex_1()
                             .h_full()
+                            .min_w_0()
                             .overflow_hidden()
-                            .border_1()
-                            .border_color(if term_focused && self.drawer_visible {
-                                accent
-                            } else {
-                                gpui::transparent_black()
-                            })
-                            .child(self.terminal.clone()),
+                            .child(self.render_pane_node(&self.layout, accent, window, cx)),
                     ),
             )
             .when(status_bar && !bar_on_top, |d| d.child(self.render_status_bar(cx)))

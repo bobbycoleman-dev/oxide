@@ -1,0 +1,1367 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Oxide — a native macOS terminal emulator in Rust</title>
+    <meta
+      name="description"
+      content="A GPU-rendered macOS terminal built on GPUI and alacritty_terminal, with a vim-driven file tree drawer and a TOML-configured prompt. Written entirely in Rust."
+    />
+
+    <meta property="og:title" content="Oxide" />
+    <meta
+      property="og:description"
+      content="A native macOS terminal emulator, written entirely in Rust. GPU-rendered, with a vim-driven file tree drawer."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="./icon.png" />
+    <meta name="theme-color" content="#100d0c" />
+
+    <link rel="icon" type="image/png" href="./icon.png" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      /* Palette lifted from the app's own `oxide` theme (src/config/theme.rs) */
+      :root {
+        --bg: #100d0c;
+        --bg-1: #16120f;
+        --bg-2: #1d1815;
+        --ink: #e8ddd5;
+        --ink-soft: #a3938a;
+        --ink-dim: #8a786d;
+        --rust: #e2725b;
+        --rust-bright: #f0876f;
+        --apricot: #fab387;
+        --amber: #e5a458;
+        --sage: #a6b86a;
+        --steel: #7d9bb8;
+        --sel: #4a3428;
+        --rule: rgba(232, 221, 213, 0.09);
+        --rule-strong: rgba(232, 221, 213, 0.16);
+        --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+        --sans: "Inter Tight", system-ui, -apple-system, sans-serif;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html {
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        scroll-behavior: smooth;
+      }
+
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.6;
+        overflow-x: hidden;
+      }
+
+      /* Warm corrosion bloom behind the fold */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        background:
+          radial-gradient(
+            ellipse 60% 45% at 78% 8%,
+            rgba(226, 114, 91, 0.13) 0%,
+            transparent 70%
+          ),
+          radial-gradient(
+            ellipse 50% 40% at 12% 30%,
+            rgba(250, 179, 135, 0.06) 0%,
+            transparent 70%
+          );
+      }
+
+      .wrap {
+        position: relative;
+        z-index: 1;
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 0 32px;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      /* ── Nav ─────────────────────────────────────────────── */
+      .nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 26px 0;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 16px;
+        letter-spacing: -0.01em;
+      }
+
+      .brand img {
+        width: 28px;
+        height: 28px;
+        border-radius: 7px;
+      }
+
+      .nav-links {
+        display: flex;
+        gap: 26px;
+        font-size: 14px;
+      }
+
+      .nav-links a {
+        color: var(--ink-soft);
+        text-decoration: none;
+        transition: color 0.2s ease;
+      }
+
+      .nav-links a:hover {
+        color: var(--ink);
+      }
+
+      /* ── Hero ────────────────────────────────────────────── */
+      .hero {
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 64px;
+        align-items: center;
+        padding: 72px 0 64px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        font-family: var(--mono);
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: var(--ink-soft);
+        margin-bottom: 24px;
+      }
+
+      .eyebrow::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        background: var(--rust);
+        box-shadow: 0 0 0 4px rgba(226, 114, 91, 0.18);
+      }
+
+      h1 {
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: clamp(56px, 9vw, 104px);
+        line-height: 0.95;
+        letter-spacing: -0.045em;
+        margin-bottom: 22px;
+      }
+
+      h1 .o-tail {
+        color: var(--apricot);
+      }
+
+      .lede {
+        font-size: 19px;
+        line-height: 1.5;
+        color: var(--ink-soft);
+        max-width: 470px;
+        margin-bottom: 12px;
+      }
+
+      .lede strong {
+        color: var(--ink);
+        font-weight: 500;
+      }
+
+      .quip {
+        font-family: var(--mono);
+        font-size: 13px;
+        color: var(--ink-dim);
+        margin-bottom: 40px;
+      }
+
+      .cta-row {
+        display: flex;
+        align-items: center;
+        gap: 22px;
+        flex-wrap: wrap;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 11px;
+        background: var(--rust);
+        color: #100d0c;
+        padding: 15px 26px;
+        border-radius: 8px;
+        font-size: 15px;
+        font-weight: 600;
+        font-family: var(--sans);
+        text-decoration: none;
+        border: none;
+        cursor: pointer;
+        transition:
+          background 0.2s ease,
+          transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
+          box-shadow 0.2s ease;
+      }
+
+      .btn:hover {
+        background: var(--rust-bright);
+        transform: translateY(-1px);
+        box-shadow: 0 12px 28px -12px rgba(240, 135, 111, 0.7);
+      }
+
+      .btn:focus-visible {
+        outline: 2px solid var(--apricot);
+        outline-offset: 3px;
+      }
+
+      .btn svg {
+        width: 17px;
+        height: 17px;
+        flex: none;
+      }
+
+      .meta {
+        font-family: var(--mono);
+        font-size: 12.5px;
+        line-height: 1.6;
+        color: var(--ink-soft);
+      }
+
+      .meta strong {
+        color: var(--ink);
+        font-weight: 500;
+      }
+
+      .meta-version {
+        display: block;
+        font-variant-numeric: tabular-nums;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 0.55;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+
+      .loading {
+        animation: pulse 1.4s ease-in-out infinite;
+      }
+
+      /* Hero icon */
+      .hero-art {
+        position: relative;
+        max-width: 340px;
+        margin-left: auto;
+      }
+
+      .hero-art::before {
+        content: "";
+        position: absolute;
+        inset: -14%;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle,
+          rgba(226, 114, 91, 0.17) 0%,
+          transparent 68%
+        );
+      }
+
+      .hero-art img {
+        position: relative;
+        display: block;
+        width: 100%;
+        animation: float 7s ease-in-out infinite;
+      }
+
+      @keyframes float {
+        0%,
+        100% {
+          transform: translateY(0);
+        }
+        50% {
+          transform: translateY(-11px);
+        }
+      }
+
+      /* ── Dissolve rule (echoes the icon's corroding corner) ── */
+      .dissolve {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        height: 6px;
+        margin: 8px 0 56px;
+      }
+
+      .dissolve i {
+        display: block;
+        height: 3px;
+        background: var(--rule-strong);
+      }
+
+      /* ── Terminal mock ───────────────────────────────────── */
+      .shot {
+        border: 1px solid var(--rule-strong);
+        border-radius: 11px;
+        overflow: hidden;
+        background: var(--bg);
+        box-shadow: 0 40px 90px -40px rgba(0, 0, 0, 0.9);
+        font-family: var(--mono);
+        font-size: 12.5px;
+        line-height: 1.65;
+      }
+
+      .shot-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        background: var(--bg-2);
+        border-bottom: 1px solid var(--rule);
+      }
+
+      .dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        flex: none;
+      }
+
+      .shot-title {
+        flex: 1;
+        text-align: center;
+        color: var(--ink-dim);
+        font-size: 11.5px;
+        margin-right: 45px;
+      }
+
+      .shot-body {
+        display: grid;
+        grid-template-columns: 200px 1fr;
+        min-height: 310px;
+      }
+
+      .tree {
+        background: var(--bg-1);
+        border-right: 1px solid var(--rule);
+        padding: 12px 0;
+        color: var(--ink-soft);
+        overflow: hidden;
+      }
+
+      .tree-head {
+        padding: 0 14px 9px;
+        color: var(--ink-dim);
+        font-size: 11px;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+      }
+
+      .tree-row {
+        padding: 1px 14px;
+        white-space: nowrap;
+      }
+
+      .tree-row.dir {
+        color: var(--steel);
+      }
+
+      .tree-row.sel {
+        background: var(--sel);
+        color: var(--ink);
+      }
+
+      .tree-row.dim {
+        color: var(--ink-dim);
+      }
+
+      .term {
+        padding: 12px 16px;
+        overflow: hidden;
+        white-space: nowrap;
+      }
+
+      /* Powerline prompt built from clip-paths, so it needs no Nerd Font */
+      .pl {
+        display: flex;
+        align-items: stretch;
+        height: 22px;
+        margin: 2px 0 4px;
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      .pl-seg {
+        display: flex;
+        align-items: center;
+        padding: 0 10px 0 12px;
+        color: #100d0c;
+      }
+
+      /* Powerline separator: triangle in the outgoing segment's color, sitting
+         on the incoming segment's background. */
+      .pl-arrow {
+        position: relative;
+        width: 11px;
+        flex: none;
+        background: var(--nx, #100d0c);
+      }
+
+      .pl-arrow::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: var(--pv);
+        clip-path: polygon(0 0, 0 100%, 100% 50%);
+      }
+
+      .out {
+        color: var(--ink-soft);
+      }
+
+      .out .ok {
+        color: var(--sage);
+      }
+
+      .out .dim {
+        color: var(--ink-dim);
+      }
+
+      .cmd {
+        color: var(--ink);
+      }
+
+      .cursor {
+        display: inline-block;
+        width: 7px;
+        height: 14px;
+        background: var(--apricot);
+        vertical-align: -2px;
+        animation: blink 1.15s step-end infinite;
+      }
+
+      @keyframes blink {
+        50% {
+          opacity: 0;
+        }
+      }
+
+      .shot-status {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 7px 14px;
+        background: var(--bg-2);
+        border-top: 1px solid var(--rule);
+        font-size: 11.5px;
+        color: var(--ink-dim);
+      }
+
+      .shot-status .b {
+        color: var(--amber);
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+
+      .shot-status svg {
+        width: 11px;
+        height: 11px;
+      }
+
+      .caption {
+        text-align: center;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--ink-dim);
+        margin-top: 14px;
+      }
+
+      /* ── Sections ────────────────────────────────────────── */
+      section {
+        padding: 88px 0 0;
+      }
+
+      h2 {
+        font-family: var(--mono);
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        color: var(--rust);
+        margin-bottom: 28px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid var(--rule);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 2px;
+        background: var(--rule);
+        border: 1px solid var(--rule);
+      }
+
+      .card {
+        background: var(--bg);
+        padding: 26px 24px;
+      }
+
+      .card h3 {
+        font-family: var(--mono);
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        margin-bottom: 9px;
+        color: var(--ink);
+      }
+
+      .card p {
+        font-size: 14.5px;
+        line-height: 1.6;
+        color: var(--ink-soft);
+      }
+
+      .card code {
+        font-family: var(--mono);
+        font-size: 0.88em;
+        color: var(--apricot);
+      }
+
+      /* Keys */
+      .keys {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 12px 48px;
+      }
+
+      .keys-col h3 {
+        font-family: var(--mono);
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--ink-dim);
+        margin: 12px 0 12px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      td {
+        padding: 7px 0;
+        border-bottom: 1px solid var(--rule);
+        font-size: 14.5px;
+        color: var(--ink-soft);
+        vertical-align: middle;
+      }
+
+      td:first-child {
+        width: 44%;
+        white-space: nowrap;
+      }
+
+      kbd {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--ink);
+        background: var(--bg-2);
+        border: 1px solid var(--rule-strong);
+        border-radius: 5px;
+        padding: 2px 6px;
+        white-space: nowrap;
+      }
+
+      .kbd-sep {
+        color: var(--ink-dim);
+        font-size: 12px;
+        padding: 0 2px;
+      }
+
+      /* Install */
+      .cols {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 40px;
+      }
+
+      .cols h3 {
+        font-family: var(--mono);
+        font-size: 14px;
+        font-weight: 700;
+        margin-bottom: 12px;
+      }
+
+      .cols p {
+        font-size: 14.5px;
+        color: var(--ink-soft);
+        margin-bottom: 14px;
+      }
+
+      ul {
+        list-style: none;
+        font-size: 14.5px;
+        color: var(--ink-soft);
+      }
+
+      ul li {
+        padding-left: 18px;
+        position: relative;
+        margin-bottom: 7px;
+      }
+
+      ul li::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 10px;
+        width: 5px;
+        height: 5px;
+        background: var(--rust);
+      }
+
+      pre {
+        background: var(--bg-1);
+        border: 1px solid var(--rule);
+        border-radius: 8px;
+        padding: 16px 18px;
+        overflow-x: auto;
+        font-family: var(--mono);
+        font-size: 12.5px;
+        line-height: 1.75;
+        color: var(--ink-soft);
+        margin-bottom: 14px;
+      }
+
+      pre .c {
+        color: var(--ink-dim);
+      }
+
+      pre .p {
+        color: var(--sage);
+      }
+
+      code.inline {
+        font-family: var(--mono);
+        font-size: 0.9em;
+        color: var(--apricot);
+      }
+
+      a.link {
+        color: var(--apricot);
+        text-decoration: none;
+        border-bottom: 1px solid rgba(250, 179, 135, 0.3);
+        transition: border-color 0.2s ease;
+      }
+
+      a.link:hover {
+        border-color: var(--apricot);
+      }
+
+      .note {
+        font-size: 13.5px;
+        color: var(--ink-dim);
+        margin-top: 6px;
+      }
+
+      /* Footer */
+      footer {
+        margin-top: 96px;
+        padding: 28px 0 44px;
+        border-top: 1px solid var(--rule);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--ink-dim);
+      }
+
+      footer a {
+        color: var(--ink-soft);
+        text-decoration: none;
+      }
+
+      footer a:hover {
+        color: var(--ink);
+      }
+
+      /* Entrance */
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(14px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .nav,
+      .eyebrow,
+      h1,
+      .lede,
+      .quip,
+      .cta-row,
+      .hero-art,
+      .shot {
+        opacity: 0;
+        animation: rise 0.85s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+      }
+
+      .nav {
+        animation-delay: 0s;
+      }
+      .eyebrow {
+        animation-delay: 0.08s;
+      }
+      h1 {
+        animation-delay: 0.16s;
+      }
+      .lede {
+        animation-delay: 0.26s;
+      }
+      .quip {
+        animation-delay: 0.32s;
+      }
+      .cta-row {
+        animation-delay: 0.4s;
+      }
+      .hero-art {
+        animation-delay: 0.3s;
+      }
+      .shot {
+        animation-delay: 0.5s;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+          opacity: 1 !important;
+        }
+        html {
+          scroll-behavior: auto;
+        }
+      }
+
+      /* ── Mobile ──────────────────────────────────────────── */
+      @media (max-width: 900px) {
+        .wrap {
+          padding: 0 22px;
+        }
+
+        .nav-links {
+          gap: 18px;
+        }
+
+        .hero {
+          grid-template-columns: 1fr;
+          gap: 34px;
+          padding: 44px 0 48px;
+        }
+
+        .hero-art {
+          order: -1;
+          max-width: 148px;
+          margin: 0;
+        }
+
+        h1 {
+          font-size: clamp(52px, 15vw, 76px);
+        }
+
+        .lede {
+          font-size: 17px;
+        }
+
+        .shot-body {
+          grid-template-columns: 1fr;
+          min-height: 0;
+        }
+
+        .tree {
+          display: none;
+        }
+
+        .shot {
+          font-size: 11px;
+        }
+
+        section {
+          padding-top: 64px;
+        }
+
+        td:first-child {
+          width: 50%;
+          white-space: normal;
+        }
+
+        footer {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="wrap">
+      <nav class="nav">
+        <div class="brand">
+          <img src="./icon.png" alt="" />
+          <span>Oxide</span>
+        </div>
+        <div class="nav-links">
+          <a href="#features">Features</a>
+          <a href="#keys">Keys</a>
+          <a href="#install">Install</a>
+          <a href="https://github.com/bobbycoleman-dev/oxide">GitHub</a>
+        </div>
+      </nav>
+
+      <main>
+        <div class="hero">
+          <div>
+            <div class="eyebrow">macOS · Apple Silicon &amp; Intel</div>
+            <h1>Oxide</h1>
+            <p class="lede">
+              A native macOS terminal emulator, written entirely in
+              <strong>Rust</strong>. GPU-rendered on GPUI, with a file-tree
+              drawer you drive like vim and a status bar that knows where your
+              shell is.
+            </p>
+            <p class="quip">// Rust is iron oxide. It's a whole thing.</p>
+
+            <div class="cta-row">
+              <a
+                id="download-btn"
+                class="btn loading"
+                href="https://github.com/bobbycoleman-dev/oxide/releases/latest"
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path
+                    d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"
+                  />
+                </svg>
+                <span id="download-label">Loading latest release…</span>
+              </a>
+
+              <div class="meta">
+                <span id="version-line" class="meta-version">&nbsp;</span>
+                <span
+                  >Free · Developer ID signed &amp; notarized ·
+                  <strong id="size-line">—</strong></span
+                >
+              </div>
+            </div>
+          </div>
+
+          <div class="hero-art" aria-hidden="true">
+            <img src="./icon.png" alt="" />
+          </div>
+        </div>
+
+        <div class="dissolve" aria-hidden="true" id="dissolve"></div>
+
+        <!-- Illustration of the UI, drawn in CSS with the app's own `oxide` palette -->
+        <div class="shot" role="img" aria-label="Oxide showing the file tree drawer beside a terminal running cargo build, with a git-aware status bar">
+          <div class="shot-bar">
+            <span class="dot" style="background: #e2725b"></span>
+            <span class="dot" style="background: #e5a458"></span>
+            <span class="dot" style="background: #a6b86a"></span>
+            <span class="shot-title">oxide — ~/Developer/oxide</span>
+          </div>
+
+          <div class="shot-body">
+            <div class="tree">
+              <div class="tree-head">oxide</div>
+              <div class="tree-row dir">▾ src</div>
+              <div class="tree-row dir">&nbsp;&nbsp;▸ config</div>
+              <div class="tree-row dir">&nbsp;&nbsp;▸ keymap</div>
+              <div class="tree-row dir">&nbsp;&nbsp;▸ prompt</div>
+              <div class="tree-row dir">&nbsp;&nbsp;▸ terminal</div>
+              <div class="tree-row">&nbsp;&nbsp;&nbsp;&nbsp;app.rs</div>
+              <div class="tree-row sel">&nbsp;&nbsp;&nbsp;&nbsp;main.rs</div>
+              <div class="tree-row">&nbsp;&nbsp;&nbsp;&nbsp;panes.rs</div>
+              <div class="tree-row">&nbsp;&nbsp;&nbsp;&nbsp;update.rs</div>
+              <div class="tree-row dir">▸ scripts</div>
+              <div class="tree-row dir">▸ assets</div>
+              <div class="tree-row">Cargo.toml</div>
+              <div class="tree-row dim">README.md</div>
+            </div>
+
+            <div class="term">
+              <div class="pl">
+                <div class="pl-seg" style="background: #7d9bb8">
+                  ~/Developer/oxide
+                </div>
+                <div class="pl-arrow" style="--pv: #7d9bb8; --nx: #a6b86a"></div>
+                <div class="pl-seg" style="background: #a6b86a">main ✱</div>
+                <div class="pl-arrow" style="--pv: #a6b86a"></div>
+              </div>
+              <div class="cmd">cargo build --release</div>
+              <div class="out">
+                <span class="ok">&nbsp;&nbsp; Compiling</span> oxide v0.1.1
+                <span class="dim">(/Users/bobby/Developer/oxide)</span>
+              </div>
+              <div class="out">
+                <span class="ok">&nbsp;&nbsp;&nbsp; Finished</span>
+                <span class="dim">`release` profile [optimized] in 1m 42s</span>
+              </div>
+
+              <div class="pl">
+                <div class="pl-seg" style="background: #7d9bb8">
+                  ~/Developer/oxide
+                </div>
+                <div class="pl-arrow" style="--pv: #7d9bb8; --nx: #a6b86a"></div>
+                <div class="pl-seg" style="background: #a6b86a">main ✱</div>
+                <div class="pl-arrow" style="--pv: #a6b86a"></div>
+              </div>
+              <div class="cmd">cargo test prompt</div>
+              <div class="out">
+                <span class="ok">&nbsp;&nbsp;&nbsp;&nbsp; Running</span>
+                <span class="dim">unittests src/main.rs</span>
+              </div>
+              <div class="out">
+                test prompt::tests::generates_osc_markers_and_hooks ...
+                <span class="ok">ok</span>
+              </div>
+              <div class="out">
+                test prompt::tests::generated_scripts_pass_shell_syntax_check
+                ... <span class="ok">ok</span>
+              </div>
+              <div class="out">
+                test result: <span class="ok">ok</span>.
+                <span class="dim">2 passed; 0 failed</span>
+              </div>
+
+              <div class="pl">
+                <div class="pl-seg" style="background: #7d9bb8">
+                  ~/Developer/oxide
+                </div>
+                <div class="pl-arrow" style="--pv: #7d9bb8; --nx: #a6b86a"></div>
+                <div class="pl-seg" style="background: #a6b86a">main ✱</div>
+                <div class="pl-arrow" style="--pv: #a6b86a"></div>
+              </div>
+              <div><span class="cursor"></span></div>
+            </div>
+          </div>
+
+          <div class="shot-status">
+            <span>~/Developer/oxide</span>
+            <span class="b">
+              <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path
+                  d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.878A2.49 2.49 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z"
+                />
+              </svg>
+              main ✱ ↑2
+            </span>
+          </div>
+        </div>
+        <p class="caption">
+          The drawer, the terminal, and a git-aware status bar — in the built-in
+          <code class="inline" style="color: var(--ink-dim)">oxide</code> theme.
+        </p>
+
+        <!-- ── Features ── -->
+        <section id="features">
+          <h2>What it does</h2>
+          <div class="grid">
+            <div class="card">
+              <h3>A real terminal</h3>
+              <p>
+                Full VT emulation via Alacritty's parser: truecolor, wide glyphs
+                and combining marks, bracketed paste, SGR mouse reporting,
+                alternate-screen scrolling, OSC 8 hyperlinks, OSC 52 clipboard.
+                vim, htop, and tmux just work.
+              </p>
+            </div>
+            <div class="card">
+              <h3>File tree drawer</h3>
+              <p>
+                Modeless vim navigation (<code>j</code>/<code>k</code>/<code>gg</code>/<code>G</code>,
+                nvim-tree style <code>h</code>/<code>l</code>), type-to-filter
+                with <code>/</code>, and file operations: <code>a</code> add,
+                <code>r</code> rename, <code>d</code> delete to Trash. Respects
+                <code>.gitignore</code>, watches the filesystem, and follows the
+                shell's <code>cd</code> automatically.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Scrollback search</h3>
+              <p>
+                <code>cmd-f</code> for live, case-insensitive search;
+                <code>⏎</code> and <code>⇧⏎</code> walk the matches. And
+                <code>cmd-↑</code>/<code>cmd-↓</code> hop between previous
+                prompts in scrollback.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Git-aware status bar</h3>
+              <p>
+                Current working directory plus branch, dirty state, and
+                ahead/behind — rendered natively, not shelled out to on every
+                prompt.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Configurable prompt</h3>
+              <p>
+                Compile a powerline prompt from TOML segments — <code>cwd</code>,
+                <code>git</code>, <code>exit_status</code>, <code>time</code>,
+                <code>duration</code> — injected without touching your dotfiles,
+                with OSC 133 semantic markers. Or set
+                <code>prompt.enabled = false</code> and keep starship or p10k
+                exactly as it is.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Themes</h3>
+              <p>
+                <code>catppuccin-mocha</code>, <code>catppuccin-latte</code>,
+                <code>gruvbox-dark</code>, <code>tokyonight</code>,
+                <code>dracula</code>, <code>nord</code>,
+                <code>solarized-dark</code>, and <code>oxide</code> (rust-toned,
+                naturally). Any color individually overridable. Config reloads
+                live.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Native tabs</h3>
+              <p>
+                <code>cmd-t</code> uses real macOS window tabbing. New tabs start
+                in the current directory or <code>~/</code>, your call via
+                <code>window.new_tab_directory</code>.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Updates itself</h3>
+              <p>
+                Installed copies check for new releases on launch and every six
+                hours, download in the background, and swap themselves in on one
+                click. Every build is Developer ID signed, notarized, and
+                stapled.
+              </p>
+            </div>
+            <div class="card">
+              <h3>The details</h3>
+              <p>
+                Window size and position persistence, <code>cmd-click</code> to
+                open URLs, copy-on-select, font size at runtime
+                (<code>cmd +/-/0</code>), a configurable bell, and a blinking
+                cursor that pauses while you type.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── Keys ── -->
+        <section id="keys">
+          <h2>Keys</h2>
+          <div class="keys">
+            <div class="keys-col">
+              <h3>Anywhere</h3>
+              <table>
+                <tbody>
+                  <tr>
+                    <td>
+                      <kbd>ctrl-w h</kbd><span class="kbd-sep">/</span
+                      ><kbd>l</kbd><span class="kbd-sep">/</span><kbd>w</kbd>
+                    </td>
+                    <td>focus tree / terminal / toggle</td>
+                  </tr>
+                  <tr>
+                    <td><kbd>cmd-b</kbd></td>
+                    <td>toggle the drawer</td>
+                  </tr>
+                  <tr>
+                    <td><kbd>cmd-f</kbd></td>
+                    <td>search scrollback</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <kbd>cmd-↑</kbd><span class="kbd-sep">/</span
+                      ><kbd>cmd-↓</kbd>
+                    </td>
+                    <td>previous / next prompt</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <kbd>cmd-t</kbd><span class="kbd-sep">/</span
+                      ><kbd>cmd-n</kbd>
+                    </td>
+                    <td>new tab / new window</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <kbd>⌃tab</kbd><span class="kbd-sep">/</span
+                      ><kbd>⇧⌘[</kbd> <kbd>⇧⌘]</kbd>
+                    </td>
+                    <td>previous / next tab</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <kbd>cmd +</kbd> <kbd>-</kbd> <kbd>0</kbd>
+                    </td>
+                    <td>font size</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="keys-col">
+              <h3>In the tree</h3>
+              <table>
+                <tbody>
+                  <tr>
+                    <td>
+                      <kbd>j</kbd> <kbd>k</kbd> <kbd>gg</kbd> <kbd>G</kbd>
+                    </td>
+                    <td>move</td>
+                  </tr>
+                  <tr>
+                    <td><kbd>l</kbd><span class="kbd-sep">/</span><kbd>h</kbd></td>
+                    <td>expand &amp; descend / collapse &amp; ascend</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <kbd>enter</kbd><span class="kbd-sep">/</span><kbd>o</kbd>
+                    </td>
+                    <td>open dir, or file in <code class="inline">$EDITOR</code></td>
+                  </tr>
+                  <tr>
+                    <td><kbd>c</kbd><span class="kbd-sep">/</span><kbd>-</kbd></td>
+                    <td>re-root at selection / at parent</td>
+                  </tr>
+                  <tr>
+                    <td><kbd>/</kbd></td>
+                    <td>filter</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <kbd>a</kbd> <kbd>r</kbd> <kbd>d</kbd>
+                    </td>
+                    <td>add / rename / delete to Trash</td>
+                  </tr>
+                  <tr>
+                    <td><kbd>I</kbd><span class="kbd-sep">/</span><kbd>R</kbd></td>
+                    <td>toggle hidden / refresh</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── Install ── -->
+        <section id="install">
+          <h2>Install</h2>
+          <div class="cols">
+            <div>
+              <h3>Download the app</h3>
+              <p>
+                Grab the DMG, drag Oxide to Applications, and open it. The build
+                is signed with a Developer ID certificate and notarized by Apple,
+                so there's no right-click-to-open dance.
+              </p>
+              <ul>
+                <li>macOS, Apple Silicon or Intel</li>
+                <li>
+                  A
+                  <a class="link" href="https://www.nerdfonts.com">Nerd Font</a> —
+                  the default config expects JetBrainsMono Nerd Font Mono
+                </li>
+              </ul>
+              <p class="note">
+                Oxide keeps itself up to date after that: it checks GitHub on
+                launch and every six hours, or on demand via
+                <strong>Oxide → Check for Updates…</strong>
+              </p>
+            </div>
+
+            <div>
+              <h3>Or build from source</h3>
+              <pre><span class="c"># needs Rust (2024 edition) and full Xcode
+# with the Metal toolchain</span>
+git clone https://github.com/bobbycoleman-dev/oxide.git
+<span class="p">cd</span> oxide
+cargo run                   <span class="c"># development</span>
+
+./scripts/bundle.sh         <span class="c"># -&gt; target/Oxide.app</span>
+cp -R target/Oxide.app /Applications/</pre>
+              <p class="note">
+                The first build compiles GPUI and its Metal shaders — expect
+                several minutes. Full instructions are in the
+                <a
+                  class="link"
+                  href="https://github.com/bobbycoleman-dev/oxide#build--install"
+                  >README</a
+                >.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── Config ── -->
+        <section id="config">
+          <h2>Configuration</h2>
+          <div class="cols">
+            <div>
+              <p>
+                Everything lives in one file at
+                <code class="inline">~/.config/oxide/config.toml</code>, and a
+                fully commented default is generated on first run. Font and
+                colors apply live — save the file and the window repaints.
+                <code class="inline">[shell]</code> and
+                <code class="inline">[prompt]</code> apply to new sessions.
+              </p>
+            </div>
+            <div>
+              <pre><span class="c">[colors]</span>
+preset = <span class="p">"oxide"</span>
+
+<span class="c">[font]</span>
+family = <span class="p">"JetBrainsMono Nerd Font Mono"</span>
+size = 14.0
+
+<span class="c">[[prompt.segments]]</span>
+kind = <span class="p">"cwd"</span>
+<span class="c">[[prompt.segments]]</span>
+kind = <span class="p">"git"</span></pre>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <div>© <span id="year"></span> Robert Coleman</div>
+        <div>
+          <a href="https://github.com/bobbycoleman-dev/oxide">Source</a> ·
+          <a href="https://github.com/bobbycoleman-dev/oxide/releases"
+            >All releases</a
+          >
+          ·
+          <a href="https://github.com/bobbycoleman-dev/oxide/issues"
+            >Report an issue</a
+          >
+        </div>
+      </footer>
+    </div>
+
+    <script>
+      const REPO = "bobbycoleman-dev/oxide";
+
+      document.getElementById("year").textContent = new Date().getFullYear();
+
+      // Dissolve rule: bars shrink and gap out toward the right, echoing the
+      // icon's corroding corner.
+      (function () {
+        const el = document.getElementById("dissolve");
+        if (!el) return;
+        const n = 34;
+        let html = "";
+        for (let i = 0; i < n; i++) {
+          const t = i / (n - 1);
+          const w = Math.max(3, Math.round(46 * (1 - t * t)));
+          const o = Math.max(0, 1 - t * 1.25).toFixed(2);
+          html += `<i style="width:${w}px;opacity:${o}"></i>`;
+        }
+        el.innerHTML = html;
+      })();
+
+      function formatBytes(bytes) {
+        if (typeof bytes !== "number") return "—";
+        const mb = bytes / (1024 * 1024);
+        return mb >= 100 ? `${Math.round(mb)} MB` : `${mb.toFixed(1)} MB`;
+      }
+
+      async function loadLatestRelease() {
+        const btn = document.getElementById("download-btn");
+        const label = document.getElementById("download-label");
+        const versionLine = document.getElementById("version-line");
+        const sizeLine = document.getElementById("size-line");
+
+        try {
+          const res = await fetch(
+            `https://api.github.com/repos/${REPO}/releases/latest`,
+            { headers: { Accept: "application/vnd.github+json" } }
+          );
+          if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+
+          const data = await res.json();
+          const dmg = (data.assets || []).find((a) =>
+            a.name.toLowerCase().endsWith(".dmg")
+          );
+          if (!dmg) throw new Error("no .dmg asset on the latest release");
+
+          btn.href = dmg.browser_download_url;
+          btn.classList.remove("loading");
+          label.textContent = "Download for macOS";
+          sizeLine.textContent = formatBytes(dmg.size);
+
+          const version = data.tag_name || data.name || "";
+          const date = data.published_at
+            ? new Date(data.published_at).toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })
+            : "";
+          versionLine.innerHTML =
+            `<strong>${version}</strong>` + (date ? ` · released ${date}` : "");
+        } catch (err) {
+          console.error(err);
+          btn.classList.remove("loading");
+          btn.href = `https://github.com/${REPO}/releases/latest`;
+          label.textContent = "View releases on GitHub";
+          versionLine.textContent = "Couldn't reach the GitHub API";
+          sizeLine.textContent = "—";
+        }
+      }
+
+      loadLatestRelease();
+    </script>
+  </body>
+</html>

@@ -12,6 +12,25 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+
+# A release binary should correspond to exactly one commit, so refuse to build
+# from a dirty tree. ALLOW_DIRTY=1 overrides for local experiments.
+if [[ -z "${ALLOW_DIRTY:-}" && -n "$(git status --porcelain 2>/dev/null)" ]]; then
+  echo "error: working tree has uncommitted changes." >&2
+  echo "       The built binary would not match any commit or tag." >&2
+  echo "       Commit first, or re-run with ALLOW_DIRTY=1." >&2
+  git status --short >&2
+  exit 1
+fi
+
+# Cargo.lock carries this package's own version. If it lags Cargo.toml the
+# build silently rewrites it, so the released commit would miss the change.
+LOCK_VERSION=$(awk '/^name = "oxide"$/{getline; gsub(/[",]/, "", $3); print $3; exit}' Cargo.lock)
+if [[ "$LOCK_VERSION" != "$VERSION" ]]; then
+  echo "error: Cargo.lock says $LOCK_VERSION but Cargo.toml says $VERSION." >&2
+  echo "       Run 'cargo check' to refresh the lock, then amend your release commit." >&2
+  exit 1
+fi
 DMG="target/Oxide-${VERSION}.dmg"
 NOTARY_PROFILE="${NOTARY_PROFILE:-oxide-notary}"
 

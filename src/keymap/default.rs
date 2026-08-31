@@ -12,9 +12,29 @@ pub fn bindings() -> Vec<KeyBinding> {
     vec![
         // Root — reachable from both panes.
         KeyBinding::new("cmd-q", Quit, Some("Root")),
-        KeyBinding::new("ctrl-w h", FocusTree, Some("Root")),
-        KeyBinding::new("ctrl-w l", FocusTerminal, Some("Root")),
+        // Splits, vim-style. ctrl-w h/j/k/l walks panes geometrically; going
+        // left from the leftmost pane lands on the file tree, so the old
+        // "ctrl-w h focuses the drawer" reflex still works.
+        KeyBinding::new("ctrl-w h", FocusPaneLeft, Some("Root")),
+        KeyBinding::new("ctrl-w j", FocusPaneDown, Some("Root")),
+        KeyBinding::new("ctrl-w k", FocusPaneUp, Some("Root")),
+        KeyBinding::new("ctrl-w l", FocusPaneRight, Some("Root")),
+        KeyBinding::new("ctrl-w v", SplitRight, Some("Root")),
+        KeyBinding::new("ctrl-w s", SplitDown, Some("Root")),
+        KeyBinding::new("ctrl-w shift-v", SplitLeft, Some("Root")),
+        KeyBinding::new("ctrl-w shift-s", SplitUp, Some("Root")),
+        KeyBinding::new("ctrl-w q", ClosePane, Some("Root")),
         KeyBinding::new("ctrl-w w", FocusToggle, Some("Root")),
+        // Jump straight to the drawer from any pane, without walking there.
+        KeyBinding::new("ctrl-w t", FocusTree, Some("Root")),
+        KeyBinding::new("cmd-shift-e", FocusTree, Some("Root")),
+        // ...and the macOS equivalents.
+        KeyBinding::new("cmd-d", SplitRight, Some("Root")),
+        KeyBinding::new("cmd-shift-d", SplitDown, Some("Root")),
+        KeyBinding::new("cmd-alt-left", FocusPaneLeft, Some("Root")),
+        KeyBinding::new("cmd-alt-right", FocusPaneRight, Some("Root")),
+        KeyBinding::new("cmd-alt-up", FocusPaneUp, Some("Root")),
+        KeyBinding::new("cmd-alt-down", FocusPaneDown, Some("Root")),
         KeyBinding::new("cmd-b", ToggleDrawer, Some("Root")),
         KeyBinding::new("cmd-v", Paste, Some("Root")),
         KeyBinding::new("cmd-c", Copy, Some("Root")),

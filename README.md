@@ -20,7 +20,8 @@ with a file-tree drawer you drive like vim and a status bar that knows where you
 - **Real terminal** — full VT emulation via Alacritty's parser: truecolor, wide glyphs and
   combining marks, bracketed paste, mouse reporting (SGR), alternate-screen scrolling, OSC 8
   hyperlinks, OSC 52 clipboard. vim, htop, and tmux just work.
-- **File tree drawer** — modeless vim navigation (`j`/`k`/`gg`/`G`, nvim-tree style `h`/`l`),
+- **File tree drawer** — follows the focused pane, so switching splits re-roots it to
+  that shell's directory. Modeless vim navigation (`j`/`k`/`gg`/`G`, nvim-tree style `h`/`l`),
   type-to-filter with `/`, and file operations: `a` add, `r` rename, `d` delete (to Trash).
   Respects `.gitignore`, watches the filesystem, and follows the shell's `cd` automatically.
 - **Scrollback search** — `cmd-f`, live and case-insensitive, `⏎`/`⇧⏎` to walk matches.
@@ -33,6 +34,8 @@ with a file-tree drawer you drive like vim and a status bar that knows where you
 - **Themes** — `catppuccin-mocha`, `catppuccin-latte`, `gruvbox-dark`, `tokyonight`,
   `dracula`, `nord`, `solarized-dark`, and `oxide` (rust-toned, naturally). Any color
   individually overridable. Config reloads live.
+- **Split panes** — split in any direction and nest freely; navigation moves by what's
+  on screen, and `exit` or `ctrl-w q` closes a pane and reclaims its space.
 - **Native tabs** — `cmd-t`, using real macOS window tabbing; new tabs start in the
   current directory or `~/` (`window.new_tab_directory`).
 - **The details** — window size/position persistence, `cmd-click` to open URLs, copy-on-select option, font size at runtime
@@ -72,10 +75,16 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 |---|---|
 | `ctrl-w h` / `ctrl-w l` / `ctrl-w w` | focus tree / terminal / toggle |
 | `cmd-b` | toggle the drawer |
+| `ctrl-w t` / `cmd-shift-e` | focus the file tree from anywhere |
 | `cmd-f` | search scrollback (`⏎` older, `⇧⏎` newer, `esc` close) |
 | `cmd-↑` / `cmd-↓` | jump to previous / next prompt |
 | `cmd-t` / `cmd-n` | new tab / new window |
 | `⌃tab` / `⇧⌘[` `⇧⌘]` | previous / next tab |
+| `ctrl-w v` / `ctrl-w s` | split right / down (`⇧V` / `⇧S` for left / up) |
+| `cmd-d` / `cmd-shift-d` | split right / down |
+| `ctrl-w h` `j` `k` `l` | move between panes (`h` from the leftmost focuses the tree) |
+| `cmd-opt-←↓↑→` | move between panes |
+| `ctrl-w q` / `cmd-w` | close pane (closes the window when it's the last one) |
 | `cmd-c` / `cmd-v` | copy / paste (bracketed) |
 | `cmd +` / `-` / `0` | font size |
 
@@ -132,5 +141,9 @@ The tree follows `cd` by polling the PTY's foreground process group cwd
 ## Known limitations
 
 - No IME / dead-key composition yet (two-stroke accents, CJK input).
-- No split panes — native tabs (`cmd-t`), separate windows, or tmux.
+- Splits can't be resized yet; panes divide their space evenly.
+- `cmd-t` uses macOS window tabbing, which honours System Settings → Desktop & Dock →
+  "Prefer tabs when opening documents". Set it to *Always* for tabs; tiling window
+  managers (AeroSpace, yabai) manage windows themselves, so tabs open as windows there —
+  use splits instead.
 - Left/right Option can't be distinguished; `option_as_meta` treats `left`/`right` as `both`.

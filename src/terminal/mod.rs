@@ -36,6 +36,9 @@ unsafe extern "C" {
 }
 
 pub enum TerminalEvent {
+    /// The shell exited, with its status. The owning window decides whether
+    /// to close the pane.
+    Exited(Option<i32>),
     TitleChanged,
     CwdChanged(PathBuf),
 }
@@ -297,8 +300,10 @@ impl TerminalPane {
                 cx.notify();
             }
             AlacEvent::MouseCursorDirty => {}
-            AlacEvent::ChildExit(code) => {
-                self.child_exited = Some(code.code());
+            AlacEvent::ChildExit(status) => {
+                let code = status.code();
+                self.child_exited = Some(code);
+                cx.emit(TerminalEvent::Exited(code));
                 cx.notify();
             }
             AlacEvent::Exit => {
