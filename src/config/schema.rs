@@ -73,6 +73,7 @@ pub struct WindowConfig {
     pub opacity: f32,
     pub blur: bool,
     pub titlebar: TitlebarMode,
+    pub new_tab_directory: NewTabDirectory,
 }
 
 impl Default for WindowConfig {
@@ -82,8 +83,19 @@ impl Default for WindowConfig {
             opacity: 1.0,
             blur: false,
             titlebar: TitlebarMode::Hidden,
+            new_tab_directory: NewTabDirectory::Pwd,
         }
     }
+}
+
+/// Where a new tab or window starts.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum NewTabDirectory {
+    /// Inherit the current tab's working directory.
+    Pwd,
+    /// Always start at ~/.
+    Home,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
@@ -114,6 +126,10 @@ pub struct ShellConfig {
     pub args: Vec<String>,
     pub scrollback: usize,
     pub option_as_meta: OptionAsMeta,
+    /// Install the shell-integration hooks (OSC 133 markers and the silent-cd
+    /// widget). Independent of prompt styling — keep your own prompt and still
+    /// get integration.
+    pub integration: bool,
 }
 
 impl Default for ShellConfig {
@@ -123,6 +139,7 @@ impl Default for ShellConfig {
             args: vec!["-l".into()],
             scrollback: 10_000,
             option_as_meta: OptionAsMeta::None,
+            integration: true,
         }
     }
 }

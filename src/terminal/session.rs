@@ -238,3 +238,4 @@ mod tests {
         assert!(cwd.is_some(), "foreground cwd lookup failed");
     }
 }
+

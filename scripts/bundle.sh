@@ -56,6 +56,18 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 	<string>12.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<!-- Without these, macOS shows an unattributed prompt for the protected
+	     folders and the grant is not reliably recorded against the app. -->
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Oxide needs access to show your Desktop in the file tree and to run commands there.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Oxide needs access to show your Documents in the file tree and to run commands there.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Oxide needs access to show your Downloads in the file tree and to run commands there.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Oxide needs access to removable volumes to browse and run commands on them.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>Oxide needs access to network volumes to browse and run commands on them.</string>
 	<key>NSSupportsAutomaticGraphicsSwitching</key>
 	<true/>
 </dict>

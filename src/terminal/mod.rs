@@ -398,6 +398,34 @@ impl TerminalPane {
         }
     }
 
+    /// Change the shell's directory. With shell integration installed this
+    /// hands the path off through a file and triggers a zle/readline widget,
+    /// so no `cd` command is echoed; otherwise it falls back to typing one.
+    pub fn request_cd(&mut self, path: &std::path::Path) {
+        let Some(session) = &self.session else { return };
+        if self.config.shell.integration
+            && let Some(target) = crate::prompt::integration::cd_target_path()
+            && std::fs::write(&target, path.to_string_lossy().as_bytes()).is_ok()
+        {
+            // zsh's zle widget redraws the prompt in place. bash's readline
+            // cannot, so submit an empty line to get a fresh correct prompt.
+            let mut bytes = b"\x1b[9001~".to_vec();
+            let program = resolve_shell(self.config.shell.program.as_deref());
+            let is_bash = std::path::Path::new(&program)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("bash"));
+            if is_bash {
+                bytes.push(b'\r');
+            }
+            session.write_input(bytes);
+            session.term.lock().scroll_display(Scroll::Bottom);
+            return;
+        }
+        let quoted = format!("'{}'", path.to_string_lossy().replace('\'', r"'\''"));
+        self.write_command(&format!("cd {quoted}\r"));
+    }
+
     pub fn write_command(&mut self, command: &str) {
         if let Some(session) = &self.session {
             session.write_input(command.as_bytes().to_vec());

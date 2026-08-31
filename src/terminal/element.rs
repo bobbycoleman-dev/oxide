@@ -160,6 +160,14 @@ impl Element for TerminalElement {
     }
 }
 
+/// The glyph to shape for a cell. Alacritty stores the literal control
+/// character in the cell where e.g. a TAB began and pads the span with spaces;
+/// shaping a real '\t' would use the font's tab advance instead of one cell
+/// and skew everything after it (visible as ragged `ls` columns).
+fn display_char(c: char) -> char {
+    if (c as u32) < 0x20 || c == '\u{7f}' { ' ' } else { c }
+}
+
 fn base_font(pane: &TerminalPane, bold: bool, italic: bool) -> Font {
     let weight = match (pane.config().font.weight, bold) {
         (_, true) => FontWeight::BOLD,
@@ -399,7 +407,7 @@ fn layout_grid(
                 return None;
             }
             let mut text = String::new();
-            text.push(snap.c);
+            text.push(display_char(snap.c));
             if let Some(zw) = &snap.zerowidth {
                 text.extend(zw.iter());
             }
@@ -451,7 +459,7 @@ fn shape_row(
 ) -> Option<ShapedLine> {
     // Trim trailing default-styled blanks so we don't shape padding.
     let last = row.iter().rposition(|cell| {
-        !(cell.c == ' '
+        !(display_char(cell.c) == ' '
             && cell.zerowidth.is_none()
             && !cell.flags.intersects(
                 Flags::INVERSE | Flags::UNDERLINE | Flags::DOUBLE_UNDERLINE | Flags::UNDERCURL | Flags::STRIKEOUT,
@@ -508,7 +516,7 @@ fn shape_row(
         };
 
         let start_len = text.len();
-        text.push(cell.c);
+        text.push(display_char(cell.c));
         if let Some(zw) = &cell.zerowidth {
             text.extend(zw.iter());
         }
@@ -549,7 +557,7 @@ fn shape_row(
     if text.trim_end().is_empty() && runs.iter().all(|r| r.underline.is_none() && r.strikethrough.is_none()) {
         // A row of plain spaces with non-default colors still got bg quads;
         // nothing to shape.
-        if row[..=last].iter().all(|c| c.c == ' ') {
+        if row[..=last].iter().all(|c| display_char(c.c) == ' ') {
             return None;
         }
     }
@@ -574,3 +582,22 @@ trait Pipe: Sized {
     }
 }
 impl<T> Pipe for T {}
+
+#[cfg(test)]
+mod tests {
+    use super::display_char;
+
+    #[test]
+    fn control_chars_render_as_single_cell_blanks() {
+        // macOS `ls` pads columns with TABs; shaping a real tab glyph would
+        // advance by the font's tab width instead of one cell.
+        assert_eq!(display_char('\t'), ' ');
+        assert_eq!(display_char('\r'), ' ');
+        assert_eq!(display_char('\u{0}'), ' ');
+        assert_eq!(display_char('\u{7f}'), ' ');
+        // Printable characters, including wide and combining ones, pass through.
+        assert_eq!(display_char('a'), 'a');
+        assert_eq!(display_char('漢'), '漢');
+        assert_eq!(display_char('\u{e0b0}'), '\u{e0b0}');
+    }
+}

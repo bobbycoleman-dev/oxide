@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icon_1024.png" width="128" alt="Oxide icon — a corroded iron terminal prompt" />
+  <img src="assets/icon_1024.png" width="176" alt="Oxide icon — a corroded iron terminal prompt" />
 </p>
 
 <h1 align="center">Oxide</h1>
@@ -7,10 +7,6 @@
 <p align="center">
   A native macOS terminal emulator, written entirely in Rust.<br/>
   <em>Rust is iron oxide. It's a whole thing.</em>
-</p>
-
-<p align="center">
-  <img src="assets/screenshot.png" width="640" alt="Oxide running: file tree drawer, starship prompt, git status bar" />
 </p>
 
 ---
@@ -37,8 +33,9 @@ with a file-tree drawer you drive like vim and a status bar that knows where you
 - **Themes** — `catppuccin-mocha`, `catppuccin-latte`, `gruvbox-dark`, `tokyonight`,
   `dracula`, `nord`, `solarized-dark`, and `oxide` (rust-toned, naturally). Any color
   individually overridable. Config reloads live.
-- **The details** — window size/position persistence, `cmd-n` new window inheriting the
-  shell's cwd, `cmd-click` to open URLs, copy-on-select option, font size at runtime
+- **Native tabs** — `cmd-t`, using real macOS window tabbing; new tabs start in the
+  current directory or `~/` (`window.new_tab_directory`).
+- **The details** — window size/position persistence, `cmd-click` to open URLs, copy-on-select option, font size at runtime
   (`cmd +/-/0`), configurable bell, blinking cursor that pauses while you type.
 
 ## Requirements
@@ -77,7 +74,8 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 | `cmd-b` | toggle the drawer |
 | `cmd-f` | search scrollback (`⏎` older, `⇧⏎` newer, `esc` close) |
 | `cmd-↑` / `cmd-↓` | jump to previous / next prompt |
-| `cmd-n` | new window at the shell's cwd |
+| `cmd-t` / `cmd-n` | new tab / new window |
+| `⌃tab` / `⇧⌘[` `⇧⌘]` | previous / next tab |
 | `cmd-c` / `cmd-v` | copy / paste (bracketed) |
 | `cmd +` / `-` / `0` | font size |
 
@@ -107,6 +105,9 @@ size   = 14.0
 [colors]
 preset = "oxide"              # or override any color individually
 
+[window]
+new_tab_directory = "pwd"     # pwd | home
+
 [tree]
 follow_cwd = true             # tree re-roots when the shell cd's
 
@@ -131,5 +132,5 @@ The tree follows `cd` by polling the PTY's foreground process group cwd
 ## Known limitations
 
 - No IME / dead-key composition yet (two-stroke accents, CJK input).
-- No tabs or splits — `cmd-n` windows or tmux for now.
+- No split panes — native tabs (`cmd-t`), separate windows, or tmux.
 - Left/right Option can't be distinguished; `option_as_meta` treats `left`/`right` as `both`.

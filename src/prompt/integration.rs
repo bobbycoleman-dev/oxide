@@ -4,6 +4,11 @@ use std::path::{Path, PathBuf};
 use crate::config::Config;
 use crate::config::schema::PromptConfig;
 
+/// File the app writes a directory into for the shell's silent-cd widget.
+pub fn cd_target_path() -> Option<PathBuf> {
+    Some(cache_dir()?.join("cd_target"))
+}
+
 fn cache_dir() -> Option<PathBuf> {
     let home = directories::BaseDirs::new()?.home_dir().to_path_buf();
     Some(home.join(".cache/oxide"))
@@ -27,7 +32,8 @@ pub struct ShellIntegration {
 /// the init file); the script emulates the login profile chain first.
 pub fn setup(config: &Config, shell_program: &str) -> ShellIntegration {
     let mut integration = ShellIntegration::default();
-    if !config.prompt.enabled {
+    let style_prompt = config.prompt.enabled;
+    if !config.shell.integration && !style_prompt {
         return integration;
     }
     let shell_name = Path::new(shell_program)
@@ -44,7 +50,7 @@ pub fn setup(config: &Config, shell_program: &str) -> ShellIntegration {
         if std::fs::create_dir_all(&zdotdir).is_err() {
             return integration;
         }
-        if write_zsh_shim(&cache, &zdotdir, &config.prompt).is_err() {
+        if write_zsh_shim(&cache, &zdotdir, &config.prompt, style_prompt).is_err() {
             return integration;
         }
         if let Ok(user_zdotdir) = std::env::var("ZDOTDIR") {
@@ -55,7 +61,7 @@ pub fn setup(config: &Config, shell_program: &str) -> ShellIntegration {
             .insert("ZDOTDIR".into(), zdotdir.to_string_lossy().to_string());
     } else if shell_name.starts_with("bash") {
         let init_path = cache.join("init.bash");
-        if std::fs::write(&init_path, super::generate_init_bash(&config.prompt)).is_err() {
+        if std::fs::write(&init_path, super::generate_init_bash(&config.prompt, style_prompt)).is_err() {
             return integration;
         }
         let mut args: Vec<String> = config
@@ -76,9 +82,10 @@ fn write_zsh_shim(
     cache: &Path,
     zdotdir: &Path,
     prompt: &PromptConfig,
+    style_prompt: bool,
 ) -> std::io::Result<()> {
     let init_path = cache.join("init.zsh");
-    std::fs::write(&init_path, super::generate_init(prompt))?;
+    std::fs::write(&init_path, super::generate_init(prompt, style_prompt))?;
 
     let sandwich = |file: &str, extra: &str| -> String {
         format!(

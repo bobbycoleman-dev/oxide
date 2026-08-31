@@ -81,6 +81,10 @@ fn read_git_status(cwd: &PathBuf) -> GitStatus {
     GitStatus { branch: Some(branch), dirty, ahead, behind }
 }
 
+pub fn home_dir() -> Option<PathBuf> {
+    directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf())
+}
+
 fn window_state_path() -> Option<PathBuf> {
     Some(directories::BaseDirs::new()?.home_dir().join(".cache/oxide/window.txt"))
 }
@@ -113,12 +117,14 @@ impl Oxide {
     ) -> Self {
         let config = Rc::new(config);
         let theme = Rc::new(Theme::from_config(&config.colors));
-        // `oxide <dir>` (or the CLI shim) starts rooted at that directory.
+        // `oxide <dir>` (or the CLI shim) starts rooted at that directory;
+        // otherwise start at home. Finder-launched apps inherit "/" as their
+        // working directory, which is a useless place to open a terminal.
         let cwd = cwd_override
             .or_else(|| {
                 std::env::args().nth(1).map(PathBuf::from).filter(|p| p.is_dir())
             })
-            .or_else(|| std::env::current_dir().ok())
+            .or_else(home_dir)
             .unwrap_or_else(|| PathBuf::from("/"));
 
         let terminal = cx.new(|cx| {
@@ -424,8 +430,8 @@ impl Oxide {
                 self.focus_terminal(Some(window), cx);
             }
             TreeEvent::ChangedRoot(path) => {
-                let command = format!("cd {}\r", shell_quote(path));
-                self.terminal.update(cx, |t, _| t.write_command(&command));
+                let path = path.clone();
+                self.terminal.update(cx, |t, _| t.request_cd(&path));
             }
             TreeEvent::FocusTerminal => self.focus_terminal(Some(window), cx),
         }
@@ -666,6 +672,21 @@ impl Oxide {
             )
     }
 
+    /// Move to the next/previous native tab in this window's tab group.
+    fn cycle_tab(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(tabs) = window.tabbed_windows() else { return };
+        if tabs.len() < 2 {
+            return;
+        }
+        let current = window.window_handle().window_id();
+        let Some(ix) = tabs.iter().position(|t| t.id == current) else { return };
+        let next = (ix as isize + delta).rem_euclid(tabs.len() as isize) as usize;
+        let handle = tabs[next].handle;
+        cx.defer(move |cx| {
+            handle.update(cx, |_, window, _| window.activate_window()).ok();
+        });
+    }
+
     fn render_status_bar(&self, cx: &Context<Self>) -> gpui::Div {
         let theme = &self.theme;
         let dim = blend(theme.foreground, theme.background, 0.35);
@@ -785,6 +806,8 @@ pub fn open_oxide_window(
             focus: true,
             window_background,
             window_min_size: Some(gpui::size(px(400.0), px(300.0))),
+            // Windows sharing an identifier are grouped into native macOS tabs.
+            tabbing_identifier: Some("dev.bobbycoleman.oxide".into()),
             ..Default::default()
         },
         |window, cx| cx.new(|cx| Oxide::new(config, config_error, cwd, window, cx)),
@@ -862,6 +885,24 @@ impl Render for Oxide {
                 let (config, error) = config::load();
                 open_oxide_window(config, error, cwd, cx);
             }))
+            .on_action(cx.listener(|this, _: &NewTab, _w, cx| {
+                let cwd = match this.config.window.new_tab_directory {
+                    crate::config::schema::NewTabDirectory::Home => home_dir(),
+                    crate::config::schema::NewTabDirectory::Pwd => {
+                        this.terminal.read(cx).cwd.clone().or_else(home_dir)
+                    }
+                };
+                let (config, error) = config::load();
+                open_oxide_window(config, error, cwd, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SelectNextTab, window, cx| {
+                this.cycle_tab(1, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SelectPreviousTab, window, cx| {
+                this.cycle_tab(-1, window, cx);
+            }))
+            .on_action(|_: &MergeAllWindows, window, _cx| window.merge_all_windows())
+            .on_action(|_: &MoveTabToNewWindow, window, _cx| window.move_tab_to_new_window())
             .on_action(|_: &CloseWindow, window, _cx| window.remove_window())
             .on_action(|_: &Minimize, window, _cx| window.minimize_window())
             .on_action(|_: &Zoom, window, _cx| window.zoom_window())

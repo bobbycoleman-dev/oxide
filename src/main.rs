@@ -35,6 +35,7 @@ fn menus() -> Vec<Menu> {
         Menu {
             name: "File".into(),
             items: vec![
+                MenuItem::action("New Tab", NewTab),
                 MenuItem::action("New Window", NewWindow),
                 MenuItem::separator(),
                 MenuItem::action("Close Window", CloseWindow),
@@ -67,10 +68,16 @@ fn menus() -> Vec<Menu> {
             ],
         },
         Menu {
+            // macOS also injects its own tab items here once a tab group exists.
             name: "Window".into(),
             items: vec![
                 MenuItem::action("Minimize", Minimize),
                 MenuItem::action("Zoom", Zoom),
+                MenuItem::separator(),
+                MenuItem::action("Show Next Tab", SelectNextTab),
+                MenuItem::action("Show Previous Tab", SelectPreviousTab),
+                MenuItem::action("Move Tab to New Window", MoveTabToNewWindow),
+                MenuItem::action("Merge All Windows", MergeAllWindows),
             ],
         },
         Menu {

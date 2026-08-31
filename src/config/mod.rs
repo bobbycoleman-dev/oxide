@@ -119,6 +119,7 @@ padding  = { x = 12, y = 8 }
 opacity  = 1.0                # 0.0 - 1.0; < 1.0 makes the background translucent
 blur     = false              # blur what's behind a translucent window
 titlebar = "hidden"           # native | hidden
+new_tab_directory = "pwd"     # pwd | home — where cmd-t starts
 
 [shell]
 # program = "/bin/zsh"        # default: $SHELL
@@ -126,6 +127,9 @@ args           = ["-l"]
 scrollback     = 10000
 option_as_meta = "none"       # none | left | right | both
                               # (left/right currently behave like "both")
+integration    = true         # OSC 133 markers + silent cd from the file tree.
+                              # Independent of [prompt]: keep your own prompt
+                              # (starship, p10k) and still get integration.
 
 [tree]
 width             = 280
