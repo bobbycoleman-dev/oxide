@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Tests spawn real PTYs; keep them serial enough to stay stable on runners.
+  RUST_BACKTRACE: "1"
+
+jobs:
+  macos:
+    name: macOS (build + test)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --all-targets
+      - name: Test
+        run: cargo test
+
+  linux:
+    name: Linux (check + test)
+    runs-on: ubuntu-latest
+    # The Linux port is tracked in LINUX_PORT.md. Until Phase 1 lands (the
+    # two cfg-gate compile blockers), this job is advisory: it documents the
+    # current breakage without failing CI. Flip to `false` the moment
+    # `cargo check` passes on Linux, so mac-isms can never creep back in.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GPUI system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig1-dev libfreetype6-dev \
+            libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libx11-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev \
+            libxcb-xfixes0-dev libssl-dev
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check
+        run: cargo check --all-targets
+      - name: Test
+        run: cargo test

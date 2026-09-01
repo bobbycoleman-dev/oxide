@@ -9,6 +9,10 @@
   <em>Rust is iron oxide. It's a whole thing.</em>
 </p>
 
+<p align="center">
+  <a href="https://github.com/bobbycoleman-dev/oxide/actions/workflows/ci.yml"><img src="https://github.com/bobbycoleman-dev/oxide/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+</p>
+
 ---
 
 Oxide is a GPU-rendered terminal built on [GPUI](https://www.gpui.rs) (Zed's UI framework) and
