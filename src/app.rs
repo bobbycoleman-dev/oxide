@@ -37,6 +37,12 @@ struct Workspace {
     active_tab: usize,
 }
 
+/// A right-click menu on a workspace row: which row, and where to draw it.
+struct WsContextMenu {
+    ix: usize,
+    position: gpui::Point<gpui::Pixels>,
+}
+
 /// Input modes for the workspaces panel footer, mirroring the file tree's.
 enum WsInput {
     Add { buffer: String },
@@ -54,6 +60,7 @@ pub struct Oxide {
     ws_selected: usize,
     ws_focus: FocusHandle,
     ws_input: Option<WsInput>,
+    ws_context_menu: Option<WsContextMenu>,
     next_ws_number: usize,
     /// Every live pane across all workspaces and tabs.
     panes: HashMap<PaneId, gpui::Entity<TerminalPane>>,
@@ -212,6 +219,7 @@ impl Oxide {
             ws_selected: 0,
             ws_focus: cx.focus_handle(),
             ws_input: None,
+            ws_context_menu: None,
             next_ws_number: 1,
             panes: HashMap::new(),
             next_pane_id: 0,
@@ -1463,6 +1471,15 @@ impl Oxide {
                             this.select_workspace(ix, window, cx);
                         }),
                     )
+                    .on_mouse_down(
+                        gpui::MouseButton::Right,
+                        cx.listener(move |this, ev: &gpui::MouseDownEvent, _w, cx| {
+                            this.ws_selected = ix;
+                            this.ws_context_menu =
+                                Some(WsContextMenu { ix, position: ev.position });
+                            cx.notify();
+                        }),
+                    )
                     .child(div().flex_1().overflow_hidden().child(w.name.clone()))
                     .when(w.persist, |d| {
                         // Pin: this workspace survives restarts.
@@ -1567,6 +1584,125 @@ impl Oxide {
                         .child(text),
                 )
             })
+    }
+
+    fn render_ws_context_menu(&self, window: &Window, cx: &Context<Self>) -> gpui::Div {
+        let Some(menu) = &self.ws_context_menu else { return div() };
+        let Some(ws) = self.workspaces.get(menu.ix) else { return div() };
+        let theme = &self.theme;
+        let ix = menu.ix;
+        let panel_bg = blend(theme.background, gpui::black(), 0.2);
+        let border = blend(theme.foreground, theme.background, 0.8);
+        let mut hover_bg = theme.selection_bg;
+        hover_bg.a = 0.6;
+
+        // Keep the menu on screen when the click lands near an edge.
+        let viewport = window.viewport_size();
+        let (menu_w, menu_h) = (160.0, 100.0);
+        let x = f32::from(menu.position.x).min(f32::from(viewport.width) - menu_w - 8.0);
+        let y = f32::from(menu.position.y).min(f32::from(viewport.height) - menu_h - 8.0);
+
+        let item = |id: &'static str, label: String| {
+            div()
+                .id(id)
+                .px_3()
+                .py_1()
+                .rounded_sm()
+                .cursor_pointer()
+                .hover(move |s| s.bg(hover_bg))
+                .child(label)
+        };
+
+        div()
+            .absolute()
+            .inset_0()
+            // Backdrop: the first click anywhere else just dismisses.
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _: &gpui::MouseDownEvent, _w, cx| {
+                    this.ws_context_menu = None;
+                    cx.notify();
+                }),
+            )
+            .on_mouse_down(
+                gpui::MouseButton::Right,
+                cx.listener(|this, _: &gpui::MouseDownEvent, _w, cx| {
+                    this.ws_context_menu = None;
+                    cx.notify();
+                }),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(x))
+                    .top(px(y))
+                    .w(px(menu_w))
+                    .p_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(border)
+                    .bg(panel_bg)
+                    .shadow_lg()
+                    .flex()
+                    .flex_col()
+                    .text_size(px(13.0))
+                    .text_color(theme.foreground)
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        |_: &gpui::MouseDownEvent, _w, cx| cx.stop_propagation(),
+                    )
+                    .child(
+                        item("ws-menu-rename", "Rename".into()).on_mouse_down(
+                            gpui::MouseButton::Left,
+                            cx.listener(move |this, _: &gpui::MouseDownEvent, window, cx| {
+                                this.ws_context_menu = None;
+                                this.ws_selected = ix;
+                                let buffer = this
+                                    .workspaces
+                                    .get(ix)
+                                    .map(|w| w.name.clone())
+                                    .unwrap_or_default();
+                                this.ws_input = Some(WsInput::Rename { buffer });
+                                // Typing goes through the panel's key handler.
+                                window.focus(&this.ws_focus);
+                                cx.notify();
+                            }),
+                        ),
+                    )
+                    .child(
+                        item(
+                            "ws-menu-pin",
+                            if ws.persist { "Unpin".into() } else { "Pin".into() },
+                        )
+                        .on_mouse_down(
+                            gpui::MouseButton::Left,
+                            cx.listener(move |this, _: &gpui::MouseDownEvent, _w, cx| {
+                                this.ws_context_menu = None;
+                                if let Some(ws) = this.workspaces.get_mut(ix) {
+                                    ws.persist = !ws.persist;
+                                    this.save_workspaces(cx);
+                                }
+                                cx.notify();
+                            }),
+                        ),
+                    )
+                    .child(div().h(px(1.0)).my_1().bg(border))
+                    .child(
+                        item("ws-menu-delete", "Delete".into())
+                            .text_color(theme.ansi[1])
+                            .on_mouse_down(
+                                gpui::MouseButton::Left,
+                                cx.listener(move |this, _: &gpui::MouseDownEvent, window, cx| {
+                                    this.ws_context_menu = None;
+                                    this.ws_selected = ix;
+                                    // Same y/n confirmation the keyboard flow uses.
+                                    this.ws_input = Some(WsInput::ConfirmDelete);
+                                    window.focus(&this.ws_focus);
+                                    cx.notify();
+                                }),
+                            ),
+                    ),
+            )
     }
 
     fn render_status_bar(&self, cx: &Context<Self>) -> gpui::Div {
@@ -1984,6 +2120,9 @@ impl Render for Oxide {
                         .child(format!("↓ v{version} ready — click to install")),
                 ),
                 _ => d,
+            })
+            .when(self.ws_context_menu.is_some(), |d| {
+                d.child(self.render_ws_context_menu(window, cx))
             })
             .when(self.theme_picker.is_some(), |d| d.child(self.render_theme_picker(cx)))
     }

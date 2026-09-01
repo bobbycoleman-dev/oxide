@@ -114,7 +114,7 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 |---|---|
 | `j` / `k` | move selection |
 | `enter` / `o` | switch to workspace |
-| `a` / `r` / `d` | add / rename / delete (`y` confirms) |
+| `a` / `r` / `d` | add / rename / delete (`y` confirms) — also on right-click |
 | `p` | pin — persist this workspace across restarts |
 | `esc` | dismiss input → back to terminal |
 
