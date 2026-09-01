@@ -406,11 +406,26 @@ __oxide_cd_widget() {{
     d="$(<$f)"
     [[ -d $d ]] && builtin cd -- "$d"
   fi
-  local __p="${{PS1@P}}" __nl
-  __nl="${{__p//[!$'\n']/}}"
-  __oxide_cd_erase=$(( ${{#__nl}} + 1 ))
+  if (( BASH_VERSINFO[0] >= 5 )); then
+    # Count the outgoing prompt's lines so the erase covers all of them.
+    # ${{PS1@P}} needs bash 4.4+; older bash assumes a one-line prompt.
+    local __p="${{PS1@P}}" __nl
+    __nl="${{__p//[!$'\n']/}}"
+    __oxide_cd_erase=$(( ${{#__nl}} + 1 ))
+  else
+    __oxide_cd_erase=1
+  fi
 }}
-bind -x '"\e[9001~": __oxide_cd_widget' 2>/dev/null
+if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 3) )); then
+  bind -x '"\e[9001~": __oxide_cd_widget' 2>/dev/null
+else
+  # bash < 4.3 cannot `bind -x` a multi-character sequence — invoking it dies
+  # with "bash_execute_unix_command: cannot find keymap for command" (Apple's
+  # /bin/bash 3.2 included). Trampoline through a two-key binding instead,
+  # the same trick fzf uses.
+  bind -x '"\C-x\C-a": __oxide_cd_widget' 2>/dev/null
+  bind '"\e[9001~": "\C-x\C-a"' 2>/dev/null
+fi
 "#
     )
 }
@@ -542,13 +557,19 @@ mod cd_tests {
     }
 
     /// The tree's `c` must change the shell's directory with no `cd` echoed.
+    /// Runs against every bash on the machine — Apple's /bin/bash 3.2 has a
+    /// broken multi-char `bind -x` that needs the trampoline path, while a
+    /// Homebrew bash 5 exercises the direct binding.
     #[test]
     fn silent_cd_in_bash() {
-        let bash = ["/opt/homebrew/bin/bash", "/bin/bash"]
-            .into_iter()
-            .find(|p| std::path::Path::new(p).exists());
-        let Some(bash) = bash else { return };
+        for bash in ["/opt/homebrew/bin/bash", "/bin/bash"] {
+            if std::path::Path::new(bash).exists() {
+                silent_cd_scenario(bash);
+            }
+        }
+    }
 
+    fn silent_cd_scenario(bash: &str) {
         let config = Config::default();
         let integration = crate::prompt::integration::setup(&config, bash);
         let Some(args) = integration.args_override.clone() else { return };
