@@ -147,3 +147,9 @@ The tree follows `cd` by polling the PTY's foreground process group cwd
   managers (AeroSpace, yabai) manage windows themselves, so tabs open as windows there —
   use splits instead.
 - Left/right Option can't be distinguished; `option_as_meta` treats `left`/`right` as `both`.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+Oxide builds on [GPUI](https://www.gpui.rs) and [`alacritty_terminal`](https://crates.io/crates/alacritty_terminal), both Apache-2.0.
