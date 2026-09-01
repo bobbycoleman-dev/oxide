@@ -49,8 +49,23 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-t", NewTab, Some("Root")),
         KeyBinding::new("ctrl-tab", SelectNextTab, Some("Root")),
         KeyBinding::new("ctrl-shift-tab", SelectPreviousTab, Some("Root")),
+        // macOS reports shifted punctuation as the shifted character, so
+        // shift-cmd-[ arrives as cmd-{ — bind both spellings.
         KeyBinding::new("shift-cmd-]", SelectNextTab, Some("Root")),
         KeyBinding::new("shift-cmd-[", SelectPreviousTab, Some("Root")),
+        KeyBinding::new("cmd-}", SelectNextTab, Some("Root")),
+        KeyBinding::new("cmd-{", SelectPreviousTab, Some("Root")),
+        KeyBinding::new("cmd-1", SelectTab1, Some("Root")),
+        KeyBinding::new("cmd-2", SelectTab2, Some("Root")),
+        KeyBinding::new("cmd-3", SelectTab3, Some("Root")),
+        KeyBinding::new("cmd-4", SelectTab4, Some("Root")),
+        KeyBinding::new("cmd-5", SelectTab5, Some("Root")),
+        KeyBinding::new("cmd-6", SelectTab6, Some("Root")),
+        KeyBinding::new("cmd-7", SelectTab7, Some("Root")),
+        KeyBinding::new("cmd-8", SelectTab8, Some("Root")),
+        KeyBinding::new("cmd-9", SelectTab9, Some("Root")),
+        // Workspaces panel (drawer, below the file tree).
+        KeyBinding::new("ctrl-w p", FocusWorkspaces, Some("Root")),
         KeyBinding::new("cmd-w", CloseWindow, Some("Root")),
         KeyBinding::new("cmd-a", SelectAll, Some("Root")),
         KeyBinding::new("cmd-m", Minimize, Some("Root")),
@@ -94,5 +109,20 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("d", TreeDelete, Some("FileTree")),
         // escape is a dismiss chain: clear filter/input first, else focus terminal.
         KeyBinding::new("escape", TreeEscape, Some("FileTree")),
+        // tab hops between the drawer's two panels.
+        KeyBinding::new("tab", FocusWorkspaces, Some("FileTree")),
+        // Workspaces panel — modeless like the tree; bare letters are free.
+        KeyBinding::new("j", WsDown, Some("Workspaces")),
+        KeyBinding::new("down", WsDown, Some("Workspaces")),
+        KeyBinding::new("k", WsUp, Some("Workspaces")),
+        KeyBinding::new("up", WsUp, Some("Workspaces")),
+        KeyBinding::new("enter", WsOpen, Some("Workspaces")),
+        KeyBinding::new("o", WsOpen, Some("Workspaces")),
+        KeyBinding::new("a", WsAdd, Some("Workspaces")),
+        KeyBinding::new("d", WsDelete, Some("Workspaces")),
+        KeyBinding::new("r", WsRename, Some("Workspaces")),
+        KeyBinding::new("p", WsTogglePersist, Some("Workspaces")),
+        KeyBinding::new("escape", WsEscape, Some("Workspaces")),
+        KeyBinding::new("tab", FocusTree, Some("Workspaces")),
     ]
 }

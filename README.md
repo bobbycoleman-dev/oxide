@@ -36,8 +36,13 @@ with a file-tree drawer you drive like vim and a status bar that knows where you
   individually overridable. Config reloads live.
 - **Split panes** — split in any direction and nest freely; navigation moves by what's
   on screen, and `exit` or `ctrl-w q` closes a pane and reclaims its space.
-- **Native tabs** — `cmd-t`, using real macOS window tabbing; new tabs start in the
-  current directory or `~/` (`window.new_tab_directory`).
+- **Tabs** — a Zed-style in-app tab bar, so tabs work everywhere (including under
+  tiling window managers). `cmd-t` opens one in the current directory or `~/`
+  (`window.new_tab_directory`); `cmd-1..9` jump straight to a tab.
+- **Workspaces** — named sets of tabs and splits, tmux-session style, managed from the
+  drawer below the file tree (`a` add, `r` rename, `d` delete, `p` pin). Temporary by
+  default; pinned ones survive restarts, restoring layout, tabs, splits, and each
+  pane's directory with fresh shells.
 - **The details** — window size/position persistence, `cmd-click` to open URLs, copy-on-select option, font size at runtime
   (`cmd +/-/0`), configurable bell, blinking cursor that pauses while you type.
 
@@ -79,7 +84,9 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 | `cmd-f` | search scrollback (`⏎` older, `⇧⏎` newer, `esc` close) |
 | `cmd-↑` / `cmd-↓` | jump to previous / next prompt |
 | `cmd-t` / `cmd-n` | new tab / new window |
+| `cmd-1..9` | jump to tab |
 | `⌃tab` / `⇧⌘[` `⇧⌘]` | previous / next tab |
+| `ctrl-w p` | focus the workspaces panel (`tab` toggles tree ↔ workspaces) |
 | `ctrl-w v` / `ctrl-w s` | split right / down (`⇧V` / `⇧S` for left / up) |
 | `cmd-d` / `cmd-shift-d` | split right / down |
 | `ctrl-w h` `j` `k` `l` | move between panes (`h` from the leftmost focuses the tree) |
@@ -100,6 +107,16 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 | `a` / `r` / `d` | add (`dir/` with trailing slash) / rename / delete to Trash |
 | `I` / `R` | toggle hidden / refresh |
 | `esc` | dismiss input → clear filter → back to terminal |
+
+**In the workspaces panel:**
+
+| Keys | Action |
+|---|---|
+| `j` / `k` | move selection |
+| `enter` / `o` | switch to workspace |
+| `a` / `r` / `d` | add / rename / delete (`y` confirms) |
+| `p` | pin — persist this workspace across restarts |
+| `esc` | dismiss input → back to terminal |
 
 ## Configuration
 
@@ -142,10 +159,9 @@ The tree follows `cd` by polling the PTY's foreground process group cwd
 
 - No IME / dead-key composition yet (two-stroke accents, CJK input).
 - Splits can't be resized yet; panes divide their space evenly.
-- `cmd-t` uses macOS window tabbing, which honours System Settings → Desktop & Dock →
-  "Prefer tabs when opening documents". Set it to *Always* for tabs; tiling window
-  managers (AeroSpace, yabai) manage windows themselves, so tabs open as windows there —
-  use splits instead.
+- Pinned workspaces restore layout and directories with fresh shells; running
+  programs can't survive a full quit (tmux only manages it because its server
+  never exits).
 - Left/right Option can't be distinguished; `option_as_meta` treats `left`/`right` as `both`.
 
 ## License

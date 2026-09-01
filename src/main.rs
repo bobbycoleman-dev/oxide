@@ -6,6 +6,7 @@ mod prompt;
 mod terminal;
 mod tree;
 mod update;
+mod workspaces;
 
 use gpui::{App, Application, Menu, MenuItem, SystemMenuType};
 
@@ -37,6 +38,7 @@ fn menus() -> Vec<Menu> {
             name: "File".into(),
             items: vec![
                 MenuItem::action("New Tab", NewTab),
+                MenuItem::action("New Workspace", NewWorkspace),
                 MenuItem::action("New Window", NewWindow),
                 MenuItem::separator(),
                 MenuItem::action("Split Right", SplitRight),
@@ -76,7 +78,6 @@ fn menus() -> Vec<Menu> {
             ],
         },
         Menu {
-            // macOS also injects its own tab items here once a tab group exists.
             name: "Window".into(),
             items: vec![
                 MenuItem::action("Minimize", Minimize),
@@ -84,8 +85,6 @@ fn menus() -> Vec<Menu> {
                 MenuItem::separator(),
                 MenuItem::action("Show Next Tab", SelectNextTab),
                 MenuItem::action("Show Previous Tab", SelectPreviousTab),
-                MenuItem::action("Move Tab to New Window", MoveTabToNewWindow),
-                MenuItem::action("Merge All Windows", MergeAllWindows),
             ],
         },
         Menu {
@@ -108,7 +107,7 @@ fn main() {
     // nothing further to check — a closed handle can linger in cx.windows().
     app.on_reopen(|cx| {
         let (config, error) = config::load();
-        app::open_oxide_window(config, error, None, cx);
+        app::open_oxide_window(config, error, None, true, cx);
     });
     app.run(move |cx: &mut App| {
         cx.bind_keys(keymap::default::bindings());
@@ -124,7 +123,7 @@ fn main() {
         cx.on_action(|_: &NewWindow, cx| {
             if cx.windows().is_empty() {
                 let (config, error) = config::load();
-                app::open_oxide_window(config, error, None, cx);
+                app::open_oxide_window(config, error, None, false, cx);
             }
         });
         cx.on_action(|_: &OpenHelp, cx| cx.open_url(&format!("{REPO_URL}#readme")));
@@ -134,6 +133,6 @@ fn main() {
 
 
 
-        app::open_oxide_window(config, config_error, None, cx);
+        app::open_oxide_window(config, config_error, None, true, cx);
     });
 }

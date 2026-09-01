@@ -7,7 +7,8 @@
 //! repeated splits in the same direction stay evenly sized (like tmux)
 //! instead of halving each time.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Axis {
     /// Children sit side by side.
     Horizontal,
@@ -37,7 +38,8 @@ impl Direction {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Node<T> {
     Leaf(T),
     Split { axis: Axis, children: Vec<Node<T>> },
@@ -67,6 +69,18 @@ impl<T: PartialEq + Clone> Node<T> {
 
     pub fn len(&self) -> usize {
         self.leaves().len()
+    }
+
+    /// Rebuild the tree with every leaf transformed — used to swap pane ids
+    /// for saved directories (and back) during workspace persistence.
+    pub fn map<U: PartialEq + Clone>(&self, f: &mut impl FnMut(&T) -> U) -> Node<U> {
+        match self {
+            Node::Leaf(id) => Node::Leaf(f(id)),
+            Node::Split { axis, children } => Node::Split {
+                axis: *axis,
+                children: children.iter().map(|c| c.map(f)).collect(),
+            },
+        }
     }
 
     /// Split `target` along `direction`, inserting `new_leaf`.

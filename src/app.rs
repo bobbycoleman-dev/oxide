@@ -17,17 +17,46 @@ use crate::terminal::colors::blend;
 use crate::terminal::{TerminalEvent, TerminalPane};
 use crate::panes::{Direction, Node};
 use crate::tree::{FileTree, TreeEvent};
+use crate::workspaces::{SavedTab, SavedWorkspace};
 
 pub type PaneId = u64;
+
+/// One tab: a split tree of panes and which of them is focused.
+struct TabState {
+    layout: Node<PaneId>,
+    active: PaneId,
+}
+
+/// A named collection of tabs — the tmux-session analogue. Temporary by
+/// default; `persist` opts it into surviving restarts (layout + directories,
+/// fresh shells).
+struct Workspace {
+    name: String,
+    persist: bool,
+    tabs: Vec<TabState>,
+    active_tab: usize,
+}
+
+/// Input modes for the workspaces panel footer, mirroring the file tree's.
+enum WsInput {
+    Add { buffer: String },
+    Rename { buffer: String },
+    ConfirmDelete,
+}
 
 pub struct Oxide {
     config: Rc<Config>,
     theme: Rc<Theme>,
     tree: gpui::Entity<FileTree>,
-    /// Split layout. Leaves index into `panes`.
-    layout: Node<PaneId>,
+    workspaces: Vec<Workspace>,
+    active_ws: usize,
+    /// Cursor row in the workspaces panel (may differ from `active_ws`).
+    ws_selected: usize,
+    ws_focus: FocusHandle,
+    ws_input: Option<WsInput>,
+    next_ws_number: usize,
+    /// Every live pane across all workspaces and tabs.
     panes: HashMap<PaneId, gpui::Entity<TerminalPane>>,
-    active: PaneId,
     next_pane_id: PaneId,
     pane_subscriptions: HashMap<PaneId, Subscription>,
     drawer_visible: bool,
@@ -121,6 +150,7 @@ impl Oxide {
         config: Config,
         config_error: Option<String>,
         cwd_override: Option<PathBuf>,
+        restore: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -136,20 +166,10 @@ impl Oxide {
             .or_else(home_dir)
             .unwrap_or_else(|| PathBuf::from("/"));
 
-        let terminal = cx.new(|cx| {
-            TerminalPane::new(config.clone(), theme.clone(), cwd.clone(), cx)
-        });
-        let tree = cx.new(|cx| FileTree::new(cwd, config.clone(), theme.clone(), cx));
+        let tree = cx.new(|cx| FileTree::new(cwd.clone(), config.clone(), theme.clone(), cx));
 
         let mut subscriptions = Vec::new();
         subscriptions.push(cx.subscribe_in(&tree, window, Self::on_tree_event));
-
-        const FIRST_PANE: PaneId = 0;
-        let mut panes = HashMap::new();
-        panes.insert(FIRST_PANE, terminal.clone());
-        let mut pane_subscriptions = HashMap::new();
-        pane_subscriptions
-            .insert(FIRST_PANE, cx.subscribe_in(&terminal, window, Self::on_terminal_event));
 
         // Live config reload.
         let mut config_watcher = None;
@@ -165,8 +185,6 @@ impl Oxide {
             })
             .detach();
         }
-
-        window.focus(&terminal.focus_handle(cx));
 
         // Periodic git refresh for the status bar.
         cx.spawn(async move |this, cx| {
@@ -189,11 +207,15 @@ impl Oxide {
             config,
             theme,
             tree,
-            layout: Node::leaf(FIRST_PANE),
-            panes,
-            active: FIRST_PANE,
-            next_pane_id: FIRST_PANE + 1,
-            pane_subscriptions,
+            workspaces: Vec::new(),
+            active_ws: 0,
+            ws_selected: 0,
+            ws_focus: cx.focus_handle(),
+            ws_input: None,
+            next_ws_number: 1,
+            panes: HashMap::new(),
+            next_pane_id: 0,
+            pane_subscriptions: HashMap::new(),
             drawer_visible: true,
             banner: config_error,
             banner_generation: 0,
@@ -207,6 +229,7 @@ impl Oxide {
             _config_watcher: config_watcher,
             _subscriptions: subscriptions,
         };
+        this.bootstrap_workspaces(cwd, restore, window, cx);
         this.refresh_git_status(cx);
 
         // Auto-check for updates: installed bundles only (not cargo run),
@@ -342,11 +365,64 @@ impl Oxide {
         }
     }
 
+    fn ws(&self) -> &Workspace {
+        &self.workspaces[self.active_ws]
+    }
+
+    fn ws_mut(&mut self) -> &mut Workspace {
+        let ix = self.active_ws;
+        &mut self.workspaces[ix]
+    }
+
+    fn tab(&self) -> &TabState {
+        let ws = self.ws();
+        &ws.tabs[ws.active_tab]
+    }
+
+    fn tab_mut(&mut self) -> &mut TabState {
+        let ws = self.ws_mut();
+        let ix = ws.active_tab;
+        &mut ws.tabs[ix]
+    }
+
+    fn active_id(&self) -> PaneId {
+        self.tab().active
+    }
+
     fn active_pane(&self) -> gpui::Entity<TerminalPane> {
         self.panes
-            .get(&self.active)
+            .get(&self.active_id())
             .cloned()
             .expect("active pane id is always present in the pane map")
+    }
+
+    fn create_pane(&mut self, cwd: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> PaneId {
+        let id = self.next_pane_id;
+        self.next_pane_id += 1;
+        let (config, theme) = (self.config.clone(), self.theme.clone());
+        let pane = cx.new(|cx| TerminalPane::new(config, theme, cwd, cx));
+        let subscription = cx.subscribe_in(&pane, window, Self::on_terminal_event);
+        self.panes.insert(id, pane);
+        self.pane_subscriptions.insert(id, subscription);
+        id
+    }
+
+    fn drop_pane(&mut self, id: PaneId) {
+        self.panes.remove(&id);
+        self.pane_subscriptions.remove(&id);
+    }
+
+    /// Which (workspace, tab) owns this pane — panes in background tabs can
+    /// still exit and need to be removed from wherever they live.
+    fn locate_pane(&self, id: PaneId) -> Option<(usize, usize)> {
+        for (wi, ws) in self.workspaces.iter().enumerate() {
+            for (ti, tab) in ws.tabs.iter().enumerate() {
+                if tab.layout.leaves().contains(&id) {
+                    return Some((wi, ti));
+                }
+            }
+        }
+        None
     }
 
     fn pane_bounds(&self, id: PaneId, cx: &Context<Self>) -> Option<gpui::Bounds<gpui::Pixels>> {
@@ -356,14 +432,14 @@ impl Oxide {
     /// Nearest pane in `direction`, chosen geometrically so navigation follows
     /// what is on screen rather than the shape of the split tree.
     fn pane_in_direction(&self, direction: Direction, cx: &Context<Self>) -> Option<PaneId> {
-        let current = self.pane_bounds(self.active, cx)?;
+        let current = self.pane_bounds(self.active_id(), cx)?;
         let (cx0, cy0) = (
             f32::from(current.origin.x) + f32::from(current.size.width) / 2.0,
             f32::from(current.origin.y) + f32::from(current.size.height) / 2.0,
         );
         let mut best: Option<(f32, PaneId)> = None;
-        for id in self.layout.leaves() {
-            if id == self.active {
+        for id in self.tab().layout.leaves() {
+            if id == self.active_id() {
                 continue;
             }
             let Some(b) = self.pane_bounds(id, cx) else { continue };
@@ -407,8 +483,8 @@ impl Oxide {
     }
 
     fn focus_pane(&mut self, id: PaneId, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(pane) = self.panes.get(&id) {
-            self.active = id;
+        if let Some(pane) = self.panes.get(&id).cloned() {
+            self.tab_mut().active = id;
             window.focus(&pane.focus_handle(cx));
             self.sync_tree_to_active(cx);
             cx.notify();
@@ -421,9 +497,9 @@ impl Oxide {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.tree_focus(cx).is_focused(window) {
+        if self.tree_focus(cx).is_focused(window) || self.ws_focus.is_focused(window) {
             if direction == Direction::Right {
-                let id = self.active;
+                let id = self.active_id();
                 self.focus_pane(id, window, cx);
             }
             return;
@@ -444,46 +520,114 @@ impl Oxide {
             .clone()
             .or_else(home_dir)
             .unwrap_or_else(|| PathBuf::from("/"));
-        let id = self.next_pane_id;
-        self.next_pane_id += 1;
-
-        let (config, theme) = (self.config.clone(), self.theme.clone());
-        let pane = cx.new(|cx| TerminalPane::new(config, theme, cwd, cx));
-        let subscription = cx.subscribe_in(&pane, window, Self::on_terminal_event);
-        self.panes.insert(id, pane);
-        self.pane_subscriptions.insert(id, subscription);
-
-        let target = self.active;
-        self.layout.split(&target, direction, id);
+        let id = self.create_pane(cwd, window, cx);
+        let target = self.active_id();
+        self.tab_mut().layout.split(&target, direction, id);
         self.focus_pane(id, window, cx);
+        self.save_workspaces(cx);
     }
 
-    /// Close a pane. Returns false when it is the last one, leaving the
-    /// caller to decide whether that means closing the window.
+    /// Close a pane wherever it lives, cascading upward: the last pane closes
+    /// its tab, the last tab closes its workspace. Returns false only when
+    /// this was the last pane of the last tab of the last workspace — the
+    /// caller decides whether that closes the window.
     fn close_pane(&mut self, id: PaneId, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if self.layout.len() <= 1 {
-            return false;
-        }
-        let before = self.layout.leaves();
-        if !self.layout.remove(&id) {
-            return false;
-        }
-        self.panes.remove(&id);
-        self.pane_subscriptions.remove(&id);
+        let Some((wix, tix)) = self.locate_pane(id) else { return true };
+        let tab = &mut self.workspaces[wix].tabs[tix];
 
-        if self.active == id {
-            // Focus whatever took its place, falling back to the new last pane.
-            let ix = before.iter().position(|l| *l == id).unwrap_or(0);
-            let remaining = self.layout.leaves();
-            let next = remaining
-                .get(ix.min(remaining.len().saturating_sub(1)))
-                .copied();
-            if let Some(next) = next {
+        if tab.layout.len() > 1 {
+            let before = tab.layout.leaves();
+            tab.layout.remove(&id);
+            if tab.active == id {
+                let ix = before.iter().position(|l| *l == id).unwrap_or(0);
+                let remaining = tab.layout.leaves();
+                tab.active = remaining[ix.min(remaining.len() - 1)];
+            }
+            self.drop_pane(id);
+            if wix == self.active_ws && tix == self.ws().active_tab {
+                let next = self.active_id();
+                self.focus_pane(next, window, cx);
+            }
+            self.save_workspaces(cx);
+            cx.notify();
+            return true;
+        }
+
+        // Last pane in its tab: the tab goes with it.
+        if self.workspaces[wix].tabs.len() > 1 {
+            self.close_tab_at(wix, tix, window, cx);
+            return true;
+        }
+
+        // Last tab too: the workspace goes with it.
+        if self.workspaces.len() > 1 {
+            self.remove_workspace_at(wix, window, cx);
+            return true;
+        }
+        false
+    }
+
+    /// Remove a whole tab (all its panes). Callers guarantee the workspace
+    /// keeps at least one tab.
+    fn close_tab_at(&mut self, wix: usize, tix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let was_active_tab = wix == self.active_ws && tix == self.workspaces[wix].active_tab;
+        let tab = self.workspaces[wix].tabs.remove(tix);
+        for pid in tab.layout.leaves() {
+            self.drop_pane(pid);
+        }
+        let ws = &mut self.workspaces[wix];
+        if ws.active_tab >= ws.tabs.len() {
+            ws.active_tab = ws.tabs.len() - 1;
+        } else if tix < ws.active_tab {
+            ws.active_tab -= 1;
+        }
+        if was_active_tab {
+            let next = self.active_id();
+            self.focus_pane(next, window, cx);
+        }
+        self.save_workspaces(cx);
+        cx.notify();
+    }
+
+    /// Remove a workspace and everything in it. Deleting the only workspace
+    /// swaps in a fresh default so the window never ends up empty.
+    fn remove_workspace_at(&mut self, wix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let was_active = wix == self.active_ws;
+        if self.workspaces.len() == 1 {
+            let cwd = home_dir().unwrap_or_else(|| PathBuf::from("/"));
+            let id = self.create_pane(cwd, window, cx);
+            let name = self.next_ws_name();
+            let fresh = Workspace {
+                name,
+                persist: false,
+                tabs: vec![TabState { layout: Node::leaf(id), active: id }],
+                active_tab: 0,
+            };
+            let old = std::mem::replace(&mut self.workspaces[0], fresh);
+            for pid in old.tabs.iter().flat_map(|t| t.layout.leaves()) {
+                self.drop_pane(pid);
+            }
+            self.active_ws = 0;
+            self.ws_selected = 0;
+            self.focus_pane(id, window, cx);
+        } else {
+            let old = self.workspaces.remove(wix);
+            for pid in old.tabs.iter().flat_map(|t| t.layout.leaves()) {
+                self.drop_pane(pid);
+            }
+            if self.active_ws >= self.workspaces.len() {
+                self.active_ws = self.workspaces.len() - 1;
+            } else if wix < self.active_ws {
+                self.active_ws -= 1;
+            }
+            self.ws_selected = self.ws_selected.min(self.workspaces.len() - 1);
+            if was_active {
+                let next = self.active_id();
                 self.focus_pane(next, window, cx);
             }
         }
+        self.save_workspaces(cx);
         cx.notify();
-        true
     }
 
     fn render_pane_node(
@@ -500,7 +644,7 @@ impl Oxide {
                 };
                 let focused = pane.focus_handle(cx).is_focused(window);
                 // Only mark the active pane when there is a choice to make.
-                let show_ring = focused && (self.layout.len() > 1 || self.drawer_visible);
+                let show_ring = focused && (self.tab().layout.len() > 1 || self.drawer_visible);
                 div()
                     .size_full()
                     .overflow_hidden()
@@ -695,7 +839,7 @@ impl Oxide {
                 // should move the tree or the status bar.
                 let is_active = self
                     .panes
-                    .get(&self.active)
+                    .get(&self.active_id())
                     .is_some_and(|p| p.entity_id() == emitter.entity_id());
                 if is_active {
                     if self.config.tree.follow_cwd {
@@ -704,6 +848,9 @@ impl Oxide {
                     }
                     self.refresh_git_status(cx);
                 }
+                // Any pane's cd changes what a persisted workspace should
+                // restore to, focused or not.
+                self.save_workspaces(cx);
             }
         }
     }
@@ -924,19 +1071,502 @@ impl Oxide {
             )
     }
 
-    /// Move to the next/previous native tab in this window's tab group.
-    fn cycle_tab(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(tabs) = window.tabbed_windows() else { return };
-        if tabs.len() < 2 {
+    // --- Tabs ---
+
+    fn tab_title(&self, tab: &TabState, cx: &Context<Self>) -> String {
+        let Some(pane) = self.panes.get(&tab.active) else { return "shell".into() };
+        let cwd = pane.read(cx).cwd.clone();
+        match cwd {
+            Some(p) => {
+                if home_dir().is_some_and(|h| h == p) {
+                    "~".into()
+                } else {
+                    p.file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "/".into())
+                }
+            }
+            None => "shell".into(),
+        }
+    }
+
+    fn new_tab_cwd(&self, cx: &Context<Self>) -> PathBuf {
+        match self.config.window.new_tab_directory {
+            crate::config::schema::NewTabDirectory::Home => home_dir(),
+            crate::config::schema::NewTabDirectory::Pwd => {
+                self.active_pane().read(cx).cwd.clone().or_else(home_dir)
+            }
+        }
+        .unwrap_or_else(|| PathBuf::from("/"))
+    }
+
+    fn new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let cwd = self.new_tab_cwd(cx);
+        let id = self.create_pane(cwd, window, cx);
+        let ws = self.ws_mut();
+        ws.tabs.push(TabState { layout: Node::leaf(id), active: id });
+        ws.active_tab = ws.tabs.len() - 1;
+        self.focus_pane(id, window, cx);
+        self.save_workspaces(cx);
+    }
+
+    fn select_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if ix >= self.ws().tabs.len() {
             return;
         }
-        let current = window.window_handle().window_id();
-        let Some(ix) = tabs.iter().position(|t| t.id == current) else { return };
-        let next = (ix as isize + delta).rem_euclid(tabs.len() as isize) as usize;
-        let handle = tabs[next].handle;
-        cx.defer(move |cx| {
-            handle.update(cx, |_, window, _| window.activate_window()).ok();
+        self.ws_mut().active_tab = ix;
+        let id = self.active_id();
+        self.focus_pane(id, window, cx);
+        self.save_workspaces(cx);
+    }
+
+    /// Move to the next/previous tab in the active workspace.
+    fn cycle_tab(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
+        let n = self.ws().tabs.len();
+        if n < 2 {
+            return;
+        }
+        let ix = (self.ws().active_tab as isize + delta).rem_euclid(n as isize) as usize;
+        self.select_tab(ix, window, cx);
+    }
+
+    fn render_tab_bar(&self, window: &Window, cx: &Context<Self>) -> gpui::Div {
+        let theme = &self.theme;
+        let bar_bg = blend(theme.background, gpui::black(), 0.25);
+        let dim = blend(theme.foreground, theme.background, 0.45);
+        let border = blend(theme.foreground, theme.background, 0.85);
+        let _ = window;
+
+        let mut bar = div()
+            .flex_none()
+            .h(px(30.0))
+            .flex()
+            .flex_row()
+            .items_center()
+            .bg(bar_bg)
+            .border_b_1()
+            .border_color(border)
+            .text_size(px(12.0));
+
+        for (ix, tab) in self.ws().tabs.iter().enumerate() {
+            let is_active = ix == self.ws().active_tab;
+            let title = self.tab_title(tab, cx);
+            let close_target = tab.active;
+            bar = bar.child(
+                div()
+                    .id(("tab", ix))
+                    .h_full()
+                    .px_3()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .border_r_1()
+                    .border_color(border)
+                    .cursor_pointer()
+                    .when(is_active, |d| d.bg(theme.background).text_color(theme.foreground))
+                    .when(!is_active, |d| d.text_color(dim))
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _: &gpui::MouseDownEvent, window, cx| {
+                            this.select_tab(ix, window, cx);
+                        }),
+                    )
+                    .child(title)
+                    .child(
+                        div()
+                            .id(("tab-close", ix))
+                            .text_color(dim)
+                            .cursor_pointer()
+                            .on_mouse_down(
+                                gpui::MouseButton::Left,
+                                cx.listener(move |this, _: &gpui::MouseDownEvent, window, cx| {
+                                    cx.stop_propagation();
+                                    // Closing a tab closes every pane in it;
+                                    // close_pane cascades from its active pane
+                                    // only when it's the last one, so close
+                                    // the whole tab explicitly.
+                                    if let Some((wix, tix)) = this.locate_pane(close_target) {
+                                        if this.workspaces[wix].tabs.len() > 1 {
+                                            this.close_tab_at(wix, tix, window, cx);
+                                        } else if !this.close_pane(close_target, window, cx) {
+                                            window.remove_window();
+                                        }
+                                    }
+                                }),
+                            )
+                            .child("×"),
+                    ),
+            );
+        }
+
+        bar.child(
+            div()
+                .id("tab-add")
+                .px_3()
+                .h_full()
+                .flex()
+                .items_center()
+                .text_color(dim)
+                .cursor_pointer()
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(|this, _: &gpui::MouseDownEvent, window, cx| {
+                        this.new_tab(window, cx);
+                    }),
+                )
+                .child("+"),
+        )
+    }
+
+    // --- Workspaces ---
+
+    fn next_ws_name(&mut self) -> String {
+        let n = self.next_ws_number;
+        self.next_ws_number += 1;
+        format!("workspace {n}")
+    }
+
+    fn new_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // A workspace is a fresh context, not a continuation of the current
+        // one — unlike new tabs, it always starts at home rather than
+        // inheriting the focused pane's directory.
+        let cwd = home_dir().unwrap_or_else(|| PathBuf::from("/"));
+        let id = self.create_pane(cwd, window, cx);
+        let name = self.next_ws_name();
+        self.workspaces.push(Workspace {
+            name,
+            persist: false,
+            tabs: vec![TabState { layout: Node::leaf(id), active: id }],
+            active_tab: 0,
         });
+        self.active_ws = self.workspaces.len() - 1;
+        self.ws_selected = self.active_ws;
+        self.focus_pane(id, window, cx);
+        self.save_workspaces(cx);
+    }
+
+    fn select_workspace(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if ix >= self.workspaces.len() {
+            return;
+        }
+        self.active_ws = ix;
+        self.ws_selected = ix;
+        let id = self.active_id();
+        self.focus_pane(id, window, cx);
+    }
+
+    /// Serialize every persist-flagged workspace: the split trees with pane
+    /// ids swapped for their shells' current directories.
+    fn save_workspaces(&self, cx: &Context<Self>) {
+        let saved: Vec<SavedWorkspace> = self
+            .workspaces
+            .iter()
+            .filter(|w| w.persist)
+            .map(|w| SavedWorkspace {
+                name: w.name.clone(),
+                active_tab: w.active_tab,
+                tabs: w
+                    .tabs
+                    .iter()
+                    .map(|t| {
+                        let layout = t.layout.map(&mut |id| {
+                            self.panes
+                                .get(id)
+                                .and_then(|p| p.read(cx).cwd.clone())
+                                .or_else(home_dir)
+                                .unwrap_or_else(|| PathBuf::from("/"))
+                        });
+                        let active = t
+                            .layout
+                            .leaves()
+                            .iter()
+                            .position(|l| *l == t.active)
+                            .unwrap_or(0);
+                        SavedTab { layout, active }
+                    })
+                    .collect(),
+            })
+            .collect();
+        crate::workspaces::save(&saved);
+    }
+
+    /// First-run state: restore persisted workspaces (fresh shells in their
+    /// saved directories) or create the default "workspace 1".
+    fn bootstrap_workspaces(
+        &mut self,
+        initial_cwd: PathBuf,
+        restore: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if restore {
+            for saved in crate::workspaces::load() {
+                let mut tabs = Vec::new();
+                for st in &saved.tabs {
+                    let layout = st.layout.map(&mut |cwd| self.create_pane(cwd.clone(), window, cx));
+                    let leaves = layout.leaves();
+                    let active = leaves.get(st.active).copied().unwrap_or(leaves[0]);
+                    tabs.push(TabState { layout, active });
+                }
+                let active_tab = saved.active_tab.min(tabs.len() - 1);
+                self.workspaces.push(Workspace {
+                    name: saved.name,
+                    persist: true,
+                    tabs,
+                    active_tab,
+                });
+            }
+            for w in &self.workspaces {
+                if let Some(n) = w.name.strip_prefix("workspace ").and_then(|r| r.parse::<usize>().ok()) {
+                    self.next_ws_number = self.next_ws_number.max(n + 1);
+                }
+            }
+        }
+        if self.workspaces.is_empty() {
+            let id = self.create_pane(initial_cwd, window, cx);
+            let name = self.next_ws_name();
+            self.workspaces.push(Workspace {
+                name,
+                persist: false,
+                tabs: vec![TabState { layout: Node::leaf(id), active: id }],
+                active_tab: 0,
+            });
+        }
+        self.active_ws = 0;
+        self.ws_selected = 0;
+        let id = self.active_id();
+        self.focus_pane(id, window, cx);
+    }
+
+    fn focus_workspaces_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.drawer_visible = true;
+        self.ws_selected = self.active_ws;
+        window.focus(&self.ws_focus);
+        cx.notify();
+    }
+
+    fn on_ws_key_down(&mut self, event: &gpui::KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(mut input) = self.ws_input.take() else { return };
+        let ks = &event.keystroke;
+        let key_char = ks.key_char.clone();
+        let plain = !ks.modifiers.platform && !ks.modifiers.control;
+        match &mut input {
+            WsInput::Add { buffer } => match ks.key.as_str() {
+                "escape" => {}
+                "enter" => {
+                    let name = buffer.trim().to_string();
+                    if !name.is_empty() {
+                        self.new_workspace(window, cx);
+                        self.ws_mut().name = name;
+                        self.save_workspaces(cx);
+                    }
+                }
+                "backspace" => {
+                    buffer.pop();
+                    self.ws_input = Some(input);
+                }
+                _ => {
+                    if plain && let Some(c) = key_char {
+                        buffer.push_str(&c);
+                    }
+                    self.ws_input = Some(input);
+                }
+            },
+            WsInput::Rename { buffer } => match ks.key.as_str() {
+                "escape" => {}
+                "enter" => {
+                    let name = buffer.trim().to_string();
+                    if !name.is_empty()
+                        && let Some(ws) = self.workspaces.get_mut(self.ws_selected)
+                    {
+                        ws.name = name;
+                        self.save_workspaces(cx);
+                    }
+                }
+                "backspace" => {
+                    buffer.pop();
+                    self.ws_input = Some(input);
+                }
+                _ => {
+                    if plain && let Some(c) = key_char {
+                        buffer.push_str(&c);
+                    }
+                    self.ws_input = Some(input);
+                }
+            },
+            WsInput::ConfirmDelete => match ks.key.as_str() {
+                "y" => {
+                    let ix = self.ws_selected;
+                    self.remove_workspace_at(ix, window, cx);
+                }
+                _ => {} // anything but y cancels
+            },
+        }
+        cx.stop_propagation();
+        cx.notify();
+    }
+
+    fn ws_footer_text(&self) -> Option<String> {
+        match &self.ws_input {
+            Some(WsInput::Add { buffer }) => Some(format!("new: {buffer}▏")),
+            Some(WsInput::Rename { buffer }) => Some(format!("rename: {buffer}▏")),
+            Some(WsInput::ConfirmDelete) => {
+                let name = self
+                    .workspaces
+                    .get(self.ws_selected)
+                    .map(|w| w.name.clone())
+                    .unwrap_or_default();
+                Some(format!("delete {name}? (y/n)"))
+            }
+            None => None,
+        }
+    }
+
+    fn render_workspace_panel(&self, window: &Window, cx: &Context<Self>) -> gpui::Div {
+        let theme = &self.theme;
+        let focused = self.ws_focus.is_focused(window);
+        let accent = theme.ansi[4];
+        let dim = blend(theme.foreground, theme.background, 0.45);
+        let border = blend(theme.foreground, theme.background, 0.85);
+
+        let mut list = div().flex_1().min_h_0().flex().flex_col().overflow_hidden();
+        for (ix, w) in self.workspaces.iter().enumerate() {
+            let is_active = ix == self.active_ws;
+            let is_selected = focused && ix == self.ws_selected;
+            let mut selection_bg = theme.selection_bg;
+            if !focused {
+                selection_bg.a = 0.45;
+            }
+            let mut active_bg = accent;
+            active_bg.a = 0.16;
+            list = list.child(
+                div()
+                    .id(("workspace", ix))
+                    .flex_none()
+                    .h(px(26.0))
+                    .mx_2()
+                    .my_0p5()
+                    .px_2()
+                    .rounded_md()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .cursor_pointer()
+                    .when(is_active, |d| d.bg(active_bg).text_color(theme.foreground))
+                    .when(!is_active, |d| d.text_color(dim))
+                    .when(is_selected, |d| d.bg(selection_bg))
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _: &gpui::MouseDownEvent, window, cx| {
+                            this.select_workspace(ix, window, cx);
+                        }),
+                    )
+                    .child(div().flex_1().overflow_hidden().child(w.name.clone()))
+                    .when(w.persist, |d| {
+                        // Pin: this workspace survives restarts.
+                        d.child(div().flex_none().text_color(accent).child("\u{f08d}"))
+                    }),
+            );
+        }
+
+        div()
+            .key_context(if self.ws_input.is_some() { "WorkspacesInput" } else { "Workspaces" })
+            .track_focus(&self.ws_focus)
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .text_size(px(13.0))
+            .on_key_down(cx.listener(Self::on_ws_key_down))
+            .on_action(cx.listener(|this, _: &WsDown, _w, cx| {
+                if !this.workspaces.is_empty() {
+                    this.ws_selected = (this.ws_selected + 1).min(this.workspaces.len() - 1);
+                    cx.notify();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &WsUp, _w, cx| {
+                this.ws_selected = this.ws_selected.saturating_sub(1);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &WsOpen, window, cx| {
+                let ix = this.ws_selected;
+                this.select_workspace(ix, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &WsAdd, _w, cx| {
+                this.ws_input = Some(WsInput::Add { buffer: String::new() });
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &WsDelete, _w, cx| {
+                this.ws_input = Some(WsInput::ConfirmDelete);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &WsRename, _w, cx| {
+                let buffer = this
+                    .workspaces
+                    .get(this.ws_selected)
+                    .map(|w| w.name.clone())
+                    .unwrap_or_default();
+                this.ws_input = Some(WsInput::Rename { buffer });
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &WsTogglePersist, _w, cx| {
+                if let Some(ws) = this.workspaces.get_mut(this.ws_selected) {
+                    ws.persist = !ws.persist;
+                    this.save_workspaces(cx);
+                    cx.notify();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &WsEscape, window, cx| {
+                if this.ws_input.is_some() {
+                    this.ws_input = None;
+                    cx.notify();
+                } else {
+                    this.focus_terminal(Some(window), cx);
+                }
+            }))
+            .child(
+                div()
+                    .flex_none()
+                    .px_3()
+                    .py_1p5()
+                    .border_t_1()
+                    .border_b_1()
+                    .border_color(border)
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .text_color(blend(theme.foreground, theme.background, 0.3))
+                    .child(div().flex_1().child("Workspaces"))
+                    .child(
+                        div()
+                            .id("ws-add")
+                            .px_1()
+                            .text_color(dim)
+                            .cursor_pointer()
+                            .on_mouse_down(
+                                gpui::MouseButton::Left,
+                                cx.listener(|this, _: &gpui::MouseDownEvent, window, cx| {
+                                    this.new_workspace(window, cx);
+                                }),
+                            )
+                            .child("+"),
+                    ),
+            )
+            .child(list)
+            .when_some(self.ws_footer_text(), |d, text| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .px_3()
+                        .py_1()
+                        .border_t_1()
+                        .border_color(border)
+                        .text_color(theme.ansi[3])
+                        .child(text),
+                )
+            })
     }
 
     fn render_status_bar(&self, cx: &Context<Self>) -> gpui::Div {
@@ -975,6 +1605,20 @@ impl Oxide {
             .bg(bar_bg)
             .text_size(px(12.0))
             .text_color(dim)
+            .child({
+                // Which workspace you're in, next to the directory.
+                let accent = theme.ansi[4];
+                let mut chip_bg = accent;
+                chip_bg.a = 0.16;
+                div()
+                    .flex_none()
+                    .px_2()
+                    .py_0p5()
+                    .rounded_sm()
+                    .bg(chip_bg)
+                    .text_color(accent)
+                    .child(self.ws().name.clone())
+            })
             .child(
                 div()
                     .flex()
@@ -1024,6 +1668,7 @@ pub fn open_oxide_window(
     config: Config,
     config_error: Option<String>,
     cwd: Option<PathBuf>,
+    restore: bool,
     cx: &mut gpui::App,
 ) {
     let window_background = if config.window.opacity < 1.0 {
@@ -1058,11 +1703,9 @@ pub fn open_oxide_window(
             focus: true,
             window_background,
             window_min_size: Some(gpui::size(px(400.0), px(300.0))),
-            // Windows sharing an identifier are grouped into native macOS tabs.
-            tabbing_identifier: Some("dev.bobbycoleman.oxide".into()),
             ..Default::default()
         },
-        |window, cx| cx.new(|cx| Oxide::new(config, config_error, cwd, window, cx)),
+        |window, cx| cx.new(|cx| Oxide::new(config, config_error, cwd, restore, window, cx)),
     )
     .expect("failed to open window");
     cx.activate(true);
@@ -1074,15 +1717,15 @@ impl Render for Oxide {
         // is the common case — so adopt whatever is actually focused before
         // anything reads `active`. Otherwise close/split/status-bar all act on
         // a stale pane. Focus on the drawer leaves the last active pane alone.
-        let focused_pane = self.layout.leaves().into_iter().find(|id| {
+        let focused_pane = self.tab().layout.leaves().into_iter().find(|id| {
             self.panes
                 .get(id)
                 .is_some_and(|p| p.focus_handle(cx).is_focused(window))
         });
         if let Some(id) = focused_pane
-            && self.active != id
+            && self.active_id() != id
         {
-            self.active = id;
+            self.tab_mut().active = id;
             self.sync_tree_to_active(cx);
         }
 
@@ -1150,17 +1793,16 @@ impl Render for Oxide {
             .on_action(cx.listener(|this, _: &NewWindow, _w, cx| {
                 let cwd = this.active_pane().read(cx).cwd.clone();
                 let (config, error) = config::load();
-                open_oxide_window(config, error, cwd, cx);
+                open_oxide_window(config, error, cwd, false, cx);
             }))
-            .on_action(cx.listener(|this, _: &NewTab, _w, cx| {
-                let cwd = match this.config.window.new_tab_directory {
-                    crate::config::schema::NewTabDirectory::Home => home_dir(),
-                    crate::config::schema::NewTabDirectory::Pwd => {
-                        this.active_pane().read(cx).cwd.clone().or_else(home_dir)
-                    }
-                };
-                let (config, error) = config::load();
-                open_oxide_window(config, error, cwd, cx);
+            .on_action(cx.listener(|this, _: &NewTab, window, cx| {
+                this.new_tab(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &NewWorkspace, window, cx| {
+                this.new_workspace(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &FocusWorkspaces, window, cx| {
+                this.focus_workspaces_panel(window, cx);
             }))
             .on_action(cx.listener(|this, _: &SelectNextTab, window, cx| {
                 this.cycle_tab(1, window, cx);
@@ -1168,8 +1810,15 @@ impl Render for Oxide {
             .on_action(cx.listener(|this, _: &SelectPreviousTab, window, cx| {
                 this.cycle_tab(-1, window, cx);
             }))
-            .on_action(|_: &MergeAllWindows, window, _cx| window.merge_all_windows())
-            .on_action(|_: &MoveTabToNewWindow, window, _cx| window.move_tab_to_new_window())
+            .on_action(cx.listener(|this, _: &SelectTab1, window, cx| this.select_tab(0, window, cx)))
+            .on_action(cx.listener(|this, _: &SelectTab2, window, cx| this.select_tab(1, window, cx)))
+            .on_action(cx.listener(|this, _: &SelectTab3, window, cx| this.select_tab(2, window, cx)))
+            .on_action(cx.listener(|this, _: &SelectTab4, window, cx| this.select_tab(3, window, cx)))
+            .on_action(cx.listener(|this, _: &SelectTab5, window, cx| this.select_tab(4, window, cx)))
+            .on_action(cx.listener(|this, _: &SelectTab6, window, cx| this.select_tab(5, window, cx)))
+            .on_action(cx.listener(|this, _: &SelectTab7, window, cx| this.select_tab(6, window, cx)))
+            .on_action(cx.listener(|this, _: &SelectTab8, window, cx| this.select_tab(7, window, cx)))
+            .on_action(cx.listener(|this, _: &SelectTab9, window, cx| this.select_tab(8, window, cx)))
             .on_action(cx.listener(|this, _: &SplitRight, window, cx| {
                 this.split_active(Direction::Right, window, cx);
             }))
@@ -1195,7 +1844,7 @@ impl Render for Oxide {
                 this.focus_in_direction(Direction::Down, window, cx);
             }))
             .on_action(cx.listener(|this, _: &ClosePane, window, cx| {
-                let id = this.active;
+                let id = this.active_id();
                 if !this.close_pane(id, window, cx) {
                     window.remove_window();
                 }
@@ -1203,7 +1852,7 @@ impl Render for Oxide {
             // cmd-w closes the focused split first; the window goes with the
             // last pane, which is what every other terminal does.
             .on_action(cx.listener(|this, _: &CloseWindow, window, cx| {
-                let id = this.active;
+                let id = this.active_id();
                 if !this.close_pane(id, window, cx) {
                     window.remove_window();
                 }
@@ -1258,13 +1907,25 @@ impl Render for Oxide {
                             .overflow_hidden()
                             .w(if self.drawer_visible { px(config.tree.width) } else { px(0.0) })
                             .when(self.drawer_visible, |d| {
+                                let drawer_focused =
+                                    tree_focused || self.ws_focus.is_focused(window);
                                 d.border_r_1()
-                                    .border_color(if tree_focused {
+                                    .border_color(if drawer_focused {
                                         accent
                                     } else {
                                         blend(theme.foreground, theme.background, 0.85)
                                     })
-                                    .child(self.tree.clone())
+                                    .flex()
+                                    .flex_col()
+                                    // 50/50: file tree above, workspaces below.
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_h_0()
+                                            .overflow_hidden()
+                                            .child(self.tree.clone()),
+                                    )
+                                    .child(self.render_workspace_panel(window, cx))
                             }),
                     )
                     .child(
@@ -1273,7 +1934,17 @@ impl Render for Oxide {
                             .h_full()
                             .min_w_0()
                             .overflow_hidden()
-                            .child(self.render_pane_node(&self.layout, accent, window, cx)),
+                            .flex()
+                            .flex_col()
+                            .child(self.render_tab_bar(window, cx))
+                            .child({
+                                let layout = self.tab().layout.clone();
+                                div()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .overflow_hidden()
+                                    .child(self.render_pane_node(&layout, accent, window, cx))
+                            }),
                     ),
             )
             .when(status_bar && !bar_on_top, |d| d.child(self.render_status_bar(cx)))
