@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Configuration — Oxide docs</title>
+    <meta name="description" content="Every key in ~/.config/oxide/config.toml, with types and defaults." />
+    <link rel="canonical" href="https://oxideterminal.com/docs/configuration/" />
+
+    <meta property="og:title" content="Configuration — Oxide docs" />
+    <meta property="og:description" content="Every key in ~/.config/oxide/config.toml, with types and defaults." />
+    <meta property="og:type" content="article" />
+    <meta property="og:image" content="https://oxideterminal.com/icon.png" />
+    <meta property="og:url" content="https://oxideterminal.com/docs/configuration/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#100d0c" />
+
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/docs/docs.css" />
+  </head>
+
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <img src="/icon.png" alt="" />
+        <span>Oxide</span>
+        <span class="tag">/ docs</span>
+      </a>
+      <button class="menu-btn" type="button" aria-expanded="false" aria-controls="sidebar">
+        Menu
+      </button>
+      <div class="topbar-links">
+        <a href="/#features">Features</a>
+        <a href="https://github.com/bobbycoleman-dev/oxide">GitHub</a>
+        <a class="cta" href="https://github.com/bobbycoleman-dev/oxide/releases/latest">Download</a>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar" id="sidebar">
+        <nav aria-label="Documentation">
+          <div class="group">
+            <div class="group-title">Getting started</div>
+            <a href="/docs/">Introduction</a>
+            <a href="/docs/install/">Installation</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Using Oxide</div>
+            <a href="/docs/terminal/">Terminal &amp; scrollback</a>
+            <a href="/docs/file-tree/">File tree drawer</a>
+            <a href="/docs/tabs-splits/">Tabs &amp; splits</a>
+            <a href="/docs/workspaces/">Workspaces</a>
+            <a href="/docs/prompt/">Prompt &amp; shell integration</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Reference</div>
+            <a class="active" aria-current="page" href="/docs/configuration/">Configuration</a>
+            <a href="/docs/keybindings/">Keybindings</a>
+            <a href="/docs/themes/">Themes</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Help</div>
+            <a href="/docs/troubleshooting/">Troubleshooting</a>
+          </div>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <div class="crumbs"><a href="/docs/">Docs</a> / Reference / Configuration</div>
+        <article>
+          <h1>Configuration</h1>
+          <p class="lede">
+            One TOML file at <code>~/.config/oxide/config.toml</code>. Every key
+            has a default, so a three-line config is a perfectly good config.
+          </p>
+
+          <h2 id="file">The file</h2>
+          <p>
+            A fully commented default is written on first run. Open it from
+            inside Oxide with <kbd>cmd-,</kbd>
+            (<strong>Oxide → Settings…</strong>), which runs your
+            <code>$EDITOR</code> on it in the focused pane.
+          </p>
+          <p>
+            Set the <code>OXIDE_CONFIG</code> environment variable to point
+            somewhere else — useful for keeping the file in a dotfiles repo:
+          </p>
+          <pre>OXIDE_CONFIG=~/dotfiles/oxide.toml open -a Oxide</pre>
+
+          <h3 id="reloading">Reloading</h3>
+          <p>
+            Oxide watches the file's directory (editors write-and-rename, so
+            watching the file alone misses saves) and reloads on change.
+          </p>
+          <ul>
+            <li>
+              <strong>Live:</strong> <code>[font]</code>,
+              <code>[colors]</code>, <code>[window]</code>,
+              <code>[tree]</code>, <code>[status_bar]</code>,
+              <code>bell</code>, <code>copy_on_select</code>. Save the file and
+              the window repaints.
+            </li>
+            <li>
+              <strong>New sessions only:</strong> <code>[shell]</code> and
+              <code>[prompt]</code> — they're baked into a shell's environment
+              and init script when it starts. Open a new tab to pick them up.
+            </li>
+          </ul>
+
+          <h3 id="errors">When it doesn't parse</h3>
+          <p>
+            A malformed file never takes the app down. Oxide keeps running with
+            the configuration it already had and shows the first line of the
+            parse error in a banner across the top of the window. Fix the file,
+            save, and the banner clears.
+          </p>
+          <p>
+            Unknown keys are an error rather than a shrug — a typo'd
+            <code>show_hiden</code> tells you so instead of silently doing
+            nothing. An unrecognised color preset is reported the same way, with
+            the list of valid names.
+          </p>
+
+          <h2 id="top-level">Top level</h2>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead>
+                <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>bell</td>
+                  <td>string</td>
+                  <td>"none"</td>
+                  <td>
+                    <code>"none"</code>, <code>"sound"</code> (the system beep),
+                    or <code>"visual"</code> (a brief flash of the pane).
+                  </td>
+                </tr>
+                <tr>
+                  <td>copy_on_select</td>
+                  <td>bool</td>
+                  <td>false</td>
+                  <td>
+                    Copy to the system clipboard as soon as a mouse selection
+                    ends.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="font">[font]</h2>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead>
+                <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>family</td>
+                  <td>string</td>
+                  <td>"JetBrainsMono Nerd Font Mono"</td>
+                  <td>
+                    Any installed monospace family. The default is bundled into
+                    the binary, so it works with nothing installed.
+                  </td>
+                </tr>
+                <tr>
+                  <td>size</td>
+                  <td>float</td>
+                  <td>14.0</td>
+                  <td>
+                    Points. <kbd>cmd-+</kbd>/<kbd>cmd--</kbd> adjust at runtime
+                    without writing back here.
+                  </td>
+                </tr>
+                <tr>
+                  <td>line_height</td>
+                  <td>float</td>
+                  <td>1.25</td>
+                  <td>Multiple of the font size.</td>
+                </tr>
+                <tr>
+                  <td>weight</td>
+                  <td>string</td>
+                  <td>"normal"</td>
+                  <td><code>"normal"</code>, <code>"medium"</code>, or <code>"bold"</code>.</td>
+                </tr>
+                <tr>
+                  <td>ligatures</td>
+                  <td>bool</td>
+                  <td>false</td>
+                  <td>Enable programming ligatures, if the family has them.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="window">[window]</h2>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead>
+                <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>padding</td>
+                  <td>table</td>
+                  <td>{ x = 12, y = 8 }</td>
+                  <td>Pixels between the terminal grid and the window edge.</td>
+                </tr>
+                <tr>
+                  <td>opacity</td>
+                  <td>float</td>
+                  <td>1.0</td>
+                  <td>0.0–1.0; below 1.0 makes the background translucent.</td>
+                </tr>
+                <tr>
+                  <td>blur</td>
+                  <td>bool</td>
+                  <td>false</td>
+                  <td>Blur what's behind a translucent window.</td>
+                </tr>
+                <tr>
+                  <td>titlebar</td>
+                  <td>string</td>
+                  <td>"hidden"</td>
+                  <td>
+                    <code>"hidden"</code> gives the tab bar the whole top edge;
+                    <code>"native"</code> keeps the standard macOS title bar.
+                  </td>
+                </tr>
+                <tr>
+                  <td>new_tab_directory</td>
+                  <td>string</td>
+                  <td>"pwd"</td>
+                  <td>
+                    Where <kbd>cmd-t</kbd> starts — <code>"pwd"</code> inherits
+                    the current pane's directory, <code>"home"</code> always
+                    opens at <code>~/</code>.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="shell">[shell]</h2>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead>
+                <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>program</td>
+                  <td>string</td>
+                  <td><em>unset</em></td>
+                  <td>
+                    The shell to launch. Unset means <code>$SHELL</code>, falling
+                    back to <code>/bin/zsh</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>args</td>
+                  <td>array</td>
+                  <td>["-l"]</td>
+                  <td>
+                    Arguments for the shell. Under bash with integration on,
+                    <code>-l</code> is replaced by <code>--init-file</code>, which
+                    emulates the login chain itself.
+                  </td>
+                </tr>
+                <tr>
+                  <td>scrollback</td>
+                  <td>integer</td>
+                  <td>10000</td>
+                  <td>Lines of history kept per pane.</td>
+                </tr>
+                <tr>
+                  <td>option_as_meta</td>
+                  <td>string</td>
+                  <td>"none"</td>
+                  <td>
+                    Send Option as Meta (ESC-prefixed).
+                    <code>"none"</code>, <code>"left"</code>,
+                    <code>"right"</code>, or <code>"both"</code> — macOS can't
+                    distinguish the two Option keys, so
+                    <code>"left"</code> and <code>"right"</code> currently behave
+                    like <code>"both"</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>integration</td>
+                  <td>bool</td>
+                  <td>true</td>
+                  <td>
+                    Install the OSC 133 hooks and the silent-<code>cd</code>
+                    widget. Independent of
+                    <a class="link" href="/docs/prompt/">prompt styling</a>.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="tree">[tree]</h2>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead>
+                <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>width</td>
+                  <td>float</td>
+                  <td>280</td>
+                  <td>Drawer width in pixels.</td>
+                </tr>
+                <tr>
+                  <td>show_hidden</td>
+                  <td>bool</td>
+                  <td>false</td>
+                  <td>
+                    Show dotfiles. <kbd>I</kbd> toggles this for the running
+                    session.
+                  </td>
+                </tr>
+                <tr>
+                  <td>respect_gitignore</td>
+                  <td>bool</td>
+                  <td>true</td>
+                  <td>Hide anything the repo's ignore rules cover.</td>
+                </tr>
+                <tr>
+                  <td>indent</td>
+                  <td>float</td>
+                  <td>16</td>
+                  <td>Pixels of indent per nesting level.</td>
+                </tr>
+                <tr>
+                  <td>icons</td>
+                  <td>bool</td>
+                  <td>true</td>
+                  <td>Nerd Font file-type icons in the drawer.</td>
+                </tr>
+                <tr>
+                  <td>follow_cwd</td>
+                  <td>bool</td>
+                  <td>true</td>
+                  <td>Re-root the tree when the focused shell changes directory.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="status-bar">[status_bar]</h2>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead>
+                <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>enabled</td>
+                  <td>bool</td>
+                  <td>true</td>
+                  <td>
+                    The native bar with workspace, directory, and git state.
+                    <strong>View → Toggle Status Bar</strong> overrides it for the
+                    current window.
+                  </td>
+                </tr>
+                <tr>
+                  <td>position</td>
+                  <td>string</td>
+                  <td>"bottom"</td>
+                  <td><code>"top"</code> or <code>"bottom"</code>.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="colors">[colors]</h2>
+          <p>
+            A preset supplies all twenty colors; any individual key you set
+            overrides the preset. Values are <code>#rgb</code> or
+            <code>#rrggbb</code> hex.
+          </p>
+          <pre><span class="c">[colors]</span>
+preset       = <span class="s">"oxide"</span>
+background   = <span class="s">"#0d0b0a"</span>   <span class="c"># override just this one</span></pre>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead>
+                <tr><th>Key</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>preset</td>
+                  <td>
+                    One of the eight built-in
+                    <a class="link" href="/docs/themes/">themes</a>. Unset means
+                    <code>catppuccin-mocha</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>background, foreground, cursor, selection_bg</td>
+                  <td>The four UI colors.</td>
+                </tr>
+                <tr>
+                  <td>
+                    black, red, green, yellow, blue, magenta, cyan, white
+                  </td>
+                  <td>ANSI 0–7.</td>
+                </tr>
+                <tr>
+                  <td>bright_black … bright_white</td>
+                  <td>ANSI 8–15.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="note">
+            <p>
+              Picking a theme with <kbd>cmd-k</kbd> <kbd>cmd-t</kbd> rewrites the
+              whole <code>[colors]</code> block to just
+              <code>preset = "…"</code>, dropping individual overrides — they'd
+              defeat the theme you just chose. Keep hand-tuned colors out of the
+              picker's way, or re-add them after switching.
+            </p>
+          </div>
+
+          <h2 id="prompt">[prompt]</h2>
+          <p>
+            Covered in full on
+            <a class="link" href="/docs/prompt/">Prompt &amp; shell integration</a>.
+            In short:
+          </p>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead>
+                <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>enabled</td>
+                  <td>bool</td>
+                  <td>true</td>
+                  <td>Build and set the prompt. False keeps your own.</td>
+                </tr>
+                <tr>
+                  <td>separator</td>
+                  <td>string</td>
+                  <td>"\ue0b0"</td>
+                  <td>Drawn between segments (the powerline right arrow).</td>
+                </tr>
+                <tr>
+                  <td>end</td>
+                  <td>string</td>
+                  <td>"\ue0b0"</td>
+                  <td>Drawn after the last segment; empty falls back to <code>separator</code>.</td>
+                </tr>
+                <tr>
+                  <td>newline_before_input</td>
+                  <td>bool</td>
+                  <td>false</td>
+                  <td>Put the cursor on its own line below the segments.</td>
+                </tr>
+                <tr>
+                  <td>segments</td>
+                  <td>array of tables</td>
+                  <td>cwd, git, exit_status</td>
+                  <td>The segments, in render order.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 id="segments">[[prompt.segments]]</h3>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead>
+                <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>kind</td>
+                  <td>string</td>
+                  <td>"text"</td>
+                  <td>
+                    <code>cwd</code>, <code>git</code>,
+                    <code>exit_status</code>, <code>time</code>,
+                    <code>user</code>, <code>host</code>,
+                    <code>duration</code>, <code>text</code>, or
+                    <code>env</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>fg / bg</td>
+                  <td>string</td>
+                  <td><em>unset</em></td>
+                  <td>Hex colors for this segment.</td>
+                </tr>
+                <tr>
+                  <td>bold</td>
+                  <td>bool</td>
+                  <td>false</td>
+                  <td>Bold the segment's text.</td>
+                </tr>
+                <tr>
+                  <td>options</td>
+                  <td>table</td>
+                  <td>{}</td>
+                  <td>
+                    Per-kind settings: <code>style</code>,
+                    <code>max_len</code>, <code>show_dirty</code>,
+                    <code>dirty_bg</code>, <code>ahead_behind</code>,
+                    <code>hide_on_success</code>, <code>format</code>,
+                    <code>text</code>, <code>var</code>. See
+                    <a class="link" href="/docs/prompt/#segments">segment kinds</a>.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="default-file">The generated default</h2>
+          <p>This is what lands in <code>config.toml</code> on first run.</p>
+          <pre><span class="c"># Oxide configuration.
+# This file was generated on first run; every value shown is the default.
+# Font and color changes apply live; [shell] and [prompt] changes apply to
+# newly started sessions.</span>
+
+<span class="c">[font]</span>
+family      = <span class="s">"JetBrainsMono Nerd Font Mono"</span>
+size        = <span class="n">14.0</span>
+line_height = <span class="n">1.25</span>
+weight      = <span class="s">"normal"</span>        <span class="c"># normal | medium | bold</span>
+ligatures   = <span class="k">false</span>
+
+<span class="c">[window]</span>
+padding  = { x = <span class="n">12</span>, y = <span class="n">8</span> }
+opacity  = <span class="n">1.0</span>                <span class="c"># 0.0 - 1.0; &lt; 1.0 makes the background translucent</span>
+blur     = <span class="k">false</span>              <span class="c"># blur what's behind a translucent window</span>
+titlebar = <span class="s">"hidden"</span>           <span class="c"># native | hidden</span>
+new_tab_directory = <span class="s">"pwd"</span>     <span class="c"># pwd | home — where cmd-t starts</span>
+
+<span class="c">[shell]</span>
+<span class="c"># program = "/bin/zsh"        # default: $SHELL</span>
+args           = [<span class="s">"-l"</span>]
+scrollback     = <span class="n">10000</span>
+option_as_meta = <span class="s">"none"</span>       <span class="c"># none | left | right | both
+                              # (left/right currently behave like "both")</span>
+integration    = <span class="k">true</span>         <span class="c"># OSC 133 markers + silent cd from the file tree.
+                              # Independent of [prompt]: keep your own prompt
+                              # (starship, p10k) and still get integration.</span>
+
+<span class="c">[tree]</span>
+width             = <span class="n">280</span>
+show_hidden       = <span class="k">false</span>
+respect_gitignore = <span class="k">true</span>
+indent            = <span class="n">16</span>
+icons             = <span class="k">true</span>      <span class="c"># nerd-font icons in the drawer</span>
+follow_cwd        = <span class="k">true</span>      <span class="c"># re-root the tree when the shell cd's</span>
+
+<span class="c"># bell = "none"               # none | sound | visual
+# copy_on_select = false      # mouse selection copies to clipboard on release</span>
+
+<span class="c">[status_bar]</span>
+enabled  = <span class="k">true</span>               <span class="c"># native bar showing cwd + git branch/dirty</span>
+position = <span class="s">"bottom"</span>           <span class="c"># top | bottom</span>
+
+<span class="c">[colors]</span>
+<span class="c"># Presets: catppuccin-mocha | catppuccin-latte | gruvbox-dark | tokyonight
+#          | dracula | nord | solarized-dark | oxide</span>
+preset = <span class="s">"catppuccin-mocha"</span>
+<span class="c"># Any color can override the preset individually:
+# background   = "#11111b"
+# foreground   = "#cdd6f4"
+# cursor       = "#f5e0dc"
+# selection_bg = "#414458"
+# black / red / green / yellow / blue / magenta / cyan / white
+# bright_black / bright_red / ... / bright_white</span>
+
+<span class="c"># The prompt is compiled into a zsh init script and injected via ZDOTDIR.
+# Your own ~/.zshrc is sourced first; only PROMPT is overridden.
+# Requires zsh (the macOS default shell); other shells keep their own prompt.</span>
+<span class="c">[prompt]</span>
+enabled              = <span class="k">true</span>
+separator            = <span class="s">"\ue0b0"</span>   <span class="c"># powerline right arrow</span>
+end                  = <span class="s">"\ue0b0"</span>
+newline_before_input = <span class="k">false</span>
+
+<span class="c"># Segment kinds: cwd | git | exit_status | time | user | host | duration
+#                | text (options.text) | env (options.var)</span>
+<span class="c">[[prompt.segments]]</span>
+kind = <span class="s">"cwd"</span>
+fg   = <span class="s">"#11111b"</span>
+bg   = <span class="s">"#89b4fa"</span>
+bold = <span class="k">true</span>
+options = { style = <span class="s">"truncate_to_repo"</span>, max_len = <span class="n">40</span> }   <span class="c"># full | truncate_to_repo | basename</span>
+
+<span class="c">[[prompt.segments]]</span>
+kind = <span class="s">"git"</span>
+fg   = <span class="s">"#11111b"</span>
+bg   = <span class="s">"#a6e3a1"</span>
+options = { show_dirty = <span class="k">true</span>, dirty_bg = <span class="s">"#f9e2af"</span>, ahead_behind = <span class="k">true</span> }
+
+<span class="c">[[prompt.segments]]</span>
+kind = <span class="s">"exit_status"</span>
+fg   = <span class="s">"#11111b"</span>
+bg   = <span class="s">"#f38ba8"</span>
+options = { hide_on_success = <span class="k">true</span> }
+
+<span class="c"># [[prompt.segments]]
+# kind = "time"
+# options = { format = "%H:%M" }
+
+# [[prompt.segments]]
+# kind = "duration"</span></pre>
+          <p class="note">
+            The <code>separator</code> and <code>end</code> values in the real
+            file are literal powerline glyphs (U+E0B0), written here as the
+            equivalent TOML escape so they stay readable without a Nerd Font
+            installed.
+          </p>
+        </article>
+
+        <nav class="pager">
+          <a class="prev" href="/docs/prompt/"><span class="dir">← Previous</span><span class="label">Prompt &amp; shell integration</span></a>          <a class="next" href="/docs/keybindings/"><span class="dir">Next →</span><span class="label">Keybindings</span></a>        </nav>
+
+        <footer class="doc-footer">
+          <div>© <span id="year">2026</span> Bobby Coleman · <a href="https://github.com/bobbycoleman-dev/oxide/blob/main/LICENSE">MIT</a></div>
+          <div>
+            <a href="https://github.com/bobbycoleman-dev/oxide">Source</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/releases">Releases</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/issues/new">Report an issue</a>
+          </div>
+        </footer>
+      </main>
+
+      <aside class="toc" id="toc" aria-label="On this page"></aside>
+    </div>
+
+    <script src="/docs/docs.js"></script>
+  </body>
+</html>

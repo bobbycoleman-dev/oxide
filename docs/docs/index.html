@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Oxide documentation — Oxide docs</title>
+    <meta name="description" content="How Oxide works, what it ships with, and where to go next — the documentation for the native macOS terminal emulator written in Rust." />
+    <link rel="canonical" href="https://oxideterminal.com/docs/" />
+
+    <meta property="og:title" content="Oxide documentation — Oxide docs" />
+    <meta property="og:description" content="How Oxide works, what it ships with, and where to go next — the documentation for the native macOS terminal emulator written in Rust." />
+    <meta property="og:type" content="article" />
+    <meta property="og:image" content="https://oxideterminal.com/icon.png" />
+    <meta property="og:url" content="https://oxideterminal.com/docs/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#100d0c" />
+
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/docs/docs.css" />
+  </head>
+
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <img src="/icon.png" alt="" />
+        <span>Oxide</span>
+        <span class="tag">/ docs</span>
+      </a>
+      <button class="menu-btn" type="button" aria-expanded="false" aria-controls="sidebar">
+        Menu
+      </button>
+      <div class="topbar-links">
+        <a href="/#features">Features</a>
+        <a href="https://github.com/bobbycoleman-dev/oxide">GitHub</a>
+        <a class="cta" href="https://github.com/bobbycoleman-dev/oxide/releases/latest">Download</a>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar" id="sidebar">
+        <nav aria-label="Documentation">
+          <div class="group">
+            <div class="group-title">Getting started</div>
+            <a class="active" aria-current="page" href="/docs/">Introduction</a>
+            <a href="/docs/install/">Installation</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Using Oxide</div>
+            <a href="/docs/terminal/">Terminal &amp; scrollback</a>
+            <a href="/docs/file-tree/">File tree drawer</a>
+            <a href="/docs/tabs-splits/">Tabs &amp; splits</a>
+            <a href="/docs/workspaces/">Workspaces</a>
+            <a href="/docs/prompt/">Prompt &amp; shell integration</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Reference</div>
+            <a href="/docs/configuration/">Configuration</a>
+            <a href="/docs/keybindings/">Keybindings</a>
+            <a href="/docs/themes/">Themes</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Help</div>
+            <a href="/docs/troubleshooting/">Troubleshooting</a>
+          </div>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <div class="crumbs"><a href="/docs/">Docs</a> / Getting started / Introduction</div>
+        <article>
+          <h1>Oxide documentation</h1>
+          <p class="lede">
+            Oxide is a native macOS terminal emulator written entirely in Rust —
+            GPU-rendered, with a file-tree drawer you drive like vim and a status
+            bar that knows where your shell is. These pages cover how to install
+            it, how to use it, and every key you can put in its config file.
+          </p>
+
+          <div class="cards">
+            <a href="/docs/install/">
+              <h3>Installation</h3>
+              <p>Download the notarized DMG, or build from source.</p>
+            </a>
+            <a href="/docs/configuration/">
+              <h3>Configuration</h3>
+              <p>Every key in <code>config.toml</code>, with defaults.</p>
+            </a>
+            <a href="/docs/keybindings/">
+              <h3>Keybindings</h3>
+              <p>The full built-in keymap, grouped by context.</p>
+            </a>
+          </div>
+
+          <h2 id="what-it-is">What Oxide is</h2>
+          <p>
+            Oxide is one Rust binary. Rendering and window management come from
+            <a class="link" href="https://www.gpui.rs">GPUI</a>, Zed's GPU UI
+            framework; the PTY and VT parsing come from
+            <a class="link" href="https://crates.io/crates/alacritty_terminal"
+              >alacritty_terminal</a
+            >, the engine behind Alacritty. Everything on top — the drawer, tabs,
+            splits, workspaces, the prompt compiler, the status bar — is Oxide's.
+          </p>
+          <p>
+            The PTY reader and parser run on their own thread and mutate a shared
+            terminal grid; the main thread locks it briefly during paint, copies
+            the visible grid out, and paints batched text runs directly. Directory
+            scans, git queries, and file watching happen on a background pool, so
+            a slow repository never stalls typing.
+          </p>
+          <p>
+            It is macOS-only today. A Linux port is
+            <a
+              class="link"
+              href="https://github.com/bobbycoleman-dev/oxide/blob/main/LINUX_PORT.md"
+              >sketched out</a
+            >
+            but not built.
+          </p>
+
+          <h2 id="requirements">Requirements</h2>
+          <ul>
+            <li>macOS 12 or later, Apple Silicon or Intel</li>
+            <li>
+              No font install needed — JetBrainsMono Nerd Font Mono is bundled
+              into the binary, so powerline separators and tree icons render on a
+              machine with nothing installed. Set
+              <code>font.family</code> to use your own.
+            </li>
+            <li>
+              <code>zsh</code> or <code>bash</code> if you want the built-in
+              prompt and shell integration. Other shells run fine; they just keep
+              their own prompt.
+            </li>
+          </ul>
+
+          <h2 id="quick-start">Quick start</h2>
+          <ol>
+            <li>
+              Install from the DMG and open Oxide. It is Developer ID signed and
+              notarized, so there is no right-click-to-open dance.
+            </li>
+            <li>
+              A fully commented config file is written to
+              <code>~/.config/oxide/config.toml</code> on first run. Open it from
+              inside Oxide with <kbd>cmd-,</kbd>.
+            </li>
+            <li>
+              Press <kbd>cmd-b</kbd> to toggle the drawer and
+              <kbd>ctrl-w t</kbd> to focus the file tree. Inside the tree, bare
+              vim keys work: <kbd>j</kbd> <kbd>k</kbd> <kbd>l</kbd> <kbd>h</kbd>,
+              <kbd>/</kbd> to filter, <kbd>c</kbd> to re-root there (which
+              <code>cd</code>s the shell too).
+            </li>
+            <li>
+              Press <kbd>cmd-k</kbd> <kbd>cmd-t</kbd> to flip through themes with
+              live preview; <kbd>enter</kbd> writes the choice to your config.
+            </li>
+            <li>
+              <kbd>cmd-t</kbd> for a tab, <kbd>ctrl-w v</kbd> for a split,
+              <kbd>ctrl-w p</kbd> for the workspaces panel.
+            </li>
+          </ol>
+          <p>
+            Font and color changes apply the moment you save the config file.
+            <code>[shell]</code> and <code>[prompt]</code> changes apply to
+            newly started sessions.
+          </p>
+
+          <h2 id="using">Using Oxide</h2>
+          <div class="cards">
+            <a href="/docs/terminal/">
+              <h3>Terminal &amp; scrollback</h3>
+              <p>Selection, search, prompt jumping, URLs, mouse.</p>
+            </a>
+            <a href="/docs/file-tree/">
+              <h3>File tree drawer</h3>
+              <p>vim navigation, filtering, add / rename / delete.</p>
+            </a>
+            <a href="/docs/tabs-splits/">
+              <h3>Tabs &amp; splits</h3>
+              <p>An in-app tab bar and freely nested panes.</p>
+            </a>
+            <a href="/docs/workspaces/">
+              <h3>Workspaces</h3>
+              <p>Named layouts, pinned ones survive a restart.</p>
+            </a>
+            <a href="/docs/prompt/">
+              <h3>Prompt &amp; shell integration</h3>
+              <p>A powerline prompt from TOML, and OSC 133 marks.</p>
+            </a>
+            <a href="/docs/themes/">
+              <h3>Themes</h3>
+              <p>Eight presets, a picker, per-color overrides.</p>
+            </a>
+          </div>
+
+          <h2 id="files">Where Oxide keeps things</h2>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead>
+                <tr>
+                  <th>Path</th>
+                  <th>What it is</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>~/.config/oxide/config.toml</td>
+                  <td>
+                    Your configuration. Generated, fully commented, on first run.
+                    Override the location with the
+                    <code>OXIDE_CONFIG</code> environment variable.
+                  </td>
+                </tr>
+                <tr>
+                  <td>~/.cache/oxide/</td>
+                  <td>
+                    Generated shell-integration scripts, the silent-<code>cd</code>
+                    target file, pinned workspace state, and the last window
+                    geometry. Safe to delete; Oxide rebuilds it.
+                  </td>
+                </tr>
+                <tr>
+                  <td>~/.cache/oxide/workspaces.json</td>
+                  <td>Pinned workspaces — layout, tabs, splits, directories.</td>
+                </tr>
+                <tr>
+                  <td>~/.cache/oxide/zdotdir/</td>
+                  <td>
+                    The zsh shim that sources your real dotfiles before layering
+                    Oxide's hooks on top. Your own files are never modified.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="help">Getting help</h2>
+          <p>
+            <a class="link" href="/docs/troubleshooting/">Troubleshooting</a>
+            covers the usual suspects — missing glyphs, config errors, a prompt
+            that didn't change — along with the current known limitations. Beyond
+            that, open an issue on
+            <a
+              class="link"
+              href="https://github.com/bobbycoleman-dev/oxide/issues/new"
+              >GitHub</a
+            >; <strong>Help → Report an Issue</strong> in the menu bar goes to the
+            same place.
+          </p>
+        </article>
+
+        <nav class="pager">
+          <a class="next" href="/docs/install/"><span class="dir">Next →</span><span class="label">Installation</span></a>        </nav>
+
+        <footer class="doc-footer">
+          <div>© <span id="year">2026</span> Bobby Coleman · <a href="https://github.com/bobbycoleman-dev/oxide/blob/main/LICENSE">MIT</a></div>
+          <div>
+            <a href="https://github.com/bobbycoleman-dev/oxide">Source</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/releases">Releases</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/issues/new">Report an issue</a>
+          </div>
+        </footer>
+      </main>
+
+      <aside class="toc" id="toc" aria-label="On this page"></aside>
+    </div>
+
+    <script src="/docs/docs.js"></script>
+  </body>
+</html>

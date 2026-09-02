@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The file tree drawer — Oxide docs</title>
+    <meta name="description" content="Drive Oxide's file tree like vim: navigation, filtering, file operations, and how it follows your shell." />
+    <link rel="canonical" href="https://oxideterminal.com/docs/file-tree/" />
+
+    <meta property="og:title" content="The file tree drawer — Oxide docs" />
+    <meta property="og:description" content="Drive Oxide's file tree like vim: navigation, filtering, file operations, and how it follows your shell." />
+    <meta property="og:type" content="article" />
+    <meta property="og:image" content="https://oxideterminal.com/icon.png" />
+    <meta property="og:url" content="https://oxideterminal.com/docs/file-tree/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#100d0c" />
+
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/docs/docs.css" />
+  </head>
+
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <img src="/icon.png" alt="" />
+        <span>Oxide</span>
+        <span class="tag">/ docs</span>
+      </a>
+      <button class="menu-btn" type="button" aria-expanded="false" aria-controls="sidebar">
+        Menu
+      </button>
+      <div class="topbar-links">
+        <a href="/#features">Features</a>
+        <a href="https://github.com/bobbycoleman-dev/oxide">GitHub</a>
+        <a class="cta" href="https://github.com/bobbycoleman-dev/oxide/releases/latest">Download</a>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar" id="sidebar">
+        <nav aria-label="Documentation">
+          <div class="group">
+            <div class="group-title">Getting started</div>
+            <a href="/docs/">Introduction</a>
+            <a href="/docs/install/">Installation</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Using Oxide</div>
+            <a href="/docs/terminal/">Terminal &amp; scrollback</a>
+            <a class="active" aria-current="page" href="/docs/file-tree/">File tree drawer</a>
+            <a href="/docs/tabs-splits/">Tabs &amp; splits</a>
+            <a href="/docs/workspaces/">Workspaces</a>
+            <a href="/docs/prompt/">Prompt &amp; shell integration</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Reference</div>
+            <a href="/docs/configuration/">Configuration</a>
+            <a href="/docs/keybindings/">Keybindings</a>
+            <a href="/docs/themes/">Themes</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Help</div>
+            <a href="/docs/troubleshooting/">Troubleshooting</a>
+          </div>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <div class="crumbs"><a href="/docs/">Docs</a> / Using Oxide / File tree drawer</div>
+        <article>
+          <h1>The file tree drawer</h1>
+          <p class="lede">
+            A drawer down the left side of the window: a file tree on top, the
+            workspaces panel below it. The tree is modeless — there is no text
+            input to collide with, so bare vim keys are free.
+          </p>
+
+          <h2 id="showing">Showing and focusing it</h2>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr>
+                  <td><kbd>cmd-b</kbd></td>
+                  <td>toggle the drawer</td>
+                </tr>
+                <tr>
+                  <td>
+                    <kbd>ctrl-w t</kbd><span class="sep">/</span
+                    ><kbd>cmd-shift-e</kbd>
+                  </td>
+                  <td>focus the tree from anywhere</td>
+                </tr>
+                <tr>
+                  <td><kbd>ctrl-w h</kbd></td>
+                  <td>
+                    move a pane left — from the leftmost pane, that lands on the
+                    tree
+                  </td>
+                </tr>
+                <tr>
+                  <td><kbd>ctrl-w w</kbd></td>
+                  <td>toggle focus between the drawer and the terminal</td>
+                </tr>
+                <tr>
+                  <td><kbd>tab</kbd></td>
+                  <td>hop between the tree and the workspaces panel</td>
+                </tr>
+                <tr>
+                  <td><kbd>esc</kbd></td>
+                  <td>
+                    dismiss an input line, then clear the filter, then hand focus
+                    back to the terminal
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Hiding the drawer while the tree has focus moves focus to the
+            terminal, so you never end up typing into an invisible panel.
+          </p>
+
+          <h2 id="navigating">Navigating</h2>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr>
+                  <td>
+                    <kbd>j</kbd> <kbd>k</kbd> <span class="sep">/</span>
+                    <kbd>↓</kbd> <kbd>↑</kbd>
+                  </td>
+                  <td>move the selection</td>
+                </tr>
+                <tr>
+                  <td><kbd>gg</kbd> <span class="sep">/</span> <kbd>G</kbd></td>
+                  <td>first / last row</td>
+                </tr>
+                <tr>
+                  <td><kbd>ctrl-d</kbd> <span class="sep">/</span> <kbd>ctrl-u</kbd></td>
+                  <td>half a page down / up</td>
+                </tr>
+                <tr>
+                  <td><kbd>l</kbd> <span class="sep">/</span> <kbd>→</kbd></td>
+                  <td>
+                    expand a directory, descend into it if it's already open,
+                    or open a file
+                  </td>
+                </tr>
+                <tr>
+                  <td><kbd>h</kbd> <span class="sep">/</span> <kbd>←</kbd></td>
+                  <td>
+                    collapse a directory, or jump up to the parent — nvim-tree
+                    semantics
+                  </td>
+                </tr>
+                <tr>
+                  <td><kbd>p</kbd></td>
+                  <td>select the parent directory</td>
+                </tr>
+                <tr>
+                  <td><kbd>enter</kbd> <span class="sep">/</span> <kbd>o</kbd></td>
+                  <td>open — a directory expands, a file opens in your editor</td>
+                </tr>
+                <tr>
+                  <td><kbd>I</kbd></td>
+                  <td>toggle hidden files for this session</td>
+                </tr>
+                <tr>
+                  <td><kbd>R</kbd></td>
+                  <td>rescan every directory that's currently loaded</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Directories are scanned on the background pool, lazily, as you expand
+            them, and a filesystem watcher keeps what's on screen honest without
+            you pressing <kbd>R</kbd>.
+          </p>
+
+          <h2 id="opening-files">Opening files</h2>
+          <p>
+            <kbd>enter</kbd> on a file types an edit command into the focused
+            pane and moves focus there. It runs <code>$EDITOR</code> if you have
+            one, and falls back to <code>open -t</code> — a fresh Mac has no
+            nvim, and a "command not found" is a worse first impression than
+            TextEdit.
+          </p>
+
+          <h2 id="filtering">Filtering</h2>
+          <p>
+            <kbd>/</kbd> starts a filter. Type to narrow: rows whose name matches
+            are kept, case-insensitively, along with the directories that lead to
+            them, so matches stay in context. <kbd>enter</kbd> leaves input mode
+            with the filter still applied; <kbd>esc</kbd> clears it.
+          </p>
+
+          <h2 id="file-operations">File operations</h2>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr>
+                  <td><kbd>a</kbd></td>
+                  <td>
+                    add. Type a name and press <kbd>enter</kbd>; a trailing
+                    <code>/</code> makes a directory instead of a file. Nested
+                    paths like <code>src/util/new.rs</code> create their parents.
+                  </td>
+                </tr>
+                <tr>
+                  <td><kbd>r</kbd></td>
+                  <td>
+                    rename, prefilled with the current name (renaming into
+                    another directory is not allowed)
+                  </td>
+                </tr>
+                <tr>
+                  <td><kbd>d</kbd></td>
+                  <td>
+                    delete — <kbd>y</kbd> confirms, anything else cancels
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            New entries are created relative to the selected directory, or to the
+            selected file's parent. Deletes move to <code>~/.Trash</code> so
+            they're recoverable in Finder; a hard delete only happens as a
+            fallback when the target is on another volume. The tree re-scans and
+            selects what you just created or renamed.
+          </p>
+
+          <h2 id="root">Where the tree is rooted</h2>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr>
+                  <td><kbd>c</kbd></td>
+                  <td>
+                    re-root at the selection (or its parent, for a file) —
+                    and <code>cd</code> the shell there too
+                  </td>
+                </tr>
+                <tr>
+                  <td><kbd>-</kbd></td>
+                  <td>
+                    re-root one level up, keeping the old root expanded so it
+                    feels like zooming out
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            The <code>cd</code> is silent: Oxide writes the target to
+            <code>~/.cache/oxide/cd_target</code> and triggers a zle widget in the
+            shell, so nothing is echoed and the existing prompt is just redrawn in
+            the new directory. That needs
+            <a class="link" href="/docs/prompt/">shell integration</a> — without
+            it, <kbd>c</kbd> still re-roots the tree, it just leaves the shell
+            where it was.
+          </p>
+
+          <h3 id="follow-cwd">Following the shell</h3>
+          <p>
+            The other direction works with zero shell cooperation. With
+            <code>tree.follow_cwd = true</code> (the default), Oxide polls the
+            PTY's foreground process group for its working directory, so the tree
+            re-roots when you <code>cd</code> — in any shell, with or without
+            integration. It also follows focus: switching panes re-roots the tree
+            to that shell's directory.
+          </p>
+
+          <h2 id="config">Configuration</h2>
+          <pre><span class="c">[tree]</span>
+width             = <span class="n">280</span>
+show_hidden       = <span class="k">false</span>
+respect_gitignore = <span class="k">true</span>
+indent            = <span class="n">16</span>
+icons             = <span class="k">true</span>
+follow_cwd        = <span class="k">true</span></pre>
+          <p>
+            <code>respect_gitignore</code> hides anything your
+            <code>.gitignore</code> covers — usually the difference between a
+            useful tree and a wall of <code>target/</code>.
+            <code>icons</code> turns off the Nerd Font glyphs if you'd rather have
+            plain names. Full details in the
+            <a class="link" href="/docs/configuration/#tree">configuration reference</a>.
+          </p>
+        </article>
+
+        <nav class="pager">
+          <a class="prev" href="/docs/terminal/"><span class="dir">← Previous</span><span class="label">Terminal &amp; scrollback</span></a>          <a class="next" href="/docs/tabs-splits/"><span class="dir">Next →</span><span class="label">Tabs &amp; splits</span></a>        </nav>
+
+        <footer class="doc-footer">
+          <div>© <span id="year">2026</span> Bobby Coleman · <a href="https://github.com/bobbycoleman-dev/oxide/blob/main/LICENSE">MIT</a></div>
+          <div>
+            <a href="https://github.com/bobbycoleman-dev/oxide">Source</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/releases">Releases</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/issues/new">Report an issue</a>
+          </div>
+        </footer>
+      </main>
+
+      <aside class="toc" id="toc" aria-label="On this page"></aside>
+    </div>
+
+    <script src="/docs/docs.js"></script>
+  </body>
+</html>

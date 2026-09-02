@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Installing Oxide — Oxide docs</title>
+    <meta name="description" content="Download, install, update, and uninstall Oxide, or build it from source." />
+    <link rel="canonical" href="https://oxideterminal.com/docs/install/" />
+
+    <meta property="og:title" content="Installing Oxide — Oxide docs" />
+    <meta property="og:description" content="Download, install, update, and uninstall Oxide, or build it from source." />
+    <meta property="og:type" content="article" />
+    <meta property="og:image" content="https://oxideterminal.com/icon.png" />
+    <meta property="og:url" content="https://oxideterminal.com/docs/install/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#100d0c" />
+
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/docs/docs.css" />
+  </head>
+
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <img src="/icon.png" alt="" />
+        <span>Oxide</span>
+        <span class="tag">/ docs</span>
+      </a>
+      <button class="menu-btn" type="button" aria-expanded="false" aria-controls="sidebar">
+        Menu
+      </button>
+      <div class="topbar-links">
+        <a href="/#features">Features</a>
+        <a href="https://github.com/bobbycoleman-dev/oxide">GitHub</a>
+        <a class="cta" href="https://github.com/bobbycoleman-dev/oxide/releases/latest">Download</a>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar" id="sidebar">
+        <nav aria-label="Documentation">
+          <div class="group">
+            <div class="group-title">Getting started</div>
+            <a href="/docs/">Introduction</a>
+            <a class="active" aria-current="page" href="/docs/install/">Installation</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Using Oxide</div>
+            <a href="/docs/terminal/">Terminal &amp; scrollback</a>
+            <a href="/docs/file-tree/">File tree drawer</a>
+            <a href="/docs/tabs-splits/">Tabs &amp; splits</a>
+            <a href="/docs/workspaces/">Workspaces</a>
+            <a href="/docs/prompt/">Prompt &amp; shell integration</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Reference</div>
+            <a href="/docs/configuration/">Configuration</a>
+            <a href="/docs/keybindings/">Keybindings</a>
+            <a href="/docs/themes/">Themes</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Help</div>
+            <a href="/docs/troubleshooting/">Troubleshooting</a>
+          </div>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <div class="crumbs"><a href="/docs/">Docs</a> / Getting started / Installation</div>
+        <article>
+          <h1>Installing Oxide</h1>
+          <p class="lede">
+            Oxide ships as a signed, notarized DMG for macOS 12 and later, on
+            both Apple Silicon and Intel. It keeps itself up to date after that.
+          </p>
+
+          <h2 id="download">Download the app</h2>
+          <ol>
+            <li>
+              Grab the latest DMG from the
+              <a
+                class="link"
+                href="https://github.com/bobbycoleman-dev/oxide/releases/latest"
+                >releases page</a
+              >
+              (or from the button on
+              <a class="link" href="/">oxideterminal.com</a>).
+            </li>
+            <li>Open it and drag <strong>Oxide</strong> to Applications.</li>
+            <li>Launch it.</li>
+          </ol>
+          <p>
+            Every build is signed with a Developer ID certificate, notarized by
+            Apple, and stapled, so Gatekeeper opens it like any other app — no
+            right-click-to-open, no <code>xattr -d</code>.
+          </p>
+
+          <div class="note tip">
+            <p>
+              <strong>Fonts are included.</strong> JetBrainsMono Nerd Font Mono is
+              compiled into the binary, so powerline separators, git glyphs, and
+              file-tree icons all render on a machine with no Nerd Font installed.
+              Install your own and point <code>font.family</code> at it whenever
+              you like — GPUI consults in-memory fonts before system ones, so a
+              locally installed copy of the same family behaves identically.
+            </p>
+          </div>
+
+          <h2 id="first-run">First run</h2>
+          <p>
+            On first launch Oxide writes a fully commented default config to
+            <code>~/.config/oxide/config.toml</code>. Open it from inside the app
+            with <kbd>cmd-,</kbd> (<strong>Oxide → Settings…</strong>), which
+            types an <code>$EDITOR</code> command into the focused pane — or
+            <code>open -t</code> if you have no <code>$EDITOR</code> set.
+          </p>
+          <p>
+            See <a class="link" href="/docs/configuration/">Configuration</a> for
+            what goes in that file.
+          </p>
+
+          <h2 id="cli">The <code>oxide</code> command</h2>
+          <p>
+            Optional: a one-line shim so you can open the app at a directory from
+            any terminal.
+          </p>
+          <pre><span class="c"># from a clone of the repo</span>
+sudo cp scripts/oxide-cli /usr/local/bin/oxide
+sudo chmod +x /usr/local/bin/oxide
+
+oxide            <span class="c"># open at the current directory</span>
+oxide ~/Code     <span class="c"># open at a specific one</span></pre>
+
+          <h2 id="updating">Updating</h2>
+          <p>
+            A copy running from an installed <code>.app</code> checks GitHub for
+            a newer release on launch and every six hours after that. When one exists, Oxide downloads it in
+            the background and offers to install; one click swaps the bundle and
+            relaunches. You can also check on demand from
+            <strong>Oxide → Check for Updates…</strong>
+          </p>
+          <p>
+            Version comparison is numeric on <code>major.minor.patch</code>, so a
+            build with a higher version than the latest release is never
+            "updated" backwards. Running through <code>cargo run</code> skips the
+            check entirely.
+          </p>
+
+          <h2 id="source">Building from source</h2>
+          <p>Building needs a couple of things a download does not:</p>
+          <ul>
+            <li><a class="link" href="https://rustup.rs">Rust</a>, 2024 edition</li>
+            <li>
+              Full Xcode with the Metal toolchain — GPUI compiles Metal shaders
+              at build time, and the Command Line Tools alone are not enough
+            </li>
+          </ul>
+          <pre>sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+xcodebuild -downloadComponent MetalToolchain   <span class="c"># if the build asks</span></pre>
+          <p>Then:</p>
+          <pre>git clone https://github.com/bobbycoleman-dev/oxide.git
+<span class="k">cd</span> oxide
+cargo run                     <span class="c"># development build</span>
+
+./scripts/bundle.sh           <span class="c"># release -&gt; target/Oxide.app (ad-hoc signed)</span>
+cp -R target/Oxide.app /Applications/</pre>
+          <p>
+            The first build compiles GPUI and its shaders — expect several
+            minutes. A locally bundled app is ad-hoc signed rather than notarized;
+            it runs fine on your own machine.
+          </p>
+
+          <h2 id="uninstall">Uninstalling</h2>
+          <pre>rm -rf /Applications/Oxide.app
+rm -rf ~/.config/oxide      <span class="c"># your config</span>
+rm -rf ~/.cache/oxide       <span class="c"># generated scripts, workspaces, window state</span>
+sudo rm -f /usr/local/bin/oxide   <span class="c"># if you installed the CLI shim</span></pre>
+          <p>
+            Oxide never writes to your dotfiles, so there is nothing to unpick in
+            <code>~/.zshrc</code> or <code>~/.bash_profile</code>.
+          </p>
+        </article>
+
+        <nav class="pager">
+          <a class="prev" href="/docs/"><span class="dir">← Previous</span><span class="label">Introduction</span></a>          <a class="next" href="/docs/terminal/"><span class="dir">Next →</span><span class="label">Terminal &amp; scrollback</span></a>        </nav>
+
+        <footer class="doc-footer">
+          <div>© <span id="year">2026</span> Bobby Coleman · <a href="https://github.com/bobbycoleman-dev/oxide/blob/main/LICENSE">MIT</a></div>
+          <div>
+            <a href="https://github.com/bobbycoleman-dev/oxide">Source</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/releases">Releases</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/issues/new">Report an issue</a>
+          </div>
+        </footer>
+      </main>
+
+      <aside class="toc" id="toc" aria-label="On this page"></aside>
+    </div>
+
+    <script src="/docs/docs.js"></script>
+  </body>
+</html>

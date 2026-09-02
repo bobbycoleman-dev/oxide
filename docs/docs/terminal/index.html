@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Terminal &amp; scrollback — Oxide docs</title>
+    <meta name="description" content="Selection, copy and paste, scrollback search, prompt jumping, URLs, and mouse reporting in Oxide." />
+    <link rel="canonical" href="https://oxideterminal.com/docs/terminal/" />
+
+    <meta property="og:title" content="Terminal &amp; scrollback — Oxide docs" />
+    <meta property="og:description" content="Selection, copy and paste, scrollback search, prompt jumping, URLs, and mouse reporting in Oxide." />
+    <meta property="og:type" content="article" />
+    <meta property="og:image" content="https://oxideterminal.com/icon.png" />
+    <meta property="og:url" content="https://oxideterminal.com/docs/terminal/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#100d0c" />
+
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/docs/docs.css" />
+  </head>
+
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <img src="/icon.png" alt="" />
+        <span>Oxide</span>
+        <span class="tag">/ docs</span>
+      </a>
+      <button class="menu-btn" type="button" aria-expanded="false" aria-controls="sidebar">
+        Menu
+      </button>
+      <div class="topbar-links">
+        <a href="/#features">Features</a>
+        <a href="https://github.com/bobbycoleman-dev/oxide">GitHub</a>
+        <a class="cta" href="https://github.com/bobbycoleman-dev/oxide/releases/latest">Download</a>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar" id="sidebar">
+        <nav aria-label="Documentation">
+          <div class="group">
+            <div class="group-title">Getting started</div>
+            <a href="/docs/">Introduction</a>
+            <a href="/docs/install/">Installation</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Using Oxide</div>
+            <a class="active" aria-current="page" href="/docs/terminal/">Terminal &amp; scrollback</a>
+            <a href="/docs/file-tree/">File tree drawer</a>
+            <a href="/docs/tabs-splits/">Tabs &amp; splits</a>
+            <a href="/docs/workspaces/">Workspaces</a>
+            <a href="/docs/prompt/">Prompt &amp; shell integration</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Reference</div>
+            <a href="/docs/configuration/">Configuration</a>
+            <a href="/docs/keybindings/">Keybindings</a>
+            <a href="/docs/themes/">Themes</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Help</div>
+            <a href="/docs/troubleshooting/">Troubleshooting</a>
+          </div>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <div class="crumbs"><a href="/docs/">Docs</a> / Using Oxide / Terminal &amp; scrollback</div>
+        <article>
+          <h1>Terminal &amp; scrollback</h1>
+          <p class="lede">
+            The emulation itself is Alacritty's — Oxide adds selection, search,
+            prompt jumping, and the surrounding chrome.
+          </p>
+
+          <h2 id="emulation">What's emulated</h2>
+          <p>
+            VT parsing and the terminal grid come from
+            <code>alacritty_terminal</code>, so compatibility is Alacritty's:
+          </p>
+          <ul>
+            <li>24-bit truecolor, plus the 256-color and 16-color palettes</li>
+            <li>Wide glyphs (CJK, emoji) and combining marks</li>
+            <li>Alternate screen, with scrollback preserved underneath</li>
+            <li>Bracketed paste</li>
+            <li>SGR mouse reporting, including drag and motion modes</li>
+            <li>OSC 8 hyperlinks and OSC 52 clipboard access</li>
+            <li>OSC 7 working-directory reports and OSC 133 semantic prompts</li>
+          </ul>
+          <p>vim, htop, tmux, fzf, and full-screen TUIs behave normally.</p>
+
+          <h2 id="selection">Selection and clipboard</h2>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr>
+                  <td>click and drag</td>
+                  <td>select a range</td>
+                </tr>
+                <tr>
+                  <td>double-click</td>
+                  <td>select the word under the cursor (semantic)</td>
+                </tr>
+                <tr>
+                  <td>triple-click</td>
+                  <td>select the whole line</td>
+                </tr>
+                <tr>
+                  <td><kbd>cmd-c</kbd></td>
+                  <td>copy the selection</td>
+                </tr>
+                <tr>
+                  <td><kbd>cmd-v</kbd></td>
+                  <td>paste, bracketed when the program asks for it</td>
+                </tr>
+                <tr>
+                  <td><kbd>cmd-a</kbd></td>
+                  <td>select the whole buffer</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Set <code>copy_on_select = true</code> to copy to the system
+            clipboard the moment you release the mouse, X11-style.
+          </p>
+
+          <h2 id="scrollback">Scrollback</h2>
+          <p>
+            Scroll with the wheel or trackpad. The buffer holds
+            <code>shell.scrollback</code> lines — 10,000 by default. While a
+            program has the alternate screen (vim, less), scrolling is forwarded
+            to it instead.
+          </p>
+          <p>
+            <strong>View → Clear Scrollback</strong> empties the history for the
+            focused pane. It has no default key.
+          </p>
+
+          <h2 id="search">Searching the scrollback</h2>
+          <p>
+            <kbd>cmd-f</kbd> opens a search bar in the focused pane. Search is
+            live and case-insensitive: results update as you type, and the view
+            jumps to the nearest match behind you.
+          </p>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr>
+                  <td><kbd>⏎</kbd></td>
+                  <td>next match, further back in history</td>
+                </tr>
+                <tr>
+                  <td><kbd>⇧⏎</kbd></td>
+                  <td>previous match, back toward the bottom</td>
+                </tr>
+                <tr>
+                  <td><kbd>backspace</kbd></td>
+                  <td>edit the query; on an empty query, closes search</td>
+                </tr>
+                <tr>
+                  <td><kbd>esc</kbd> <span class="sep">/</span> <kbd>cmd-f</kbd></td>
+                  <td>close</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            The bar itself tells you where you stand: it reads
+            <code>type to search</code> on an empty query,
+            <code>⏎ older ⇧⏎ newer esc</code> once there's a hit, and outlines
+            itself in red with <code>no match</code> when there isn't one.
+          </p>
+
+          <h2 id="prompt-jumping">Prompt jumping</h2>
+          <p>
+            <kbd>cmd-↑</kbd> and <kbd>cmd-↓</kbd> scroll to the previous and next
+            shell prompt in the scrollback, so you can walk back over long build
+            output a command at a time. <kbd>cmd-↓</kbd> past the last mark
+            returns you to the bottom.
+          </p>
+          <p>
+            The marks are recorded locally: every time you press
+            <kbd>enter</kbd> outside the alternate screen, Oxide notes that row
+            as a completed prompt line, keeping the most recent 500. That means
+            jumping works in any shell, with or without
+            <a class="link" href="/docs/prompt/">shell integration</a>, and needs
+            nothing from your prompt.
+          </p>
+
+          <h2 id="urls">URLs</h2>
+          <p>
+            <kbd>cmd-click</kbd> opens a URL in your browser. An explicit OSC 8
+            hyperlink wins; failing that, Oxide takes the whitespace-delimited
+            token under the pointer and opens it if it looks like a URL.
+          </p>
+
+          <h2 id="mouse">Mouse reporting</h2>
+          <p>
+            When a program turns on mouse reporting, clicks, drags, and scrolls
+            are forwarded to it as SGR events rather than starting a selection.
+            Hold <kbd>shift</kbd> to bypass that and select text anyway.
+          </p>
+
+          <h2 id="font-size">Font size</h2>
+          <p>
+            <kbd>cmd-+</kbd> and <kbd>cmd--</kbd> step the font one point at a
+            time; <kbd>cmd-0</kbd> resets to the size in your config. The change
+            applies to every pane in the window and is not written back to disk —
+            edit <code>font.size</code> to make it permanent.
+          </p>
+
+          <h2 id="status-bar">The status bar</h2>
+          <p>
+            The bar along the bottom shows the active workspace, the focused
+            pane's working directory, and — computed natively, not by shelling
+            out each prompt — the git branch, whether the tree is dirty, and how
+            far ahead or behind the upstream you are.
+          </p>
+          <p>
+            Move it with <code>status_bar.position = "top"</code>, turn it off
+            permanently with <code>status_bar.enabled = false</code>, or toggle it
+            for the current window from <strong>View → Toggle Status Bar</strong>.
+          </p>
+
+          <h2 id="bell">The bell</h2>
+          <p>
+            <code>bell</code> is <code>"none"</code> by default. Set it to
+            <code>"sound"</code> for the system alert or <code>"visual"</code> for
+            a brief flash of the window.
+          </p>
+        </article>
+
+        <nav class="pager">
+          <a class="prev" href="/docs/install/"><span class="dir">← Previous</span><span class="label">Installation</span></a>          <a class="next" href="/docs/file-tree/"><span class="dir">Next →</span><span class="label">File tree drawer</span></a>        </nav>
+
+        <footer class="doc-footer">
+          <div>© <span id="year">2026</span> Bobby Coleman · <a href="https://github.com/bobbycoleman-dev/oxide/blob/main/LICENSE">MIT</a></div>
+          <div>
+            <a href="https://github.com/bobbycoleman-dev/oxide">Source</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/releases">Releases</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/issues/new">Report an issue</a>
+          </div>
+        </footer>
+      </main>
+
+      <aside class="toc" id="toc" aria-label="On this page"></aside>
+    </div>
+
+    <script src="/docs/docs.js"></script>
+  </body>
+</html>

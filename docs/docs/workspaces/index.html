@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Workspaces — Oxide docs</title>
+    <meta name="description" content="Named sets of tabs and splits that can be pinned to survive a restart." />
+    <link rel="canonical" href="https://oxideterminal.com/docs/workspaces/" />
+
+    <meta property="og:title" content="Workspaces — Oxide docs" />
+    <meta property="og:description" content="Named sets of tabs and splits that can be pinned to survive a restart." />
+    <meta property="og:type" content="article" />
+    <meta property="og:image" content="https://oxideterminal.com/icon.png" />
+    <meta property="og:url" content="https://oxideterminal.com/docs/workspaces/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#100d0c" />
+
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/docs/docs.css" />
+  </head>
+
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <img src="/icon.png" alt="" />
+        <span>Oxide</span>
+        <span class="tag">/ docs</span>
+      </a>
+      <button class="menu-btn" type="button" aria-expanded="false" aria-controls="sidebar">
+        Menu
+      </button>
+      <div class="topbar-links">
+        <a href="/#features">Features</a>
+        <a href="https://github.com/bobbycoleman-dev/oxide">GitHub</a>
+        <a class="cta" href="https://github.com/bobbycoleman-dev/oxide/releases/latest">Download</a>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar" id="sidebar">
+        <nav aria-label="Documentation">
+          <div class="group">
+            <div class="group-title">Getting started</div>
+            <a href="/docs/">Introduction</a>
+            <a href="/docs/install/">Installation</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Using Oxide</div>
+            <a href="/docs/terminal/">Terminal &amp; scrollback</a>
+            <a href="/docs/file-tree/">File tree drawer</a>
+            <a href="/docs/tabs-splits/">Tabs &amp; splits</a>
+            <a class="active" aria-current="page" href="/docs/workspaces/">Workspaces</a>
+            <a href="/docs/prompt/">Prompt &amp; shell integration</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Reference</div>
+            <a href="/docs/configuration/">Configuration</a>
+            <a href="/docs/keybindings/">Keybindings</a>
+            <a href="/docs/themes/">Themes</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Help</div>
+            <a href="/docs/troubleshooting/">Troubleshooting</a>
+          </div>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <div class="crumbs"><a href="/docs/">Docs</a> / Using Oxide / Workspaces</div>
+        <article>
+          <h1>Workspaces</h1>
+          <p class="lede">
+            A workspace is a named set of tabs and splits — a tmux session, kept
+            inside one window. Pin one and its whole shape comes back the next
+            time you launch.
+          </p>
+
+          <h2 id="panel">The panel</h2>
+          <p>
+            Workspaces live in the bottom half of the drawer, under the file
+            tree. <kbd>ctrl-w p</kbd> focuses it from anywhere;
+            <kbd>tab</kbd> hops between the two panels once the drawer has focus.
+            The active workspace also shows as a chip at the left of the status
+            bar.
+          </p>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr>
+                  <td><kbd>j</kbd> <kbd>k</kbd> <span class="sep">/</span> <kbd>↓</kbd> <kbd>↑</kbd></td>
+                  <td>move the selection</td>
+                </tr>
+                <tr>
+                  <td><kbd>enter</kbd> <span class="sep">/</span> <kbd>o</kbd></td>
+                  <td>switch to the selected workspace</td>
+                </tr>
+                <tr>
+                  <td><kbd>a</kbd></td>
+                  <td>add one — type a name, <kbd>enter</kbd> creates it</td>
+                </tr>
+                <tr>
+                  <td><kbd>r</kbd></td>
+                  <td>rename the selected workspace</td>
+                </tr>
+                <tr>
+                  <td><kbd>d</kbd></td>
+                  <td>delete it — <kbd>y</kbd> confirms, anything else cancels</td>
+                </tr>
+                <tr>
+                  <td><kbd>p</kbd></td>
+                  <td>pin / unpin — pinned workspaces survive a restart</td>
+                </tr>
+                <tr>
+                  <td><kbd>esc</kbd></td>
+                  <td>dismiss the input line, then hand focus back to the terminal</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            The same operations are on the panel's right-click menu and the
+            <code>+</code> in its header, and
+            <strong>File → New Workspace</strong> creates one without naming it.
+          </p>
+
+          <h2 id="behaviour">How they behave</h2>
+          <p>
+            Each workspace carries its own tabs, its own splits, and its own
+            active tab. Switching between them swaps the whole terminal area at
+            once; the shells keep running in the background, so a build you left
+            in another workspace is still going when you come back.
+          </p>
+          <p>
+            A new workspace always starts at <code>~/</code> rather than
+            inheriting the focused pane's directory — it's a fresh context, not a
+            continuation. Unnamed ones are called
+            <code>workspace 1</code>, <code>workspace 2</code>, and so on.
+          </p>
+          <p>
+            Closing the last pane of the last tab of a workspace closes the
+            workspace; closing the last workspace closes the window.
+          </p>
+
+          <h2 id="pinning">Pinning</h2>
+          <p>
+            Workspaces are temporary by default. Press <kbd>p</kbd> to pin one,
+            and Oxide writes it to
+            <code>~/.cache/oxide/workspaces.json</code>: the name, the tabs, the
+            split tree, which pane was focused, and each pane's working
+            directory. On the next launch those workspaces are rebuilt in that
+            shape, with fresh shells started in those directories.
+          </p>
+          <div class="note">
+            <p>
+              <strong>Running programs don't come back.</strong> Layout and
+              directories are restored; processes are not. tmux only manages that
+              because its server never exits — a quit is a quit here.
+            </p>
+          </div>
+          <p>
+            The state file is rewritten atomically, and a file that fails to
+            parse is moved aside to <code>workspaces.json.corrupt</code> rather
+            than being overwritten, so a bad write can't quietly erase your
+            layouts.
+          </p>
+        </article>
+
+        <nav class="pager">
+          <a class="prev" href="/docs/tabs-splits/"><span class="dir">← Previous</span><span class="label">Tabs &amp; splits</span></a>          <a class="next" href="/docs/prompt/"><span class="dir">Next →</span><span class="label">Prompt &amp; shell integration</span></a>        </nav>
+
+        <footer class="doc-footer">
+          <div>© <span id="year">2026</span> Bobby Coleman · <a href="https://github.com/bobbycoleman-dev/oxide/blob/main/LICENSE">MIT</a></div>
+          <div>
+            <a href="https://github.com/bobbycoleman-dev/oxide">Source</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/releases">Releases</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/issues/new">Report an issue</a>
+          </div>
+        </footer>
+      </main>
+
+      <aside class="toc" id="toc" aria-label="On this page"></aside>
+    </div>
+
+    <script src="/docs/docs.js"></script>
+  </body>
+</html>

@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prompt &amp; shell integration — Oxide docs</title>
+    <meta name="description" content="Oxide's TOML-built powerline prompt and OSC 133 shell integration, injected without touching your dotfiles." />
+    <link rel="canonical" href="https://oxideterminal.com/docs/prompt/" />
+
+    <meta property="og:title" content="Prompt &amp; shell integration — Oxide docs" />
+    <meta property="og:description" content="Oxide's TOML-built powerline prompt and OSC 133 shell integration, injected without touching your dotfiles." />
+    <meta property="og:type" content="article" />
+    <meta property="og:image" content="https://oxideterminal.com/icon.png" />
+    <meta property="og:url" content="https://oxideterminal.com/docs/prompt/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#100d0c" />
+
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/docs/docs.css" />
+  </head>
+
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <img src="/icon.png" alt="" />
+        <span>Oxide</span>
+        <span class="tag">/ docs</span>
+      </a>
+      <button class="menu-btn" type="button" aria-expanded="false" aria-controls="sidebar">
+        Menu
+      </button>
+      <div class="topbar-links">
+        <a href="/#features">Features</a>
+        <a href="https://github.com/bobbycoleman-dev/oxide">GitHub</a>
+        <a class="cta" href="https://github.com/bobbycoleman-dev/oxide/releases/latest">Download</a>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar" id="sidebar">
+        <nav aria-label="Documentation">
+          <div class="group">
+            <div class="group-title">Getting started</div>
+            <a href="/docs/">Introduction</a>
+            <a href="/docs/install/">Installation</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Using Oxide</div>
+            <a href="/docs/terminal/">Terminal &amp; scrollback</a>
+            <a href="/docs/file-tree/">File tree drawer</a>
+            <a href="/docs/tabs-splits/">Tabs &amp; splits</a>
+            <a href="/docs/workspaces/">Workspaces</a>
+            <a class="active" aria-current="page" href="/docs/prompt/">Prompt &amp; shell integration</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Reference</div>
+            <a href="/docs/configuration/">Configuration</a>
+            <a href="/docs/keybindings/">Keybindings</a>
+            <a href="/docs/themes/">Themes</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Help</div>
+            <a href="/docs/troubleshooting/">Troubleshooting</a>
+          </div>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <div class="crumbs"><a href="/docs/">Docs</a> / Using Oxide / Prompt &amp; shell integration</div>
+        <article>
+          <h1>Prompt &amp; shell integration</h1>
+          <p class="lede">
+            Oxide can compile a powerline prompt from TOML segments and inject it
+            into your shell — without ever writing to your dotfiles. Or it can
+            stay out of the way entirely and leave starship exactly as it is.
+          </p>
+
+          <h2 id="two-switches">Two independent switches</h2>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead>
+                <tr>
+                  <th>Key</th>
+                  <th>Default</th>
+                  <th>What it controls</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>shell.integration</td>
+                  <td>true</td>
+                  <td>
+                    The hooks: OSC 133 semantic markers, OSC 7 directory
+                    reporting, command timing, and the silent-<code>cd</code>
+                    widget the file tree uses.
+                  </td>
+                </tr>
+                <tr>
+                  <td>prompt.enabled</td>
+                  <td>true</td>
+                  <td>
+                    Whether Oxide also builds and sets <code>PROMPT</code>.
+                    Turn it off to keep your own.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            They're deliberately separate. <code>integration = true</code> with
+            <code>enabled = false</code> is the setup for anyone already running
+            starship, powerlevel10k, or a prompt they've spent years on: the
+            file tree can still <code>cd</code> your shell, and your prompt is
+            untouched.
+          </p>
+          <pre><span class="c">[shell]</span>
+integration = <span class="k">true</span>
+
+<span class="c">[prompt]</span>
+enabled = <span class="k">false</span>    <span class="c"># keep starship / p10k / your own</span></pre>
+
+          <h2 id="injection">How injection works</h2>
+          <p>
+            Oxide writes generated scripts to <code>~/.cache/oxide/</code> on
+            launch and points the child shell at them through the environment.
+            Your real dotfiles are read, never modified.
+          </p>
+          <h3 id="zsh">zsh</h3>
+          <p>
+            Oxide sets <code>ZDOTDIR</code> to a shim directory containing its
+            own <code>.zshenv</code>, <code>.zprofile</code>, and
+            <code>.zshrc</code>. Each one restores <code>ZDOTDIR</code> to your
+            real value, sources your counterpart file, and only then layers
+            Oxide's <code>init.zsh</code> on top — so its
+            <code>precmd</code> hook, and therefore <code>PROMPT</code>, wins over
+            anything your config set. Once the rc files are done,
+            <code>ZDOTDIR</code> is handed back to your own value, so subshells
+            resolve normally.
+          </p>
+          <h3 id="bash">bash</h3>
+          <p>
+            Oxide launches bash with <code>--init-file</code> pointing at a
+            generated <code>init.bash</code>, which emulates the login profile
+            chain first. Because <code>--init-file</code> and
+            <code>-l</code> conflict, the login flag is dropped from
+            <code>shell.args</code> for that invocation.
+          </p>
+          <h3 id="other-shells">Other shells</h3>
+          <p>
+            fish, nushell, and friends run completely normally — they just get no
+            injection, and therefore no Oxide prompt and no silent
+            <code>cd</code>. Everything else in Oxide, including the file tree
+            following your <code>cd</code>, works regardless: that's done by
+            inspecting the PTY's foreground process, not by shell cooperation.
+          </p>
+
+          <h2 id="what-integration-gives">What integration gives you</h2>
+          <ul>
+            <li>
+              <strong>OSC 133 markers</strong> — <code>A</code> and
+              <code>B</code> around the prompt, <code>C</code> when a command
+              starts, <code>D</code> with its exit status when it finishes.
+            </li>
+            <li>
+              <strong>OSC 7</strong> — the working directory reported on every
+              prompt.
+            </li>
+            <li>
+              <strong>Command timing</strong> — used by the
+              <code>duration</code> segment.
+            </li>
+            <li>
+              <strong>Silent <code>cd</code></strong> — pressing <kbd>c</kbd> in
+              the file tree writes a path to
+              <code>~/.cache/oxide/cd_target</code> and triggers a zle widget,
+              which <code>cd</code>s and redraws the prompt in place. Nothing is
+              echoed and no command lands in your history.
+            </li>
+          </ul>
+          <div class="note">
+            <p>
+              The <code>A</code> and <code>B</code> markers are embedded in the
+              prompt Oxide builds, so they're only emitted when
+              <code>prompt.enabled = true</code>. Prompt jumping
+              (<kbd>cmd-↑</kbd>/<kbd>cmd-↓</kbd>) doesn't depend on them — it
+              tracks where you pressed <kbd>enter</kbd> — so it works either way.
+            </p>
+          </div>
+
+          <h2 id="anatomy">Anatomy of the prompt</h2>
+          <p>
+            The prompt is a list of segments, each with a foreground color, a
+            background color, and a bold flag, joined by a powerline separator
+            drawn in the neighbouring colors.
+          </p>
+          <pre><span class="c">[prompt]</span>
+enabled              = <span class="k">true</span>
+separator            = <span class="s">"\ue0b0"</span>  <span class="c"># the powerline right arrow</span>
+end                  = <span class="s">"\ue0b0"</span>  <span class="c"># closing glyph; defaults to `separator`</span>
+newline_before_input = <span class="k">false</span>    <span class="c"># put the cursor on its own line</span>
+
+<span class="c">[[prompt.segments]]</span>
+kind    = <span class="s">"cwd"</span>
+fg      = <span class="s">"#11111b"</span>
+bg      = <span class="s">"#89b4fa"</span>
+bold    = <span class="k">true</span>
+options = { style = <span class="s">"truncate_to_repo"</span>, max_len = <span class="n">40</span> }</pre>
+          <p>
+            Segments render in the order you declare them. Some hide themselves:
+            <code>git</code> disappears outside a repository,
+            <code>exit_status</code> when the last command succeeded (unless you
+            ask otherwise), <code>duration</code> for anything under two seconds,
+            <code>env</code> when the variable is empty.
+          </p>
+
+          <h2 id="segments">Segment kinds</h2>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead>
+                <tr>
+                  <th>kind</th>
+                  <th>Options</th>
+                  <th>Renders</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>cwd</td>
+                  <td>style, max_len</td>
+                  <td>
+                    The working directory. <code>style</code> is
+                    <code>"full"</code> (<code>~</code>-abbreviated path),
+                    <code>"truncate_to_repo"</code> (path relative to the git
+                    root, prefixed by the repo name — the default), or
+                    <code>"basename"</code>. Longer than
+                    <code>max_len</code> (default 40) is truncated from the left
+                    with an ellipsis.
+                  </td>
+                </tr>
+                <tr>
+                  <td>git</td>
+                  <td>show_dirty, dirty_bg, ahead_behind</td>
+                  <td>
+                    A branch glyph (U+E0A0) and the branch name, or a short
+                    SHA when detached. With
+                    <code>show_dirty</code> the segment switches to
+                    <code>dirty_bg</code> when tracked files are modified; with
+                    <code>ahead_behind</code> it appends <code>⇡n</code> and
+                    <code>⇣n</code> against the upstream. Hidden outside a repo.
+                  </td>
+                </tr>
+                <tr>
+                  <td>exit_status</td>
+                  <td>hide_on_success</td>
+                  <td>
+                    <code>✗ 1</code> for the last command's status. Hidden on
+                    success by default.
+                  </td>
+                </tr>
+                <tr>
+                  <td>time</td>
+                  <td>format</td>
+                  <td>
+                    The clock, in <code>strftime</code> form — default
+                    <code>"%H:%M"</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>duration</td>
+                  <td>—</td>
+                  <td>
+                    How long the last command took, as <code>4.2s</code> or
+                    <code>2m11s</code>. Shown only past two seconds.
+                  </td>
+                </tr>
+                <tr>
+                  <td>user</td>
+                  <td>—</td>
+                  <td>The current username.</td>
+                </tr>
+                <tr>
+                  <td>host</td>
+                  <td>—</td>
+                  <td>The short hostname.</td>
+                </tr>
+                <tr>
+                  <td>text</td>
+                  <td>text</td>
+                  <td>A literal string — an icon, a label, whatever you like.</td>
+                </tr>
+                <tr>
+                  <td>env</td>
+                  <td>var</td>
+                  <td>
+                    The value of an environment variable, hidden when it's empty.
+                    The name must be alphanumeric or underscores.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="examples">Examples</h2>
+          <h3 id="minimal">Minimal: directory and branch</h3>
+          <pre><span class="c">[[prompt.segments]]</span>
+kind = <span class="s">"cwd"</span>
+bg   = <span class="s">"#7d9bb8"</span>
+fg   = <span class="s">"#100d0c"</span>
+
+<span class="c">[[prompt.segments]]</span>
+kind = <span class="s">"git"</span>
+bg   = <span class="s">"#a6b86a"</span>
+fg   = <span class="s">"#100d0c"</span></pre>
+
+          <h3 id="timing">With timing and a clock</h3>
+          <pre><span class="c">[[prompt.segments]]</span>
+kind    = <span class="s">"duration"</span>
+bg      = <span class="s">"#e5a458"</span>
+fg      = <span class="s">"#100d0c"</span>
+
+<span class="c">[[prompt.segments]]</span>
+kind    = <span class="s">"time"</span>
+bg      = <span class="s">"#3a2e28"</span>
+fg      = <span class="s">"#a3938a"</span>
+options = { format = <span class="s">"%H:%M:%S"</span> }</pre>
+
+          <h3 id="two-line">Two lines</h3>
+          <p>
+            <code>newline_before_input = true</code> puts your typing on its own
+            line under the segments — handy with long paths.
+          </p>
+          <pre><span class="c">[prompt]</span>
+newline_before_input = <span class="k">true</span></pre>
+
+          <h3 id="no-powerline">Without powerline glyphs</h3>
+          <p>
+            If you'd rather not depend on a Nerd Font, replace the separators
+            with plain characters:
+          </p>
+          <pre><span class="c">[prompt]</span>
+separator = <span class="s">" "</span>
+end       = <span class="s">"›"</span></pre>
+          <p>
+            The generated config file writes these as literal glyphs; TOML's
+            <code>\uXXXX</code> escapes are equivalent and easier to read in a
+            diff.
+          </p>
+
+          <h2 id="applying">Applying changes</h2>
+          <p>
+            Prompt and shell settings are baked into the init script when a shell
+            starts, so unlike fonts and colors they don't hot-reload. Open a new
+            tab (<kbd>cmd-t</kbd>) to see the change; existing shells keep the
+            prompt they were born with.
+          </p>
+          <div class="note tip">
+            <p>
+              Oxide checks whether <code>git</code> is really available before
+              using it in the prompt. On a Mac without the Command Line Tools,
+              <code>/usr/bin/git</code> is an installer shim that would pop a GUI
+              dialog from inside your prompt — Oxide detects that case and skips
+              git entirely rather than trapping you in a dialog loop.
+            </p>
+          </div>
+        </article>
+
+        <nav class="pager">
+          <a class="prev" href="/docs/workspaces/"><span class="dir">← Previous</span><span class="label">Workspaces</span></a>          <a class="next" href="/docs/configuration/"><span class="dir">Next →</span><span class="label">Configuration</span></a>        </nav>
+
+        <footer class="doc-footer">
+          <div>© <span id="year">2026</span> Bobby Coleman · <a href="https://github.com/bobbycoleman-dev/oxide/blob/main/LICENSE">MIT</a></div>
+          <div>
+            <a href="https://github.com/bobbycoleman-dev/oxide">Source</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/releases">Releases</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/issues/new">Report an issue</a>
+          </div>
+        </footer>
+      </main>
+
+      <aside class="toc" id="toc" aria-label="On this page"></aside>
+    </div>
+
+    <script src="/docs/docs.js"></script>
+  </body>
+</html>

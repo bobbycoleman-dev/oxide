@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tabs &amp; splits — Oxide docs</title>
+    <meta name="description" content="Open, close, and navigate tabs and split panes in Oxide." />
+    <link rel="canonical" href="https://oxideterminal.com/docs/tabs-splits/" />
+
+    <meta property="og:title" content="Tabs &amp; splits — Oxide docs" />
+    <meta property="og:description" content="Open, close, and navigate tabs and split panes in Oxide." />
+    <meta property="og:type" content="article" />
+    <meta property="og:image" content="https://oxideterminal.com/icon.png" />
+    <meta property="og:url" content="https://oxideterminal.com/docs/tabs-splits/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#100d0c" />
+
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/docs/docs.css" />
+  </head>
+
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <img src="/icon.png" alt="" />
+        <span>Oxide</span>
+        <span class="tag">/ docs</span>
+      </a>
+      <button class="menu-btn" type="button" aria-expanded="false" aria-controls="sidebar">
+        Menu
+      </button>
+      <div class="topbar-links">
+        <a href="/#features">Features</a>
+        <a href="https://github.com/bobbycoleman-dev/oxide">GitHub</a>
+        <a class="cta" href="https://github.com/bobbycoleman-dev/oxide/releases/latest">Download</a>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar" id="sidebar">
+        <nav aria-label="Documentation">
+          <div class="group">
+            <div class="group-title">Getting started</div>
+            <a href="/docs/">Introduction</a>
+            <a href="/docs/install/">Installation</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Using Oxide</div>
+            <a href="/docs/terminal/">Terminal &amp; scrollback</a>
+            <a href="/docs/file-tree/">File tree drawer</a>
+            <a class="active" aria-current="page" href="/docs/tabs-splits/">Tabs &amp; splits</a>
+            <a href="/docs/workspaces/">Workspaces</a>
+            <a href="/docs/prompt/">Prompt &amp; shell integration</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Reference</div>
+            <a href="/docs/configuration/">Configuration</a>
+            <a href="/docs/keybindings/">Keybindings</a>
+            <a href="/docs/themes/">Themes</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Help</div>
+            <a href="/docs/troubleshooting/">Troubleshooting</a>
+          </div>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <div class="crumbs"><a href="/docs/">Docs</a> / Using Oxide / Tabs &amp; splits</div>
+        <article>
+          <h1>Tabs &amp; splits</h1>
+          <p class="lede">
+            Oxide draws its own tab bar and its own split layout, rather than
+            leaning on macOS window tabbing — so both behave identically under a
+            tiling window manager like AeroSpace or yabai.
+          </p>
+
+          <h2 id="tabs">Tabs</h2>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr>
+                  <td><kbd>cmd-t</kbd></td>
+                  <td>new tab</td>
+                </tr>
+                <tr>
+                  <td><kbd>cmd-1</kbd> … <kbd>cmd-9</kbd></td>
+                  <td>jump straight to a tab</td>
+                </tr>
+                <tr>
+                  <td>
+                    <kbd>⌃tab</kbd> <span class="sep">/</span>
+                    <kbd>⌃⇧tab</kbd>
+                  </td>
+                  <td>next / previous tab</td>
+                </tr>
+                <tr>
+                  <td>
+                    <kbd>⇧⌘]</kbd> <span class="sep">/</span> <kbd>⇧⌘[</kbd>
+                  </td>
+                  <td>next / previous tab</td>
+                </tr>
+                <tr>
+                  <td><kbd>ctrl-w q</kbd> <span class="sep">/</span> <kbd>cmd-w</kbd></td>
+                  <td>close the focused pane, and the tab with its last pane</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            A tab is titled after its active pane's directory —
+            <code>~</code> for home, the basename otherwise. Click a tab to
+            select it, the <code>×</code> to close it, or the
+            <code>+</code> at the end of the bar for a new one.
+          </p>
+          <p>
+            New tabs start in the current pane's directory. Set
+            <code>window.new_tab_directory = "home"</code> to always start at
+            <code>~/</code> instead.
+          </p>
+
+          <h2 id="splits">Splits</h2>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr>
+                  <td><kbd>ctrl-w v</kbd> <span class="sep">/</span> <kbd>cmd-d</kbd></td>
+                  <td>split right</td>
+                </tr>
+                <tr>
+                  <td><kbd>ctrl-w s</kbd> <span class="sep">/</span> <kbd>cmd-shift-d</kbd></td>
+                  <td>split down</td>
+                </tr>
+                <tr>
+                  <td><kbd>ctrl-w V</kbd> <span class="sep">/</span> <kbd>ctrl-w S</kbd></td>
+                  <td>split left / up (insert before the current pane)</td>
+                </tr>
+                <tr>
+                  <td><kbd>ctrl-w q</kbd></td>
+                  <td>close the focused pane and reclaim its space</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Splits nest freely, but not gratuitously: splitting a pane whose
+            parent already runs along that axis inserts a sibling instead of
+            nesting, so three <kbd>ctrl-w v</kbd>s give you three even columns
+            rather than halves of halves — the way tmux behaves.
+          </p>
+          <p>
+            A new pane starts in the same directory as the one you split.
+            Typing <code>exit</code> closes a pane exactly like
+            <kbd>ctrl-w q</kbd>; if the shell exits with a non-zero status, the
+            pane stays open so you can read the failure.
+          </p>
+
+          <h3 id="moving">Moving between panes</h3>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr>
+                  <td>
+                    <kbd>ctrl-w h</kbd> <kbd>j</kbd> <kbd>k</kbd> <kbd>l</kbd>
+                  </td>
+                  <td>
+                    move by what's on screen — <kbd>h</kbd> from the leftmost
+                    pane focuses the file tree
+                  </td>
+                </tr>
+                <tr>
+                  <td><kbd>cmd-opt-←↓↑→</kbd></td>
+                  <td>the same, for hands already on the arrow keys</td>
+                </tr>
+                <tr>
+                  <td><kbd>ctrl-w w</kbd></td>
+                  <td>toggle between the drawer and the terminal</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Focus is geometric, not tree-order: Oxide moves to whichever pane
+            actually sits in that direction. The file tree re-roots to follow the
+            newly focused pane's directory, and so does the status bar.
+          </p>
+          <div class="note warn">
+            <p>
+              Splits can't be resized yet — panes divide their space evenly along
+              each axis.
+            </p>
+          </div>
+
+          <h2 id="windows">Windows</h2>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr>
+                  <td><kbd>cmd-n</kbd></td>
+                  <td>new window, starting in the focused pane's directory</td>
+                </tr>
+                <tr>
+                  <td><kbd>cmd-w</kbd></td>
+                  <td>close the pane; the window goes with the last one</td>
+                </tr>
+                <tr>
+                  <td><kbd>cmd-m</kbd> <span class="sep">/</span> <kbd>ctrl-cmd-f</kbd></td>
+                  <td>minimize / toggle full screen</td>
+                </tr>
+                <tr>
+                  <td><kbd>cmd-q</kbd></td>
+                  <td>quit Oxide</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Closing the last window leaves Oxide running, the way most macOS apps
+            do; clicking the Dock icon brings a fresh window back.
+            Window size and position are remembered between launches. With the
+            default <code>window.titlebar = "hidden"</code> the tab bar doubles as
+            the drag strip, and double-clicking it zooms the window as usual.
+          </p>
+        </article>
+
+        <nav class="pager">
+          <a class="prev" href="/docs/file-tree/"><span class="dir">← Previous</span><span class="label">File tree drawer</span></a>          <a class="next" href="/docs/workspaces/"><span class="dir">Next →</span><span class="label">Workspaces</span></a>        </nav>
+
+        <footer class="doc-footer">
+          <div>© <span id="year">2026</span> Bobby Coleman · <a href="https://github.com/bobbycoleman-dev/oxide/blob/main/LICENSE">MIT</a></div>
+          <div>
+            <a href="https://github.com/bobbycoleman-dev/oxide">Source</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/releases">Releases</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/issues/new">Report an issue</a>
+          </div>
+        </footer>
+      </main>
+
+      <aside class="toc" id="toc" aria-label="On this page"></aside>
+    </div>
+
+    <script src="/docs/docs.js"></script>
+  </body>
+</html>

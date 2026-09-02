@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Troubleshooting — Oxide docs</title>
+    <meta name="description" content="Fixes for missing glyphs, config errors, and the known limitations." />
+    <link rel="canonical" href="https://oxideterminal.com/docs/troubleshooting/" />
+
+    <meta property="og:title" content="Troubleshooting — Oxide docs" />
+    <meta property="og:description" content="Fixes for missing glyphs, config errors, and the known limitations." />
+    <meta property="og:type" content="article" />
+    <meta property="og:image" content="https://oxideterminal.com/icon.png" />
+    <meta property="og:url" content="https://oxideterminal.com/docs/troubleshooting/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#100d0c" />
+
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/docs/docs.css" />
+  </head>
+
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <img src="/icon.png" alt="" />
+        <span>Oxide</span>
+        <span class="tag">/ docs</span>
+      </a>
+      <button class="menu-btn" type="button" aria-expanded="false" aria-controls="sidebar">
+        Menu
+      </button>
+      <div class="topbar-links">
+        <a href="/#features">Features</a>
+        <a href="https://github.com/bobbycoleman-dev/oxide">GitHub</a>
+        <a class="cta" href="https://github.com/bobbycoleman-dev/oxide/releases/latest">Download</a>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar" id="sidebar">
+        <nav aria-label="Documentation">
+          <div class="group">
+            <div class="group-title">Getting started</div>
+            <a href="/docs/">Introduction</a>
+            <a href="/docs/install/">Installation</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Using Oxide</div>
+            <a href="/docs/terminal/">Terminal &amp; scrollback</a>
+            <a href="/docs/file-tree/">File tree drawer</a>
+            <a href="/docs/tabs-splits/">Tabs &amp; splits</a>
+            <a href="/docs/workspaces/">Workspaces</a>
+            <a href="/docs/prompt/">Prompt &amp; shell integration</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Reference</div>
+            <a href="/docs/configuration/">Configuration</a>
+            <a href="/docs/keybindings/">Keybindings</a>
+            <a href="/docs/themes/">Themes</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Help</div>
+            <a class="active" aria-current="page" href="/docs/troubleshooting/">Troubleshooting</a>
+          </div>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <div class="crumbs"><a href="/docs/">Docs</a> / Help / Troubleshooting</div>
+        <article>
+          <h1>Troubleshooting</h1>
+          <p class="lede">
+            The things that actually go wrong, and the current limitations worth
+            knowing about before you hit them.
+          </p>
+
+          <h2 id="glyphs">Boxes instead of icons or prompt separators</h2>
+          <p>
+            The powerline separators, git branch marker, and file-tree icons are
+            Nerd Font glyphs. Oxide bundles JetBrainsMono Nerd Font Mono into the
+            binary, so this normally can't happen — but it will if you've pointed
+            <code>font.family</code> at a font without those glyphs.
+          </p>
+          <ul>
+            <li>
+              Remove your <code>font.family</code> override to fall back to the
+              bundled font, or
+            </li>
+            <li>
+              install a <a class="link" href="https://www.nerdfonts.com">Nerd Font</a>
+              patched build of the family you want, or
+            </li>
+            <li>
+              drop the glyphs: set <code>tree.icons = false</code> and give
+              <code>prompt.separator</code> / <code>prompt.end</code> plain
+              characters.
+            </li>
+          </ul>
+
+          <h2 id="config-banner">A banner across the top of the window</h2>
+          <p>
+            That's a config problem, and Oxide is still running on the last
+            configuration that worked. The banner shows the first line of the
+            error:
+          </p>
+          <ul>
+            <li>
+              <strong>config error: …</strong> — the TOML didn't parse, or a key
+              isn't recognised. Unknown keys are rejected on purpose, so check
+              for a typo or a key in the wrong section.
+            </li>
+            <li>
+              <strong>unknown color preset "…"</strong> — the message lists every
+              valid name.
+            </li>
+          </ul>
+          <p>Fix the file and save; the banner clears on the next reload.</p>
+
+          <h2 id="prompt-unchanged">My prompt didn't change</h2>
+          <ul>
+            <li>
+              <strong>Open a new tab.</strong> <code>[prompt]</code> and
+              <code>[shell]</code> are baked in when a shell starts; existing
+              shells keep what they had.
+            </li>
+            <li>
+              <strong>Check your shell.</strong> Prompt injection works for zsh
+              and bash. fish, nushell, and others keep their own prompt entirely.
+            </li>
+            <li>
+              <strong>Check <code>prompt.enabled</code>.</strong> With it
+              <code>false</code>, Oxide never sets <code>PROMPT</code>.
+            </li>
+          </ul>
+
+          <h2 id="starship">I use starship / powerlevel10k</h2>
+          <p>
+            Set <code>prompt.enabled = false</code> and leave
+            <code>shell.integration = true</code>. Your prompt is untouched, and
+            you keep the file tree's silent <code>cd</code> and the OSC 133
+            command markers.
+          </p>
+          <p>
+            Leaving both on means Oxide's <code>precmd</code> hook runs after
+            your config and overwrites <code>PROMPT</code> — deliberate, but not
+            what you want here.
+          </p>
+
+          <h2 id="tree-not-following">The tree doesn't follow my <code>cd</code></h2>
+          <p>
+            Following <code>cd</code> is done by inspecting the PTY's foreground
+            process, so it needs no shell cooperation and works in any shell.
+            Check <code>tree.follow_cwd</code> is <code>true</code>, and remember
+            it follows the <em>focused</em> pane — switching splits re-roots the
+            tree to that shell's directory.
+          </p>
+          <p>
+            The other direction — <kbd>c</kbd> in the tree
+            <code>cd</code>-ing your shell — does need
+            <code>shell.integration = true</code> and zsh or bash.
+          </p>
+
+          <h2 id="option-key">Option doesn't send Meta</h2>
+          <p>
+            Set <code>shell.option_as_meta</code>. macOS doesn't let Oxide tell
+            the two Option keys apart, so <code>"left"</code> and
+            <code>"right"</code> currently behave like <code>"both"</code>.
+          </p>
+
+          <h2 id="update-failed">The update didn't install</h2>
+          <p>
+            Updates need Oxide to be able to replace its own bundle. If it lives
+            somewhere you can't write to, or the download was interrupted, the
+            install step fails and leaves the running copy alone. Download the
+            DMG from the
+            <a
+              class="link"
+              href="https://github.com/bobbycoleman-dev/oxide/releases/latest"
+              >releases page</a
+            >
+            and drag it over. Development builds run through
+            <code>cargo run</code> never auto-update; a bundle you built yourself
+            does check, and installing replaces it with the official release
+            build.
+          </p>
+
+          <h2 id="reset">Starting from a clean slate</h2>
+          <pre>rm -rf ~/.cache/oxide       <span class="c"># generated shell scripts, workspaces, window state</span>
+rm ~/.config/oxide/config.toml   <span class="c"># regenerated on next launch</span></pre>
+          <p>
+            Deleting the cache directory loses pinned workspaces and the
+            remembered window geometry; nothing else. Oxide never writes to your
+            dotfiles, so there is nothing else to undo.
+          </p>
+          <p>
+            If <code>workspaces.json</code> ever fails to parse, Oxide renames it
+            to <code>workspaces.json.corrupt</code> rather than overwriting it —
+            so a broken file is always recoverable by hand.
+          </p>
+
+          <h2 id="limitations">Known limitations</h2>
+          <ul>
+            <li>
+              <strong>No IME or dead-key composition.</strong> Two-stroke accents
+              and CJK input methods don't work yet.
+            </li>
+            <li>
+              <strong>Splits can't be resized.</strong> Panes divide their space
+              evenly along each axis.
+            </li>
+            <li>
+              <strong>Keybindings aren't configurable.</strong> The
+              <a class="link" href="/docs/keybindings/">built-in map</a> is the
+              whole map.
+            </li>
+            <li>
+              <strong>Pinned workspaces restore layout, not processes.</strong>
+              Directories and shape come back with fresh shells; running programs
+              can't survive a quit.
+            </li>
+            <li>
+              <strong>Left and right Option are indistinguishable</strong> — see
+              above.
+            </li>
+            <li>
+              <strong>macOS only.</strong> A Linux port is
+              <a
+                class="link"
+                href="https://github.com/bobbycoleman-dev/oxide/blob/main/LINUX_PORT.md"
+                >mapped out</a
+              >
+              but not written.
+            </li>
+          </ul>
+
+          <h2 id="reporting">Reporting something else</h2>
+          <p>
+            Open an issue on
+            <a
+              class="link"
+              href="https://github.com/bobbycoleman-dev/oxide/issues/new"
+              >GitHub</a
+            >
+            — <strong>Help → Report an Issue</strong> goes to the same place.
+            Your Oxide version (<strong>Oxide → Check for Updates…</strong>
+            reports it when you're up to date), your macOS version, your shell,
+            and the relevant part of your <code>config.toml</code> all help.
+          </p>
+        </article>
+
+        <nav class="pager">
+          <a class="prev" href="/docs/themes/"><span class="dir">← Previous</span><span class="label">Themes</span></a>        </nav>
+
+        <footer class="doc-footer">
+          <div>© <span id="year">2026</span> Bobby Coleman · <a href="https://github.com/bobbycoleman-dev/oxide/blob/main/LICENSE">MIT</a></div>
+          <div>
+            <a href="https://github.com/bobbycoleman-dev/oxide">Source</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/releases">Releases</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/issues/new">Report an issue</a>
+          </div>
+        </footer>
+      </main>
+
+      <aside class="toc" id="toc" aria-label="On this page"></aside>
+    </div>
+
+    <script src="/docs/docs.js"></script>
+  </body>
+</html>

@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Themes — Oxide docs</title>
+    <meta name="description" content="The eight built-in color presets, the theme picker, and per-color overrides." />
+    <link rel="canonical" href="https://oxideterminal.com/docs/themes/" />
+
+    <meta property="og:title" content="Themes — Oxide docs" />
+    <meta property="og:description" content="The eight built-in color presets, the theme picker, and per-color overrides." />
+    <meta property="og:type" content="article" />
+    <meta property="og:image" content="https://oxideterminal.com/icon.png" />
+    <meta property="og:url" content="https://oxideterminal.com/docs/themes/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#100d0c" />
+
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/docs/docs.css" />
+  </head>
+
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <img src="/icon.png" alt="" />
+        <span>Oxide</span>
+        <span class="tag">/ docs</span>
+      </a>
+      <button class="menu-btn" type="button" aria-expanded="false" aria-controls="sidebar">
+        Menu
+      </button>
+      <div class="topbar-links">
+        <a href="/#features">Features</a>
+        <a href="https://github.com/bobbycoleman-dev/oxide">GitHub</a>
+        <a class="cta" href="https://github.com/bobbycoleman-dev/oxide/releases/latest">Download</a>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar" id="sidebar">
+        <nav aria-label="Documentation">
+          <div class="group">
+            <div class="group-title">Getting started</div>
+            <a href="/docs/">Introduction</a>
+            <a href="/docs/install/">Installation</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Using Oxide</div>
+            <a href="/docs/terminal/">Terminal &amp; scrollback</a>
+            <a href="/docs/file-tree/">File tree drawer</a>
+            <a href="/docs/tabs-splits/">Tabs &amp; splits</a>
+            <a href="/docs/workspaces/">Workspaces</a>
+            <a href="/docs/prompt/">Prompt &amp; shell integration</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Reference</div>
+            <a href="/docs/configuration/">Configuration</a>
+            <a href="/docs/keybindings/">Keybindings</a>
+            <a class="active" aria-current="page" href="/docs/themes/">Themes</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Help</div>
+            <a href="/docs/troubleshooting/">Troubleshooting</a>
+          </div>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <div class="crumbs"><a href="/docs/">Docs</a> / Reference / Themes</div>
+        <article>
+          <h1>Themes</h1>
+          <p class="lede">
+            Eight built-in presets, a picker with live preview, and per-color
+            overrides for when a preset is nearly right.
+          </p>
+
+          <h2 id="picker">The theme picker</h2>
+          <p>
+            <kbd>cmd-k</kbd> <kbd>cmd-t</kbd> (or
+            <strong>Oxide → Select Theme…</strong>) opens a modal list.
+            <kbd>j</kbd>/<kbd>k</kbd> — or the arrows, or
+            <kbd>ctrl-n</kbd>/<kbd>ctrl-p</kbd> — move through it, repainting the
+            whole window as you go, so you're judging the theme rather than a
+            row of swatches. <kbd>enter</kbd> keeps it, <kbd>esc</kbd> puts back
+            what you had.
+          </p>
+          <p>
+            Confirming writes <code>preset = "…"</code> into the
+            <code>[colors]</code> section of your config file, preserving the
+            rest of the file's formatting and comments.
+          </p>
+          <div class="note warn">
+            <p>
+              Confirming replaces the entire <code>[colors]</code> block —
+              individual color overrides are dropped, because they'd quietly
+              defeat the theme you just picked. If you keep hand-tuned colors,
+              edit <code>preset</code> in the file directly instead.
+            </p>
+          </div>
+
+          <h2 id="presets">The presets</h2>
+          <div class="swatches">
+            <div class="swatch" style="background: #11111b">
+              <div class="name" style="color: #cdd6f4">catppuccin-mocha</div>
+              <div class="chips">
+                <i style="background: #f38ba8"></i>
+                <i style="background: #a6e3a1"></i>
+                <i style="background: #f9e2af"></i>
+                <i style="background: #89b4fa"></i>
+                <i style="background: #cba6f7"></i>
+                <i style="background: #94e2d5"></i>
+                <i style="background: #cdd6f4"></i>
+              </div>
+            </div>
+            <div class="swatch" style="background: #eff1f5">
+              <div class="name" style="color: #4c4f69">catppuccin-latte</div>
+              <div class="chips">
+                <i style="background: #d20f39"></i>
+                <i style="background: #40a02b"></i>
+                <i style="background: #df8e1d"></i>
+                <i style="background: #1e66f5"></i>
+                <i style="background: #8839ef"></i>
+                <i style="background: #179299"></i>
+                <i style="background: #4c4f69"></i>
+              </div>
+            </div>
+            <div class="swatch" style="background: #282828">
+              <div class="name" style="color: #ebdbb2">gruvbox-dark</div>
+              <div class="chips">
+                <i style="background: #cc241d"></i>
+                <i style="background: #98971a"></i>
+                <i style="background: #d79921"></i>
+                <i style="background: #458588"></i>
+                <i style="background: #b16286"></i>
+                <i style="background: #689d6a"></i>
+                <i style="background: #ebdbb2"></i>
+              </div>
+            </div>
+            <div class="swatch" style="background: #1a1b26">
+              <div class="name" style="color: #c0caf5">tokyonight</div>
+              <div class="chips">
+                <i style="background: #f7768e"></i>
+                <i style="background: #9ece6a"></i>
+                <i style="background: #e0af68"></i>
+                <i style="background: #7aa2f7"></i>
+                <i style="background: #bb9af7"></i>
+                <i style="background: #7dcfff"></i>
+                <i style="background: #c0caf5"></i>
+              </div>
+            </div>
+            <div class="swatch" style="background: #282a36">
+              <div class="name" style="color: #f8f8f2">dracula</div>
+              <div class="chips">
+                <i style="background: #ff5555"></i>
+                <i style="background: #50fa7b"></i>
+                <i style="background: #f1fa8c"></i>
+                <i style="background: #bd93f9"></i>
+                <i style="background: #ff79c6"></i>
+                <i style="background: #8be9fd"></i>
+                <i style="background: #f8f8f2"></i>
+              </div>
+            </div>
+            <div class="swatch" style="background: #2e3440">
+              <div class="name" style="color: #d8dee9">nord</div>
+              <div class="chips">
+                <i style="background: #bf616a"></i>
+                <i style="background: #a3be8c"></i>
+                <i style="background: #ebcb8b"></i>
+                <i style="background: #81a1c1"></i>
+                <i style="background: #b48ead"></i>
+                <i style="background: #88c0d0"></i>
+                <i style="background: #d8dee9"></i>
+              </div>
+            </div>
+            <div class="swatch" style="background: #002b36">
+              <div class="name" style="color: #839496">solarized-dark</div>
+              <div class="chips">
+                <i style="background: #dc322f"></i>
+                <i style="background: #859900"></i>
+                <i style="background: #b58900"></i>
+                <i style="background: #268bd2"></i>
+                <i style="background: #d33682"></i>
+                <i style="background: #2aa198"></i>
+                <i style="background: #839496"></i>
+              </div>
+            </div>
+            <div class="swatch" style="background: #100d0c">
+              <div class="name" style="color: #e8ddd5">oxide</div>
+              <div class="chips">
+                <i style="background: #e2725b"></i>
+                <i style="background: #a6b86a"></i>
+                <i style="background: #e5a458"></i>
+                <i style="background: #7d9bb8"></i>
+                <i style="background: #c78a92"></i>
+                <i style="background: #8fb0a0"></i>
+                <i style="background: #e8ddd5"></i>
+              </div>
+            </div>          </div>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead><tr><th>Preset</th><th>Notes</th></tr></thead>
+              <tbody>
+                <tr><td>catppuccin-mocha</td><td>The default when no preset is set. Soft pastels on near-black.</td></tr>
+                <tr><td>catppuccin-latte</td><td>The one light preset.</td></tr>
+                <tr><td>gruvbox-dark</td><td>Warm, retro, high contrast.</td></tr>
+                <tr><td>tokyonight</td><td>Cool blues and violets.</td></tr>
+                <tr><td>dracula</td><td>Saturated colors on slate.</td></tr>
+                <tr><td>nord</td><td>Muted arctic blues.</td></tr>
+                <tr><td>solarized-dark</td><td>The classic low-contrast teal.</td></tr>
+                <tr><td>oxide</td><td>Rust-toned — the palette this whole site is painted in.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <pre><span class="c">[colors]</span>
+preset = <span class="s">"gruvbox-dark"</span></pre>
+
+          <h2 id="overrides">Overriding individual colors</h2>
+          <p>
+            Any color you name wins over the preset, so you can start from one
+            and adjust. Values are <code>#rgb</code> or <code>#rrggbb</code>.
+          </p>
+          <pre><span class="c">[colors]</span>
+preset       = <span class="s">"nord"</span>
+background   = <span class="s">"#000000"</span>   <span class="c"># darker than Nord's own</span>
+cursor       = <span class="s">"#e2725b"</span>
+selection_bg = <span class="s">"#4a3428"</span></pre>
+          <p>The full set of keys:</p>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead><tr><th>Keys</th><th>Used for</th></tr></thead>
+              <tbody>
+                <tr><td>background, foreground</td><td>The default cell colors, the drawer, and the status bar, which derive their shades from these.</td></tr>
+                <tr><td>cursor</td><td>The block cursor.</td></tr>
+                <tr><td>selection_bg</td><td>Selected text, and the selected row in the drawer.</td></tr>
+                <tr><td>black … white</td><td>ANSI 0–7.</td></tr>
+                <tr><td>bright_black … bright_white</td><td>ANSI 8–15.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Colors reload live: save the file and the window repaints, no restart
+            and no new tab. An unknown preset name doesn't break anything — Oxide
+            keeps the current theme and shows a banner listing the valid names.
+          </p>
+
+          <h2 id="transparency">Transparency and blur</h2>
+          <p>
+            Not part of <code>[colors]</code>, but the same conversation:
+          </p>
+          <pre><span class="c">[window]</span>
+opacity = <span class="n">0.92</span>
+blur    = <span class="k">true</span></pre>
+          <p>
+            <code>opacity</code> applies to the window background;
+            <code>blur</code> frosts what's behind it. Text stays fully opaque.
+          </p>
+
+          <h2 id="ui">What the UI derives</h2>
+          <p>
+            The drawer, tab bar, status bar, and search box aren't separately
+            themeable — they're computed from the terminal palette. The drawer
+            and status bar sit a shade darker than <code>background</code>, text
+            is <code>foreground</code> dimmed toward it, directory icons use ANSI
+            blue, as does the workspace chip, and the git branch is green until
+            the tree goes dirty and then yellow. Change the palette and the
+            chrome follows.
+          </p>
+        </article>
+
+        <nav class="pager">
+          <a class="prev" href="/docs/keybindings/"><span class="dir">← Previous</span><span class="label">Keybindings</span></a>          <a class="next" href="/docs/troubleshooting/"><span class="dir">Next →</span><span class="label">Troubleshooting</span></a>        </nav>
+
+        <footer class="doc-footer">
+          <div>© <span id="year">2026</span> Bobby Coleman · <a href="https://github.com/bobbycoleman-dev/oxide/blob/main/LICENSE">MIT</a></div>
+          <div>
+            <a href="https://github.com/bobbycoleman-dev/oxide">Source</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/releases">Releases</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/issues/new">Report an issue</a>
+          </div>
+        </footer>
+      </main>
+
+      <aside class="toc" id="toc" aria-label="On this page"></aside>
+    </div>
+
+    <script src="/docs/docs.js"></script>
+  </body>
+</html>

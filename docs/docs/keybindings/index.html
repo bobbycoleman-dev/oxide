@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Keybindings — Oxide docs</title>
+    <meta name="description" content="The complete built-in keybinding table, by context." />
+    <link rel="canonical" href="https://oxideterminal.com/docs/keybindings/" />
+
+    <meta property="og:title" content="Keybindings — Oxide docs" />
+    <meta property="og:description" content="The complete built-in keybinding table, by context." />
+    <meta property="og:type" content="article" />
+    <meta property="og:image" content="https://oxideterminal.com/icon.png" />
+    <meta property="og:url" content="https://oxideterminal.com/docs/keybindings/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#100d0c" />
+
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/docs/docs.css" />
+  </head>
+
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <img src="/icon.png" alt="" />
+        <span>Oxide</span>
+        <span class="tag">/ docs</span>
+      </a>
+      <button class="menu-btn" type="button" aria-expanded="false" aria-controls="sidebar">
+        Menu
+      </button>
+      <div class="topbar-links">
+        <a href="/#features">Features</a>
+        <a href="https://github.com/bobbycoleman-dev/oxide">GitHub</a>
+        <a class="cta" href="https://github.com/bobbycoleman-dev/oxide/releases/latest">Download</a>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar" id="sidebar">
+        <nav aria-label="Documentation">
+          <div class="group">
+            <div class="group-title">Getting started</div>
+            <a href="/docs/">Introduction</a>
+            <a href="/docs/install/">Installation</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Using Oxide</div>
+            <a href="/docs/terminal/">Terminal &amp; scrollback</a>
+            <a href="/docs/file-tree/">File tree drawer</a>
+            <a href="/docs/tabs-splits/">Tabs &amp; splits</a>
+            <a href="/docs/workspaces/">Workspaces</a>
+            <a href="/docs/prompt/">Prompt &amp; shell integration</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Reference</div>
+            <a href="/docs/configuration/">Configuration</a>
+            <a class="active" aria-current="page" href="/docs/keybindings/">Keybindings</a>
+            <a href="/docs/themes/">Themes</a>
+          </div>
+          <div class="group">
+            <div class="group-title">Help</div>
+            <a href="/docs/troubleshooting/">Troubleshooting</a>
+          </div>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <div class="crumbs"><a href="/docs/">Docs</a> / Reference / Keybindings</div>
+        <article>
+          <h1>Keybindings</h1>
+          <p class="lede">
+            The complete built-in keymap. Bindings are grouped by context: the
+            terminal deliberately steals nothing, so every bare key reaches your
+            shell.
+          </p>
+
+          <div class="note warn">
+            <p>
+              Keybindings aren't user-configurable yet — this table is the whole
+              story. If a binding fights something you rely on, that's worth
+              <a
+                class="link"
+                href="https://github.com/bobbycoleman-dev/oxide/issues/new"
+                >an issue</a
+              >.
+            </p>
+          </div>
+
+          <h2 id="contexts">How contexts work</h2>
+          <p>
+            Everything terminal-scoped is either modifier-prefixed
+            (<kbd>cmd-…</kbd>) or sequence-led (<kbd>ctrl-w</kbd> then a key),
+            and bound at the root, so no bare keystroke is taken away from the
+            shell. The file tree, the workspaces panel, and the theme picker are
+            modeless lists with no text input, so bare letters are free there.
+          </p>
+
+          <h2 id="application">Application</h2>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr><td><kbd>cmd-,</kbd></td><td>open the config file in <code>$EDITOR</code></td></tr>
+                <tr><td><kbd>cmd-k</kbd> <kbd>cmd-t</kbd></td><td>theme picker</td></tr>
+                <tr><td><kbd>cmd-q</kbd></td><td>quit</td></tr>
+                <tr><td><kbd>cmd-h</kbd> <span class="sep">/</span> <kbd>alt-cmd-h</kbd></td><td>hide Oxide / hide others</td></tr>
+                <tr><td><kbd>cmd-m</kbd></td><td>minimize</td></tr>
+                <tr><td><kbd>ctrl-cmd-f</kbd></td><td>toggle full screen</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="terminal">Terminal</h2>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr><td><kbd>cmd-c</kbd> <span class="sep">/</span> <kbd>cmd-v</kbd></td><td>copy / paste (bracketed)</td></tr>
+                <tr><td><kbd>cmd-a</kbd></td><td>select all</td></tr>
+                <tr><td><kbd>cmd-f</kbd></td><td>search scrollback — <kbd>⏎</kbd> older, <kbd>⇧⏎</kbd> newer, <kbd>esc</kbd> closes</td></tr>
+                <tr><td><kbd>cmd-↑</kbd> <span class="sep">/</span> <kbd>cmd-↓</kbd></td><td>jump to previous / next prompt</td></tr>
+                <tr><td><kbd>cmd-+</kbd> <kbd>cmd--</kbd> <kbd>cmd-0</kbd></td><td>font size up / down / reset</td></tr>
+                <tr><td><kbd>cmd-click</kbd></td><td>open the URL under the pointer</td></tr>
+                <tr><td><kbd>shift</kbd> + drag</td><td>select text even while a program grabs the mouse</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="tabs">Tabs &amp; windows</h2>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr><td><kbd>cmd-t</kbd></td><td>new tab</td></tr>
+                <tr><td><kbd>cmd-n</kbd></td><td>new window</td></tr>
+                <tr><td><kbd>cmd-1</kbd> … <kbd>cmd-9</kbd></td><td>select tab 1–9</td></tr>
+                <tr><td><kbd>⌃tab</kbd> <span class="sep">/</span> <kbd>⌃⇧tab</kbd></td><td>next / previous tab</td></tr>
+                <tr><td><kbd>⇧⌘]</kbd> <span class="sep">/</span> <kbd>⇧⌘[</kbd></td><td>next / previous tab</td></tr>
+                <tr><td><kbd>cmd-w</kbd></td><td>close the pane; the window with the last one</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="splits">Splits &amp; focus</h2>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr><td><kbd>ctrl-w v</kbd> <span class="sep">/</span> <kbd>cmd-d</kbd></td><td>split right</td></tr>
+                <tr><td><kbd>ctrl-w s</kbd> <span class="sep">/</span> <kbd>cmd-shift-d</kbd></td><td>split down</td></tr>
+                <tr><td><kbd>ctrl-w V</kbd> <span class="sep">/</span> <kbd>ctrl-w S</kbd></td><td>split left / up</td></tr>
+                <tr><td><kbd>ctrl-w h</kbd> <kbd>j</kbd> <kbd>k</kbd> <kbd>l</kbd></td><td>focus the pane in that direction</td></tr>
+                <tr><td><kbd>cmd-opt-←↓↑→</kbd></td><td>focus the pane in that direction</td></tr>
+                <tr><td><kbd>ctrl-w q</kbd></td><td>close the focused pane</td></tr>
+                <tr><td><kbd>ctrl-w w</kbd></td><td>toggle focus: drawer ↔ terminal</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="drawer">The drawer</h2>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr><td><kbd>cmd-b</kbd></td><td>show / hide the drawer</td></tr>
+                <tr><td><kbd>ctrl-w t</kbd> <span class="sep">/</span> <kbd>cmd-shift-e</kbd></td><td>focus the file tree</td></tr>
+                <tr><td><kbd>ctrl-w p</kbd></td><td>focus the workspaces panel</td></tr>
+                <tr><td><kbd>tab</kbd></td><td>switch between the two panels</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 id="file-tree">In the file tree</h3>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr><td><kbd>j</kbd> <kbd>k</kbd> <span class="sep">/</span> <kbd>↓</kbd> <kbd>↑</kbd></td><td>move</td></tr>
+                <tr><td><kbd>gg</kbd> <span class="sep">/</span> <kbd>G</kbd></td><td>top / bottom</td></tr>
+                <tr><td><kbd>ctrl-d</kbd> <span class="sep">/</span> <kbd>ctrl-u</kbd></td><td>half page down / up</td></tr>
+                <tr><td><kbd>l</kbd> <span class="sep">/</span> <kbd>h</kbd></td><td>expand &amp; descend / collapse &amp; ascend</td></tr>
+                <tr><td><kbd>p</kbd></td><td>select the parent directory</td></tr>
+                <tr><td><kbd>enter</kbd> <span class="sep">/</span> <kbd>o</kbd></td><td>open a directory, or a file in <code>$EDITOR</code></td></tr>
+                <tr><td><kbd>c</kbd> <span class="sep">/</span> <kbd>-</kbd></td><td>re-root at the selection / one level up</td></tr>
+                <tr><td><kbd>/</kbd></td><td>filter</td></tr>
+                <tr><td><kbd>a</kbd> <kbd>r</kbd> <kbd>d</kbd></td><td>add / rename / delete to Trash</td></tr>
+                <tr><td><kbd>I</kbd> <span class="sep">/</span> <kbd>R</kbd></td><td>toggle hidden files / refresh</td></tr>
+                <tr><td><kbd>esc</kbd></td><td>dismiss input → clear filter → back to the terminal</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 id="workspaces">In the workspaces panel</h3>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr><td><kbd>j</kbd> <kbd>k</kbd> <span class="sep">/</span> <kbd>↓</kbd> <kbd>↑</kbd></td><td>move</td></tr>
+                <tr><td><kbd>enter</kbd> <span class="sep">/</span> <kbd>o</kbd></td><td>switch to the workspace</td></tr>
+                <tr><td><kbd>a</kbd> <kbd>r</kbd> <kbd>d</kbd></td><td>add / rename / delete (<kbd>y</kbd> confirms)</td></tr>
+                <tr><td><kbd>p</kbd></td><td>pin — persist across restarts</td></tr>
+                <tr><td><kbd>esc</kbd></td><td>dismiss input → back to the terminal</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 id="theme-picker">In the theme picker</h3>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr><td><kbd>j</kbd> <kbd>k</kbd> <span class="sep">/</span> <kbd>↓</kbd> <kbd>↑</kbd> <span class="sep">/</span> <kbd>ctrl-n</kbd> <kbd>ctrl-p</kbd></td><td>move, previewing as you go</td></tr>
+                <tr><td><kbd>enter</kbd></td><td>apply and write the preset to your config</td></tr>
+                <tr><td><kbd>esc</kbd></td><td>cancel and restore the previous theme</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="menu-only">Menu-only commands</h2>
+          <p>These have no default binding:</p>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr><td>View → Clear Scrollback</td><td>empty the focused pane's history</td></tr>
+                <tr><td>View → Toggle Status Bar</td><td>show or hide the bar for this window</td></tr>
+                <tr><td>File → New Workspace</td><td>create an unnamed workspace</td></tr>
+                <tr><td>Oxide → Check for Updates…</td><td>check GitHub for a newer release</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <nav class="pager">
+          <a class="prev" href="/docs/configuration/"><span class="dir">← Previous</span><span class="label">Configuration</span></a>          <a class="next" href="/docs/themes/"><span class="dir">Next →</span><span class="label">Themes</span></a>        </nav>
+
+        <footer class="doc-footer">
+          <div>© <span id="year">2026</span> Bobby Coleman · <a href="https://github.com/bobbycoleman-dev/oxide/blob/main/LICENSE">MIT</a></div>
+          <div>
+            <a href="https://github.com/bobbycoleman-dev/oxide">Source</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/releases">Releases</a> ·
+            <a href="https://github.com/bobbycoleman-dev/oxide/issues/new">Report an issue</a>
+          </div>
+        </footer>
+      </main>
+
+      <aside class="toc" id="toc" aria-label="On this page"></aside>
+    </div>
+
+    <script src="/docs/docs.js"></script>
+  </body>
+</html>
