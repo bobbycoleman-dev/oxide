@@ -14,14 +14,14 @@ like. The version bump is deliberately *not* part of these commits.
 Bump the version in `Cargo.toml`:
 
 ```toml
-version = "0.2.0"
+version = "0.3.2"
 ```
 
 Then refresh the lockfile and commit **both files together**:
 
 ```sh
 cargo check                              # rewrites Cargo.lock's own version line
-git commit -am "release v0.2.0" && git push
+git commit -am "release v0.3.2" && git push
 ```
 
 `cargo check` matters: `Cargo.lock` records this package's version too, so if
@@ -62,8 +62,8 @@ certificate (auto-detected from the keychain), notarized, and stapled.
 ### 4. Publish the GitHub release
 
 ```sh
-gh release create v0.2.0 target/Oxide-0.2.0.dmg \
-  --title "Oxide v0.2.0" \
+gh release create v0.3.2 target/Oxide-0.3.2.dmg \
+  --title "Oxide v0.3.2" \
   --notes "what changed"
 ```
 
@@ -80,7 +80,7 @@ relaunch. Nothing else to do on the publishing side.
 
 ## Gotchas
 
-- **The tag must be `v<Cargo.toml version>`** (e.g. `v0.2.0` for `0.2.0`) and
+- **The tag must be `v<Cargo.toml version>`** (e.g. `v0.3.2` for `0.3.2`) and
   the release must have a `.dmg` asset, or the updater ignores it.
 - Version numbering: bug fixes and polish get a patch bump (`0.1.1`), a new
   user-facing capability gets a minor bump (`0.2.0`).
