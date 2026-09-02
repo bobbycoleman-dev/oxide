@@ -227,6 +227,33 @@ __oxide_cd_widget() {{
 }}
 zle -N __oxide_cd_widget
 bindkey '\e[9001~' __oxide_cd_widget
+
+# Silent run: same shape as the cd widget, for commands the app wants the
+# shell to execute — opening a file in $EDITOR, which only the shell knows.
+# The command runs where the user could see it (a full-screen editor takes
+# the terminal, exactly as if they had typed it) but the command line itself
+# is never echoed and never enters history. The target file is consumed so a
+# stray trigger can't replay it.
+__oxide_run_widget() {{
+  local f="${{HOME}}/.cache/oxide/run_target" c=""
+  if [[ -r $f ]]; then
+    c="$(<$f)"
+    command rm -f -- "$f"
+  fi
+  if [[ -n $c ]]; then
+    # Let zle know the display is about to be clobbered, then hand the
+    # terminal to the command. </dev/tty matters: inside a widget stdin is
+    # not the terminal, and vim refuses to read a non-tty stdin.
+    zle -I
+    eval "$c" </dev/tty
+    # reset-prompt redraws one line above the cursor, which would eat the
+    # command's last line of output. Give it a spare line to reclaim.
+    print
+  fi
+  zle reset-prompt
+}}
+zle -N __oxide_run_widget
+bindkey '\e[9002~' __oxide_run_widget
 "#
     )
 }
@@ -463,8 +490,25 @@ __oxide_cd_widget() {{
     __oxide_cd_erase=1
   fi
 }}
+# Silent run: the app writes a command and sends the trigger. readline
+# redraws the prompt line once the handler returns, so a full-screen editor
+# leaves the terminal the way it found it — and the command line is never
+# echoed or added to history. The target file is consumed so a stray trigger
+# cannot replay it.
+__oxide_run_widget() {{
+  local f="${{HOME}}/.cache/oxide/run_target" c=""
+  if [[ -r $f ]]; then
+    c="$(<$f)"
+    command rm -f -- "$f"
+  fi
+  # </dev/tty for the same reason as zsh: a bind -x handler does not inherit
+  # the terminal on stdin, and editors refuse to run without it.
+  [[ -n $c ]] && eval "$c" </dev/tty
+  return 0
+}}
 if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 3) )); then
   bind -x '"\e[9001~": __oxide_cd_widget' 2>/dev/null
+  bind -x '"\e[9002~": __oxide_run_widget' 2>/dev/null
 else
   # bash < 4.3 cannot `bind -x` a multi-character sequence — invoking it dies
   # with "bash_execute_unix_command: cannot find keymap for command" (Apple's
@@ -472,6 +516,8 @@ else
   # the same trick fzf uses.
   bind -x '"\C-x\C-a": __oxide_cd_widget' 2>/dev/null
   bind '"\e[9001~": "\C-x\C-a"' 2>/dev/null
+  bind -x '"\C-x\C-b": __oxide_run_widget' 2>/dev/null
+  bind '"\e[9002~": "\C-x\C-b"' 2>/dev/null
 fi
 "#
     )
@@ -711,5 +757,119 @@ mod cd_tests {
             !after.contains("oxide"),
             "stale prompt left on screen after cd:\n{after}"
         );
+    }
+}
+
+#[cfg(test)]
+mod run_tests {
+    use crate::config::Config;
+    use crate::terminal::session::{SessionOptions, TermSize, TerminalSession};
+    use std::time::{Duration, Instant};
+
+    fn grid(session: &TerminalSession) -> String {
+        let term = session.term.lock();
+        let mut out = String::new();
+        let mut line = i32::MIN;
+        for ix in term.renderable_content().display_iter {
+            if ix.point.line.0 != line {
+                out.push('\n');
+                line = ix.point.line.0;
+            }
+            out.push(ix.cell.c);
+        }
+        out
+    }
+
+    /// "Open in $EDITOR" must run the command without typing it at the prompt.
+    /// Covers every shell Oxide injects into, including Apple's bash 3.2 with
+    /// its trampolined `bind -x`.
+    #[test]
+    fn silent_run_in_supported_shells() {
+        for shell in ["/bin/zsh", "/opt/homebrew/bin/bash", "/bin/bash"] {
+            if std::path::Path::new(shell).exists() {
+                silent_run_scenario(shell);
+            }
+        }
+    }
+
+    fn silent_run_scenario(shell: &str) {
+        let config = Config::default();
+        let integration = crate::prompt::integration::setup(&config, shell);
+        let args = integration
+            .args_override
+            .clone()
+            .unwrap_or_else(|| config.shell.args.clone());
+
+        let dir = std::env::temp_dir().join("oxide-run-widget-test");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let size = TermSize {
+            columns: 100,
+            screen_lines: 24,
+            cell_width: 8.0,
+            cell_height: 16.0,
+        };
+        let options = SessionOptions {
+            program: shell.to_string(),
+            args,
+            working_directory: Some(dir.clone()),
+            scrollback: 100,
+            env: integration.env.clone(),
+        };
+        let (session, _rx) = TerminalSession::spawn(options, size).expect("spawn shell");
+        std::thread::sleep(Duration::from_millis(1500)); // let rc files load
+
+        let target = crate::prompt::integration::run_target_path().expect("run target path");
+
+        // The marker is in the output, not in the command name, so an echoed
+        // command line is distinguishable from the command's own output.
+        let after = trigger(&session, &target, "printf 'OXIDE_RAN_OK\\n'", "OXIDE_RAN_OK", shell);
+        assert!(
+            !after.contains("printf"),
+            "{shell}: the command line was echoed:\n{after}"
+        );
+        assert!(
+            !target.exists(),
+            "{shell}: run target was not consumed, a stray trigger would replay it"
+        );
+
+        // The command must inherit a real terminal. Widgets and `bind -x`
+        // handlers do not get one on stdin by default, and an editor started
+        // without it either warns or refuses to run.
+        let after = trigger(
+            &session,
+            &target,
+            "if [ -t 0 ]; then printf 'OXIDE_TTY_OK\\n'; else printf 'OXIDE_TTY_MISSING\\n'; fi",
+            "OXIDE_TTY",
+            shell,
+        );
+        assert!(
+            after.contains("OXIDE_TTY_OK"),
+            "{shell}: the command ran without a terminal on stdin:\n{after}"
+        );
+    }
+
+    /// Hand the shell a command through the widget and wait for `expect` to
+    /// show up on screen. Returns the rendered grid.
+    fn trigger(
+        session: &TerminalSession,
+        target: &std::path::Path,
+        command: &str,
+        expect: &str,
+        shell: &str,
+    ) -> String {
+        std::fs::write(target, command).unwrap();
+        session.write_input(b"\x1b[9002~".to_vec());
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            std::thread::sleep(Duration::from_millis(200));
+            let grid = grid(session);
+            if grid.contains(expect) {
+                return grid;
+            }
+            if Instant::now() > deadline {
+                panic!("{shell}: {command:?} never ran; grid:\n{grid}");
+            }
+        }
     }
 }

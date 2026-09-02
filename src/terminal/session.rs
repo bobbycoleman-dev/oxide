@@ -75,6 +75,25 @@ pub fn resolve_shell(configured: Option<&str>) -> String {
         .unwrap_or_else(|| "/bin/zsh".to_string())
 }
 
+/// The program name of a shell path, for family checks. A version suffix is
+/// kept (`bash-5.2` stays whole) so callers match on a prefix.
+pub fn shell_name(program: &str) -> &str {
+    std::path::Path::new(program)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+}
+
+/// Whether this shell understands Bourne syntax, so Oxide can hand it a `[ -n
+/// … ]` snippet directly. fish, the csh family, nushell, xonsh and friends do
+/// not, and need such a snippet delegated to `/bin/sh`.
+pub fn is_posix_shell(program: &str) -> bool {
+    let name = shell_name(program);
+    ["sh", "bash", "zsh", "dash", "ksh", "mksh", "pdksh", "ash", "yash"]
+        .iter()
+        .any(|family| name == *family || name.starts_with(&format!("{family}-")))
+}
+
 pub struct TerminalSession {
     pub term: Arc<FairMutex<Term<EventProxy>>>,
     notifier: Notifier,

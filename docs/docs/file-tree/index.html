@@ -186,11 +186,19 @@
 
           <h2 id="opening-files">Opening files</h2>
           <p>
-            <kbd>enter</kbd> on a file types an edit command into the focused
-            pane and moves focus there. It runs <code>$EDITOR</code> if you have
-            one, and falls back to <code>open -t</code> — a fresh Mac has no
-            nvim, and a "command not found" is a worse first impression than
-            TextEdit.
+            <kbd>enter</kbd> on a file opens it in the focused pane and moves
+            focus there. It runs <code>$EDITOR</code> if you have one, and falls
+            back to <code>open -t</code> — a fresh Mac has no nvim, and a
+            "command not found" is a worse first impression than TextEdit.
+          </p>
+          <p>
+            The editor is launched through the same widget the silent
+            <code>cd</code> uses, so no command line is echoed at the prompt and
+            nothing lands in your shell history — you just get the editor. Only
+            the shell knows what <code>$EDITOR</code> is, which is why this goes
+            through the shell at all. Without
+            <a class="link" href="/docs/prompt/">shell integration</a>, the
+            command is typed at the prompt visibly instead.
           </p>
 
           <h2 id="filtering">Filtering</h2>

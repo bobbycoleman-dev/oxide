@@ -166,6 +166,18 @@
             <code>shell.integration = true</code> and zsh or bash.
           </p>
 
+          <h2 id="editor-fish">Opening a file does nothing on fish or csh</h2>
+          <p>
+            Oxide asks the shell which editor to use, so <code>$EDITOR</code>
+            has to be exported rather than set locally. In fish:
+          </p>
+          <pre>set -gx EDITOR nvim   <span class="c"># -x exports it; plain `set` would not</span></pre>
+          <p>
+            Without it Oxide falls back to <code>open -t</code>, which hands the
+            file to the OS default text editor. zsh and bash users are unaffected
+            either way.
+          </p>
+
           <h2 id="option-key">Option doesn't send Meta</h2>
           <p>
             Set <code>shell.option_as_meta</code>. macOS doesn't let Oxide tell

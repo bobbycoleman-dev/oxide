@@ -153,11 +153,22 @@ enabled = <span class="k">false</span>    <span class="c"># keep starship / p10k
           </p>
           <h3 id="other-shells">Other shells</h3>
           <p>
-            fish, nushell, and friends run completely normally — they just get no
-            injection, and therefore no Oxide prompt and no silent
-            <code>cd</code>. Everything else in Oxide, including the file tree
-            following your <code>cd</code>, works regardless: that's done by
-            inspecting the PTY's foreground process, not by shell cooperation.
+            fish, nushell, csh, and friends run completely normally — they just
+            get no injection, and therefore no Oxide prompt, no OSC 133 markers,
+            and no silent <code>cd</code>. Everything else in Oxide works
+            regardless, including the file tree following your <code>cd</code>
+            and the status bar's git state: those read the PTY's foreground
+            process directly rather than asking the shell.
+          </p>
+          <p>
+            Opening a file in your editor still works too. Because only the
+            shell knows what <code>$EDITOR</code> is, Oxide types a command to
+            find out — and since the Bourne syntax it uses is a parse error in
+            fish and the csh family, those shells get it handed to
+            <code>/bin/sh</code> instead. The one requirement is that
+            <code>$EDITOR</code> be exported
+            (<code>set -gx EDITOR nvim</code> in fish), since a variable local
+            to your shell isn't visible to <code>/bin/sh</code>.
           </p>
 
           <h2 id="what-integration-gives">What integration gives you</h2>
@@ -181,6 +192,15 @@ enabled = <span class="k">false</span>    <span class="c"># keep starship / p10k
               <code>~/.cache/oxide/cd_target</code> and triggers a zle widget,
               which <code>cd</code>s and redraws the prompt in place. Nothing is
               echoed and no command lands in your history.
+            </li>
+            <li>
+              <strong>Silent command runs</strong> — the same trick for commands
+              only the shell can resolve. Opening a file from the tree, or
+              <kbd>cmd-,</kbd> for your config, hands
+              <code>~/.cache/oxide/run_target</code> to a widget that runs it
+              with the terminal attached, so a full-screen editor takes over the
+              way it should while the command line itself is never shown or
+              recorded.
             </li>
           </ul>
           <div class="note">

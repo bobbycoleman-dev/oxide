@@ -178,15 +178,38 @@ pub fn load_window_bounds() -> Option<gpui::Bounds<gpui::Pixels>> {
 
 /// Quote a path for the shell: single-quoted, embedded quotes escaped.
 fn shell_quote(path: &PathBuf) -> String {
-    format!("'{}'", path.to_string_lossy().replace('\'', r"'\''"))
+    single_quote(&path.to_string_lossy())
+}
+
+/// Wrap in single quotes for any Bourne-family shell.
+fn single_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
 }
 
 /// Open a file in the user's editor, or hand it to the OS default text
 /// editor when no $EDITOR is set — a fresh Mac has no nvim, and "command
 /// not found: nvim" is a rough first impression.
-fn edit_file_command(path: &PathBuf) -> String {
+///
+/// Only the shell knows what $EDITOR is (a GUI-launched app does not inherit
+/// it), so the choice has to be made there. `shell` is the program that will
+/// run this: under fish, csh, or nushell the Bourne syntax below is a parse
+/// error, so it goes to /bin/sh instead. That costs a non-exported $EDITOR —
+/// worth it only where the direct form cannot run at all.
+fn edit_file_command(path: &PathBuf, shell: &str) -> String {
     let quoted = shell_quote(path);
-    format!("if [ -n \"${{EDITOR:-}}\" ]; then $EDITOR {quoted}; else open -t {quoted}; fi\r")
+    if crate::terminal::session::is_posix_shell(shell) {
+        return format!(
+            "if [ -n \"${{EDITOR:-}}\" ]; then $EDITOR {quoted}; else open -t {quoted}; fi"
+        );
+    }
+    // The path goes to /bin/sh as an argument rather than interpolated into
+    // the script, so the script itself contains no single quotes. That keeps
+    // the outer token a plain single-quoted string, which fish, csh, and
+    // nushell all agree on — unlike the `'\''` splice that quoting a path
+    // inline would need on every single call.
+    format!(
+        "/bin/sh -c 'if [ -n \"${{EDITOR:-}}\" ]; then $EDITOR \"$1\"; else open -t \"$1\"; fi' oxide {quoted}"
+    )
 }
 
 impl Oxide {
@@ -840,8 +863,8 @@ impl Oxide {
     ) {
         match event {
             TreeEvent::OpenFile(path) => {
-                let command = edit_file_command(path);
-                self.active_pane().update(cx, |t, _| t.write_command(&command));
+                let command = edit_file_command(path, &self.shell_program());
+                self.active_pane().update(cx, |t, _| t.run_command(&command));
                 self.focus_terminal(Some(window), cx);
             }
             TreeEvent::ChangedRoot(path) => {
@@ -921,6 +944,11 @@ impl Oxide {
             window.focus(&self.term_focus(cx));
         }
         cx.notify();
+    }
+
+    /// The shell that will run anything Oxide types at a prompt.
+    fn shell_program(&self) -> String {
+        crate::terminal::session::resolve_shell(self.config.shell.program.as_deref())
     }
 
     // --- Theme picker ---
@@ -2059,8 +2087,8 @@ impl Render for Oxide {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &OpenSettings, window, cx| {
-                let command = edit_file_command(&config::config_path());
-                this.active_pane().update(cx, |t, _| t.write_command(&command));
+                let command = edit_file_command(&config::config_path(), &this.shell_program());
+                this.active_pane().update(cx, |t, _| t.run_command(&command));
                 this.focus_terminal(Some(window), cx);
             }))
             .on_action(cx.listener(|this, _: &SelectTheme, window, cx| {
@@ -2180,4 +2208,122 @@ impl Render for Oxide {
             })
             .when(self.theme_picker.is_some(), |d| d.child(self.render_theme_picker(cx)))
     }
+}
+
+#[cfg(test)]
+mod edit_command_tests {
+    use super::*;
+    use std::path::Path;
+    use std::process::Command;
+
+    /// Shells someone might plausibly have as their login shell on a Mac.
+    const CANDIDATES: &[&str] = &[
+        "/bin/sh",
+        "/bin/bash",
+        "/bin/zsh",
+        "/bin/dash",
+        "/bin/ksh",
+        "/bin/tcsh",
+        "/bin/csh",
+        "/opt/homebrew/bin/bash",
+        "/opt/homebrew/bin/fish",
+        "/opt/homebrew/bin/nu",
+        "/opt/homebrew/bin/elvish",
+        "/opt/homebrew/bin/xonsh",
+        "/usr/local/bin/fish",
+        "/usr/local/bin/nu",
+    ];
+
+    /// Run the command Oxide would type for `target`, in `shell`, with an
+    /// $EDITOR that records the path it was handed. Returns what the editor
+    /// actually received, so both quoting layers are checked end to end.
+    fn opened_path(shell: &str, target: &Path, label: &str) -> Result<String, String> {
+        // Per-test scratch: these tests run in parallel and would otherwise
+        // read each other's recorded path.
+        let dir = std::env::temp_dir().join(format!("oxide-edit-command-test-{label}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let recorder = dir.join("fake-editor.sh");
+        let record = dir.join("opened.txt");
+        std::fs::write(
+            &recorder,
+            format!("#!/bin/sh\nprintf '%s' \"$1\" > {}\n", record.display()),
+        )
+        .unwrap();
+        Command::new("/bin/chmod").arg("+x").arg(&recorder).status().unwrap();
+        let _ = std::fs::remove_file(&record);
+
+        let command = edit_file_command(&target.to_path_buf(), shell);
+        let out = Command::new(shell)
+            .arg("-c")
+            .arg(&command)
+            .env("EDITOR", &recorder)
+            .output()
+            .map_err(|e| format!("could not run {shell}: {e}"))?;
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        if !out.status.success() || !stderr.trim().is_empty() {
+            return Err(format!(
+                "{shell} rejected the command:\n  {command}\n  status: {}\n  stderr: {stderr}",
+                out.status
+            ));
+        }
+        std::fs::read_to_string(&record)
+            .map_err(|e| format!("{shell}: the editor never ran ({e})\n  command: {command}"))
+    }
+
+    fn installed_shells() -> Vec<&'static str> {
+        CANDIDATES.iter().copied().filter(|s| Path::new(s).exists()).collect()
+    }
+
+    /// The core guarantee: whatever Oxide types has to parse in the shell that
+    /// will run it, and open the right file. The Bourne one-liner is a syntax
+    /// error in fish and the csh family, which is why non-POSIX shells get it
+    /// via /bin/sh.
+    #[test]
+    fn edit_command_opens_the_right_path_in_every_installed_shell() {
+        let shells = installed_shells();
+        assert!(shells.len() >= 3, "expected several shells to test against, found {shells:?}");
+        // A space is the everyday hard case — "Application Support" and the
+        // like show up in real paths constantly.
+        let target = std::env::temp_dir().join("oxide-edit-command-test/a config file.toml");
+        for shell in shells {
+            match opened_path(shell, &target, "spaces") {
+                Ok(opened) => assert_eq!(opened, target.to_string_lossy(), "{shell} mangled the path"),
+                Err(e) => panic!("{e}"),
+            }
+        }
+    }
+
+    /// A path containing an apostrophe is the one case that needs the outer
+    /// shell to splice quoted segments together. Split out from the test
+    /// above so a failure here is unmistakably about exotic paths in one
+    /// shell, not about whether Oxide works there at all.
+    #[test]
+    fn edit_command_handles_apostrophes_in_paths() {
+        let target = std::env::temp_dir().join("oxide-edit-command-test/it's a config.toml");
+        for shell in installed_shells() {
+            match opened_path(shell, &target, "apostrophe") {
+                Ok(opened) => assert_eq!(opened, target.to_string_lossy(), "{shell} mangled the path"),
+                Err(e) => panic!("{e}"),
+            }
+        }
+    }
+
+    /// The routing decision itself, independent of what's installed.
+    #[test]
+    fn only_non_posix_shells_are_delegated_to_sh() {
+        let path = PathBuf::from("/tmp/config.toml");
+        for direct in ["/bin/sh", "/bin/bash", "/bin/zsh", "/bin/dash", "/bin/ksh", "/opt/homebrew/bin/bash-5.2"] {
+            assert!(
+                !edit_file_command(&path, direct).starts_with("/bin/sh -c"),
+                "{direct} understands the snippet directly and should not pay for a subshell"
+            );
+        }
+        for delegated in ["/opt/homebrew/bin/fish", "/bin/tcsh", "/bin/csh", "/opt/homebrew/bin/nu", "/usr/bin/elvish"] {
+            assert!(
+                edit_file_command(&path, delegated).starts_with("/bin/sh -c"),
+                "{delegated} cannot parse the snippet and must go through /bin/sh"
+            );
+        }
+    }
+
 }

@@ -431,6 +431,34 @@ impl TerminalPane {
         self.write_command(&format!("cd {quoted}\r"));
     }
 
+    /// Run a command in the shell without typing it at the prompt. With shell
+    /// integration installed the command goes through a file and a widget, so
+    /// the user sees only whatever the command itself draws — no echoed line,
+    /// nothing in history. Otherwise it falls back to typing it visibly, which
+    /// is at least honest about what just ran.
+    ///
+    /// `command` carries no trailing newline; the fallback path adds one.
+    pub fn run_command(&mut self, command: &str) {
+        let Some(session) = &self.session else { return };
+        if self.config.shell.integration
+            && self.shell_supports_widgets()
+            && let Some(target) = crate::prompt::integration::run_target_path()
+            && std::fs::write(&target, command.as_bytes()).is_ok()
+        {
+            session.write_input(b"\x1b[9002~".to_vec());
+            session.term.lock().scroll_display(Scroll::Bottom);
+            return;
+        }
+        self.write_command(&format!("{command}\r"));
+    }
+
+    /// Widgets are only installed for the shells Oxide can inject into.
+    fn shell_supports_widgets(&self) -> bool {
+        let program = resolve_shell(self.config.shell.program.as_deref());
+        let name = crate::terminal::session::shell_name(&program);
+        name.starts_with("zsh") || name.starts_with("bash")
+    }
+
     pub fn write_command(&mut self, command: &str) {
         if let Some(session) = &self.session {
             session.write_input(command.as_bytes().to_vec());

@@ -9,6 +9,12 @@ pub fn cd_target_path() -> Option<PathBuf> {
     Some(cache_dir()?.join("cd_target"))
 }
 
+/// File the app writes a command into for the shell's silent-run widget —
+/// how "open this file in $EDITOR" happens without echoing a command line.
+pub fn run_target_path() -> Option<PathBuf> {
+    Some(cache_dir()?.join("run_target"))
+}
+
 fn cache_dir() -> Option<PathBuf> {
     let home = directories::BaseDirs::new()?.home_dir().to_path_buf();
     Some(home.join(".cache/oxide"))
