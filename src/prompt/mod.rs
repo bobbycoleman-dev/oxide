@@ -17,7 +17,10 @@ const DEFAULT_BG: (u8, u8, u8) = (137, 180, 250);
 
 /// Escape a string for inclusion inside zsh double quotes.
 fn zsh_dq(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"").replace('$', "\\$").replace('`', "\\`")
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "\\$")
+        .replace('`', "\\`")
 }
 
 fn segment_snippet(ix: usize, seg: &SegmentConfig) -> String {
@@ -34,7 +37,7 @@ fn segment_snippet(ix: usize, seg: &SegmentConfig) -> String {
                 CwdStyle::Basename => "local __cwd=\"${PWD:t}\"\n".to_string(),
                 CwdStyle::TruncateToRepo => concat!(
                     "local __cwd=\"${(%):-%~}\"\n",
-                    "local __root=$(command git rev-parse --show-toplevel 2>/dev/null)\n",
+                    "local __root=\"\"\n(( __oxide_git_ok )) && __root=$(command git rev-parse --show-toplevel 2>/dev/null)\n",
                     "if [[ -n \"$__root\" && \"$PWD\" == \"$__root\"* ]]; then __cwd=\"${__root:t}${PWD#$__root}\"; fi\n",
                 )
                 .to_string(),
@@ -50,7 +53,7 @@ fn segment_snippet(ix: usize, seg: &SegmentConfig) -> String {
             let ahead_behind = opts.ahead_behind.unwrap_or(true);
             let mut s = String::new();
             s.push_str(
-                "local __br=$(command git symbolic-ref --short HEAD 2>/dev/null || command git rev-parse --short HEAD 2>/dev/null)\n",
+                "local __br=\"\"\n(( __oxide_git_ok )) && __br=$(command git symbolic-ref --short HEAD 2>/dev/null || command git rev-parse --short HEAD 2>/dev/null)\n",
             );
             s.push_str("if [[ -n \"$__br\" ]]; then\n");
             s.push_str(&format!("  local __gbg=\"{bg}\"\n"));
@@ -66,12 +69,16 @@ fn segment_snippet(ix: usize, seg: &SegmentConfig) -> String {
             if ahead_behind {
                 s.push_str("  local __ab=$(command git rev-list --left-right --count 'HEAD...@{upstream}' 2>/dev/null)\n");
                 s.push_str("  if [[ -n \"$__ab\" ]]; then\n");
-                s.push_str("    local __ahead=\"${__ab%%$'\\t'*}\" __behind=\"${__ab##*$'\\t'}\"\n");
+                s.push_str(
+                    "    local __ahead=\"${__ab%%$'\\t'*}\" __behind=\"${__ab##*$'\\t'}\"\n",
+                );
                 s.push_str("    (( __ahead > 0 )) && __gtext+=\" ⇡$__ahead\"\n");
                 s.push_str("    (( __behind > 0 )) && __gtext+=\" ⇣$__behind\"\n");
                 s.push_str("  fi\n");
             }
-            s.push_str(&format!("  __oxide_seg \"$__gtext\" \"{fg}\" \"$__gbg\" {bold}\n"));
+            s.push_str(&format!(
+                "  __oxide_seg \"$__gtext\" \"{fg}\" \"$__gbg\" {bold}\n"
+            ));
             s.push_str("fi\n");
             s
         }
@@ -87,9 +94,7 @@ fn segment_snippet(ix: usize, seg: &SegmentConfig) -> String {
         }
         SegmentKind::Time => {
             let format = opts.format.clone().unwrap_or_else(|| "%H:%M".into());
-            format!(
-                "__oxide_seg \"${{(%):-%D{{{format}}}}}\" \"{fg}\" \"{bg}\" {bold}\n"
-            )
+            format!("__oxide_seg \"${{(%):-%D{{{format}}}}}\" \"{fg}\" \"{bg}\" {bold}\n")
         }
         SegmentKind::User => {
             format!("__oxide_seg \"${{(%):-%n}}\" \"{fg}\" \"{bg}\" {bold}\n")
@@ -127,8 +132,16 @@ pub fn generate_init(prompt: &PromptConfig, style_prompt: bool) -> String {
         segments.push_str(&indent_lines(&segment_snippet(ix, seg), "  "));
     }
     let sep = zsh_dq(&prompt.separator);
-    let end = zsh_dq(if prompt.end.is_empty() { &prompt.separator } else { &prompt.end });
-    let newline = if prompt.newline_before_input { "p+=$'\\n'" } else { ":" };
+    let end = zsh_dq(if prompt.end.is_empty() {
+        &prompt.separator
+    } else {
+        &prompt.end
+    });
+    let newline = if prompt.newline_before_input {
+        "p+=$'\\n'"
+    } else {
+        ":"
+    };
 
     let style_prompt_flag = if style_prompt { 1 } else { 0 };
     format!(
@@ -139,6 +152,17 @@ autoload -Uz add-zsh-hook
 
 typeset -g __oxide_style_prompt={style_prompt_flag}
 typeset -g __oxide_exit=0
+__oxide_git_ok=0
+if command -v git >/dev/null 2>&1; then
+  __oxide_git_ok=1
+  # Apple's /usr/bin/git is an installer shim until the CLT exist; running it
+  # would pop a GUI dialog from inside the prompt. Check without invoking it.
+  if [ "$(uname)" = Darwin ] && [ "$(command -v git)" = /usr/bin/git ] \
+    && ! /usr/bin/xcode-select -p >/dev/null 2>&1; then
+    __oxide_git_ok=0
+  fi
+fi
+
 typeset -g __oxide_dur=""
 typeset -g __oxide_t0=""
 
@@ -221,7 +245,7 @@ fn bash_segment_snippet(seg: &SegmentConfig) -> String {
                 CwdStyle::Basename => "local __cwd=\"${PWD##*/}\"\n".to_string(),
                 CwdStyle::TruncateToRepo => concat!(
                     "local __cwd=\"${PWD/#$HOME/\\~}\"\n",
-                    "local __root=$(command git rev-parse --show-toplevel 2>/dev/null)\n",
+                    "local __root=\"\"\n(( __oxide_git_ok )) && __root=$(command git rev-parse --show-toplevel 2>/dev/null)\n",
                     "if [[ -n \"$__root\" && \"$PWD\" == \"$__root\"* ]]; then __cwd=\"${__root##*/}${PWD#$__root}\"; fi\n",
                 )
                 .to_string(),
@@ -237,7 +261,7 @@ fn bash_segment_snippet(seg: &SegmentConfig) -> String {
             let ahead_behind = opts.ahead_behind.unwrap_or(true);
             let mut s = String::new();
             s.push_str(
-                "local __br=$(command git symbolic-ref --short HEAD 2>/dev/null || command git rev-parse --short HEAD 2>/dev/null)\n",
+                "local __br=\"\"\n(( __oxide_git_ok )) && __br=$(command git symbolic-ref --short HEAD 2>/dev/null || command git rev-parse --short HEAD 2>/dev/null)\n",
             );
             s.push_str("if [[ -n \"$__br\" ]]; then\n");
             s.push_str(&format!("  local __gbg=\"{bg}\"\n"));
@@ -251,12 +275,16 @@ fn bash_segment_snippet(seg: &SegmentConfig) -> String {
             if ahead_behind {
                 s.push_str("  local __ab=$(command git rev-list --left-right --count 'HEAD...@{upstream}' 2>/dev/null)\n");
                 s.push_str("  if [[ -n \"$__ab\" ]]; then\n");
-                s.push_str("    local __ahead=\"${__ab%%$'\\t'*}\" __behind=\"${__ab##*$'\\t'}\"\n");
+                s.push_str(
+                    "    local __ahead=\"${__ab%%$'\\t'*}\" __behind=\"${__ab##*$'\\t'}\"\n",
+                );
                 s.push_str("    (( __ahead > 0 )) && __gtext+=\" ⇡$__ahead\"\n");
                 s.push_str("    (( __behind > 0 )) && __gtext+=\" ⇣$__behind\"\n");
                 s.push_str("  fi\n");
             }
-            s.push_str(&format!("  __oxide_seg \"$__gtext\" \"{fg}\" \"$__gbg\" {bold}\n"));
+            s.push_str(&format!(
+                "  __oxide_seg \"$__gtext\" \"{fg}\" \"$__gbg\" {bold}\n"
+            ));
             s.push_str("fi\n");
             s
         }
@@ -310,8 +338,16 @@ pub fn generate_init_bash(prompt: &PromptConfig, style_prompt: bool) -> String {
         segments.push_str(&indent_lines(&bash_segment_snippet(seg), "  "));
     }
     let sep = zsh_dq(&prompt.separator);
-    let end = zsh_dq(if prompt.end.is_empty() { &prompt.separator } else { &prompt.end });
-    let newline = if prompt.newline_before_input { "p+=$'\\n'" } else { ":" };
+    let end = zsh_dq(if prompt.end.is_empty() {
+        &prompt.separator
+    } else {
+        &prompt.end
+    });
+    let newline = if prompt.newline_before_input {
+        "p+=$'\\n'"
+    } else {
+        ":"
+    };
 
     let style_prompt_flag = if style_prompt { 1 } else { 0 };
     format!(
@@ -328,6 +364,17 @@ fi
 
 __oxide_style_prompt={style_prompt_flag}
 __oxide_cd_erase=0
+__oxide_git_ok=0
+if command -v git >/dev/null 2>&1; then
+  __oxide_git_ok=1
+  # Apple's /usr/bin/git is an installer shim until the CLT exist; running it
+  # would pop a GUI dialog from inside the prompt. Check without invoking it.
+  if [ "$(uname)" = Darwin ] && [ "$(command -v git)" = /usr/bin/git ] \
+    && ! /usr/bin/xcode-select -p >/dev/null 2>&1; then
+    __oxide_git_ok=0
+  fi
+fi
+
 __oxide_at_prompt=1
 __oxide_t0=""
 __oxide_dur=""
@@ -432,7 +479,13 @@ fi
 
 fn indent_lines(s: &str, prefix: &str) -> String {
     s.lines()
-        .map(|l| if l.is_empty() { l.to_string() } else { format!("{prefix}{l}") })
+        .map(|l| {
+            if l.is_empty() {
+                l.to_string()
+            } else {
+                format!("{prefix}{l}")
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n")
         + "\n"
@@ -464,7 +517,11 @@ mod tests {
         let zsh_path = dir.join("init.zsh");
         let bash_path = dir.join("init.bash");
         std::fs::write(&zsh_path, generate_init(&PromptConfig::default(), true)).unwrap();
-        std::fs::write(&bash_path, generate_init_bash(&PromptConfig::default(), true)).unwrap();
+        std::fs::write(
+            &bash_path,
+            generate_init_bash(&PromptConfig::default(), true),
+        )
+        .unwrap();
         for (shell, path) in [("/bin/zsh", &zsh_path), ("/bin/bash", &bash_path)] {
             if !std::path::Path::new(shell).exists() {
                 continue;
@@ -495,7 +552,12 @@ mod tests {
         };
         assert!(std::path::Path::new(&zdotdir).join(".zshrc").exists());
 
-        let size = TermSize { columns: 120, screen_lines: 24, cell_width: 8.0, cell_height: 16.0 };
+        let size = TermSize {
+            columns: 120,
+            screen_lines: 24,
+            cell_width: 8.0,
+            cell_height: 16.0,
+        };
         let options = SessionOptions {
             program: "/bin/zsh".into(),
             args: vec![],
@@ -510,7 +572,10 @@ mod tests {
             std::thread::sleep(Duration::from_millis(150));
             let text: String = {
                 let term = session.term.lock();
-                term.renderable_content().display_iter.map(|i| i.cell.c).collect()
+                term.renderable_content()
+                    .display_iter
+                    .map(|i| i.cell.c)
+                    .collect()
             };
             // Default segments end with the powerline arrow; cwd segment shows
             // the repo basename.
@@ -528,7 +593,10 @@ mod tests {
         use crate::config::schema::{SegmentConfig, SegmentKind, SegmentOptions};
         let seg = SegmentConfig {
             kind: SegmentKind::Env,
-            options: SegmentOptions { var: Some("$(rm -rf /)".into()), ..Default::default() },
+            options: SegmentOptions {
+                var: Some("$(rm -rf /)".into()),
+                ..Default::default()
+            },
             ..Default::default()
         };
         assert_eq!(segment_snippet(0, &seg), "");
@@ -539,7 +607,6 @@ mod tests {
 mod cd_tests {
     use crate::config::Config;
     use crate::terminal::session::{SessionOptions, TermSize, TerminalSession};
-    use std::collections::HashMap;
     use std::time::{Duration, Instant};
 
     fn grid(session: &TerminalSession) -> String {
@@ -572,9 +639,16 @@ mod cd_tests {
     fn silent_cd_scenario(bash: &str) {
         let config = Config::default();
         let integration = crate::prompt::integration::setup(&config, bash);
-        let Some(args) = integration.args_override.clone() else { return };
+        let Some(args) = integration.args_override.clone() else {
+            return;
+        };
 
-        let size = TermSize { columns: 100, screen_lines: 24, cell_width: 8.0, cell_height: 16.0 };
+        let size = TermSize {
+            columns: 100,
+            screen_lines: 24,
+            cell_width: 8.0,
+            cell_height: 16.0,
+        };
         let options = SessionOptions {
             program: bash.to_string(),
             args,
@@ -622,7 +696,11 @@ mod cd_tests {
         );
         // The visible prompt must reflect the new directory immediately,
         // without the user having to run a command first.
-        let last = after.lines().filter(|l| !l.trim().is_empty()).next_back().unwrap_or("");
+        let last = after
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .next_back()
+            .unwrap_or("");
         assert!(
             last.contains("local"),
             "prompt did not refresh to the new directory; last line: {last:?}\nfull:\n{after}"

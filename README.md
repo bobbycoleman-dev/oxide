@@ -60,7 +60,7 @@ with a file-tree drawer you drive like vim and a status bar that knows where you
   sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
   xcodebuild -downloadComponent MetalToolchain   # if the build asks for it
   ```
-- A [Nerd Font](https://www.nerdfonts.com) (default config expects JetBrainsMono Nerd Font Mono)
+- A [Nerd Font](https://www.nerdfonts.com) is *bundled* (JetBrainsMono Nerd Font Mono); install your own and set `font.family` to use it instead
 
 ## Build & install
 

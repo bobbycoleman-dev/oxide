@@ -110,6 +110,27 @@ fn main() {
         app::open_oxide_window(config, error, None, true, cx);
     });
     app.run(move |cx: &mut App| {
+        // Bundle the default font so a machine with no Nerd Font installed
+        // still gets crisp monospace and every powerline/tree glyph. GPUI
+        // consults in-memory fonts before system ones, so a user-installed
+        // copy of the same family behaves identically.
+        cx.text_system()
+            .add_fonts(vec![
+                std::borrow::Cow::Borrowed(
+                    include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf").as_slice(),
+                ),
+                std::borrow::Cow::Borrowed(
+                    include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Bold.ttf").as_slice(),
+                ),
+                std::borrow::Cow::Borrowed(
+                    include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Italic.ttf").as_slice(),
+                ),
+                std::borrow::Cow::Borrowed(
+                    include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-BoldItalic.ttf").as_slice(),
+                ),
+            ])
+            .ok();
+
         cx.bind_keys(keymap::default::bindings());
 
         // App-level actions (no window required).

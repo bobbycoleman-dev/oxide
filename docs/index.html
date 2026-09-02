@@ -377,9 +377,18 @@
         min-height: 310px;
       }
 
-      .tree {
+      /* Drawer: file tree on top, workspaces panel on the bottom — a real
+         50/50 split, same as the app. */
+      .tree-col {
+        display: flex;
+        flex-direction: column;
         background: var(--bg-1);
         border-right: 1px solid var(--rule);
+        overflow: hidden;
+      }
+
+      .tree {
+        flex: 1;
         padding: 12px 0;
         color: var(--ink-soft);
         overflow: hidden;
@@ -411,7 +420,98 @@
         color: var(--ink-dim);
       }
 
+      .ws-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        border-top: 1px solid var(--rule);
+        min-height: 0;
+      }
+
+      .ws-head {
+        display: flex;
+        align-items: center;
+        padding: 8px 14px 7px;
+        color: var(--ink-dim);
+        font-size: 11px;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+      }
+
+      .ws-head .add {
+        margin-left: auto;
+        color: var(--ink-dim);
+        text-transform: none;
+        letter-spacing: 0;
+        font-size: 13px;
+      }
+
+      .ws-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 0 8px 3px;
+        padding: 4px 8px;
+        border-radius: 5px;
+        color: var(--ink-dim);
+        white-space: nowrap;
+      }
+
+      .ws-row.active {
+        background: rgba(125, 155, 184, 0.16);
+        color: var(--ink);
+      }
+
+      .ws-row .pin {
+        margin-left: auto;
+        color: var(--steel);
+        font-size: 10px;
+      }
+
+      /* Terminal side: a Zed-style tab bar sits above the grid. */
+      .pane-col {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .tab-bar {
+        display: flex;
+        align-items: center;
+        border-bottom: 1px solid var(--rule);
+        background: var(--bg-2);
+        flex: none;
+      }
+
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 7px 12px;
+        font-size: 11.5px;
+        color: var(--ink-dim);
+        border-right: 1px solid var(--rule);
+        white-space: nowrap;
+      }
+
+      .tab.active {
+        background: var(--bg);
+        color: var(--ink);
+      }
+
+      .tab .x {
+        opacity: 0.6;
+        font-size: 10px;
+      }
+
+      .tab-add {
+        padding: 7px 12px;
+        color: var(--ink-dim);
+        font-size: 12px;
+      }
+
       .term {
+        flex: 1;
         padding: 12px 16px;
         overflow: hidden;
         white-space: nowrap;
@@ -491,6 +591,14 @@
         border-top: 1px solid var(--rule);
         font-size: 11.5px;
         color: var(--ink-dim);
+      }
+
+      .shot-status .ws-chip {
+        color: var(--steel);
+        background: rgba(125, 155, 184, 0.16);
+        border-radius: 4px;
+        padding: 1px 7px;
+        font-size: 11px;
       }
 
       .shot-status .b {
@@ -822,7 +930,7 @@
           min-height: 0;
         }
 
-        .tree {
+        .tree-col {
           display: none;
         }
 
@@ -907,7 +1015,7 @@
         <div class="dissolve" aria-hidden="true" id="dissolve"></div>
 
         <!-- Illustration of the UI, drawn in CSS with the app's own `oxide` palette -->
-        <div class="shot" role="img" aria-label="Oxide showing the file tree drawer beside a terminal running cargo build, with a git-aware status bar">
+        <div class="shot" role="img" aria-label="Oxide showing the file tree drawer with a workspaces panel below it, tabs above a terminal running cargo build, and a git-aware status bar">
           <div class="shot-bar">
             <span class="dot" style="background: #e2725b"></span>
             <span class="dot" style="background: #e5a458"></span>
@@ -916,24 +1024,39 @@
           </div>
 
           <div class="shot-body">
-            <div class="tree">
-              <div class="tree-head">oxide</div>
-              <div class="tree-row dir">▾ src</div>
-              <div class="tree-row dir">&nbsp;&nbsp;▸ config</div>
-              <div class="tree-row dir">&nbsp;&nbsp;▸ keymap</div>
-              <div class="tree-row dir">&nbsp;&nbsp;▸ prompt</div>
-              <div class="tree-row dir">&nbsp;&nbsp;▸ terminal</div>
-              <div class="tree-row">&nbsp;&nbsp;&nbsp;&nbsp;app.rs</div>
-              <div class="tree-row sel">&nbsp;&nbsp;&nbsp;&nbsp;main.rs</div>
-              <div class="tree-row">&nbsp;&nbsp;&nbsp;&nbsp;panes.rs</div>
-              <div class="tree-row">&nbsp;&nbsp;&nbsp;&nbsp;update.rs</div>
-              <div class="tree-row dir">▸ scripts</div>
-              <div class="tree-row dir">▸ assets</div>
-              <div class="tree-row">Cargo.toml</div>
-              <div class="tree-row dim">README.md</div>
+            <div class="tree-col">
+              <div class="tree">
+                <div class="tree-head">oxide</div>
+                <div class="tree-row dir">▾ src</div>
+                <div class="tree-row dir">&nbsp;&nbsp;▸ config</div>
+                <div class="tree-row dir">&nbsp;&nbsp;▸ keymap</div>
+                <div class="tree-row dir">&nbsp;&nbsp;▸ prompt</div>
+                <div class="tree-row dir">&nbsp;&nbsp;▸ terminal</div>
+                <div class="tree-row">&nbsp;&nbsp;&nbsp;&nbsp;app.rs</div>
+                <div class="tree-row sel">&nbsp;&nbsp;&nbsp;&nbsp;main.rs</div>
+                <div class="tree-row">&nbsp;&nbsp;&nbsp;&nbsp;panes.rs</div>
+                <div class="tree-row">&nbsp;&nbsp;&nbsp;&nbsp;update.rs</div>
+                <div class="tree-row dir">▸ scripts</div>
+                <div class="tree-row dir">▸ assets</div>
+                <div class="tree-row">Cargo.toml</div>
+                <div class="tree-row dim">README.md</div>
+              </div>
+
+              <div class="ws-panel">
+                <div class="ws-head">Workspaces<span class="add">+</span></div>
+                <div class="ws-row active">main</div>
+                <div class="ws-row">docs<span class="pin">📌</span></div>
+              </div>
             </div>
 
-            <div class="term">
+            <div class="pane-col">
+              <div class="tab-bar">
+                <div class="tab active">build<span class="x">×</span></div>
+                <div class="tab">~<span class="x">×</span></div>
+                <div class="tab-add">+</div>
+              </div>
+
+              <div class="term">
               <div class="pl">
                 <div class="pl-seg" style="background: #7d9bb8">
                   ~/Developer/oxide
@@ -987,10 +1110,12 @@
                 <div class="pl-arrow" style="--pv: #a6b86a"></div>
               </div>
               <div><span class="cursor"></span></div>
+              </div>
             </div>
           </div>
 
           <div class="shot-status">
+            <span class="ws-chip">main</span>
             <span>~/Developer/oxide</span>
             <span class="b">
               <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -1003,7 +1128,8 @@
           </div>
         </div>
         <p class="caption">
-          The drawer, the terminal, and a git-aware status bar — in the built-in
+          The drawer with its workspaces panel, tabs, the terminal, and a git-aware
+          status bar — in the built-in
           <code class="inline" style="color: var(--ink-dim)">oxide</code> theme.
         </p>
 
@@ -1071,11 +1197,22 @@
               </p>
             </div>
             <div class="card">
-              <h3>Native tabs</h3>
+              <h3>Tabs, everywhere</h3>
               <p>
-                <code>cmd-t</code> uses real macOS window tabbing. New tabs start
-                in the current directory or <code>~/</code>, your call via
+                An in-app tab bar &mdash; not macOS window tabbing, so it
+                works the same under tiling window managers like AeroSpace.
+                <code>cmd-t</code> for a new one, <code>cmd-1</code>&ndash;<code>9</code>
+                to jump, starting in the current directory or <code>~/</code> via
                 <code>window.new_tab_directory</code>.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Workspaces</h3>
+              <p>
+                Named sets of tabs and splits, tmux-session style, managed from a
+                panel below the file tree &mdash; add, rename, delete, or pin one to
+                persist. Pinned workspaces restore their full layout and every
+                pane's directory the next time you launch, with fresh shells.
               </p>
             </div>
             <div class="card">

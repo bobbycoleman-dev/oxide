@@ -7,7 +7,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::AppContext as _;
 use gpui::{
     Context, FocusHandle, Focusable, InteractiveElement, IntoElement, ParentElement, Render,
-    Styled, Subscription, Window, div, px,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, px,
 };
 
 use crate::config::schema::{StatusBarPosition, TitlebarMode};
@@ -102,8 +102,37 @@ struct GitStatus {
     behind: u32,
 }
 
+/// Whether invoking `git` is safe. On a Mac without the Command Line Tools,
+/// /usr/bin/git is a shim that pops Apple's "Install Developer Tools?" GUI —
+/// our 3-second status poll must never be the thing that triggers it.
+fn git_usable() -> bool {
+    static USABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *USABLE.get_or_init(|| {
+        let Ok(out) = std::process::Command::new("/bin/sh")
+            .args(["-c", "command -v git"])
+            .output()
+        else {
+            return false;
+        };
+        if !out.status.success() {
+            return false;
+        }
+        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if cfg!(target_os = "macos") && path == "/usr/bin/git" {
+            return std::process::Command::new("/usr/bin/xcode-select")
+                .arg("-p")
+                .output()
+                .is_ok_and(|o| o.status.success());
+        }
+        true
+    })
+}
+
 /// Blocking git queries — run on the background pool only.
 fn read_git_status(cwd: &PathBuf) -> GitStatus {
+    if !git_usable() {
+        return GitStatus::default();
+    }
     let git = |args: &[&str]| -> Option<String> {
         let out = std::process::Command::new("git").arg("-C").arg(cwd).args(args).output().ok()?;
         out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
@@ -150,6 +179,14 @@ pub fn load_window_bounds() -> Option<gpui::Bounds<gpui::Pixels>> {
 /// Quote a path for the shell: single-quoted, embedded quotes escaped.
 fn shell_quote(path: &PathBuf) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', r"'\''"))
+}
+
+/// Open a file in the user's editor, or hand it to the OS default text
+/// editor when no $EDITOR is set — a fresh Mac has no nvim, and "command
+/// not found: nvim" is a rough first impression.
+fn edit_file_command(path: &PathBuf) -> String {
+    let quoted = shell_quote(path);
+    format!("if [ -n \"${{EDITOR:-}}\" ]; then $EDITOR {quoted}; else open -t {quoted}; fi\r")
 }
 
 impl Oxide {
@@ -803,7 +840,7 @@ impl Oxide {
     ) {
         match event {
             TreeEvent::OpenFile(path) => {
-                let command = format!("${{EDITOR:-nvim}} {}\r", shell_quote(path));
+                let command = edit_file_command(path);
                 self.active_pane().update(cx, |t, _| t.write_command(&command));
                 self.focus_terminal(Some(window), cx);
             }
@@ -1896,7 +1933,27 @@ impl Render for Oxide {
             .font_family(config.font.family.clone())
             .text_size(px(13.0))
             .text_color(theme.foreground)
-            .when(hidden_titlebar, |d| d.pt(px(30.0)))
+            .when(hidden_titlebar, |d| {
+                // The padding band doubles as the titlebar: double-click
+                // zooms (respecting the System Settings double-click action),
+                // matching what a real titlebar would do. Rendered first so
+                // overlays like the update pill still get their clicks.
+                d.pt(px(30.0)).child(
+                    div()
+                        .id("titlebar-strip")
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .right_0()
+                        .h(px(30.0))
+                        .window_control_area(gpui::WindowControlArea::Drag)
+                        .on_click(|event, window, _cx| {
+                            if event.click_count() >= 2 {
+                                window.titlebar_double_click();
+                            }
+                        }),
+                )
+            })
             .on_action(cx.listener(|this, _: &FocusTree, window, cx| {
                 this.focus_tree(Some(window), cx);
             }))
@@ -2002,10 +2059,7 @@ impl Render for Oxide {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &OpenSettings, window, cx| {
-                let command = format!(
-                    "${{EDITOR:-nvim}} {}\r",
-                    shell_quote(&config::config_path())
-                );
+                let command = edit_file_command(&config::config_path());
                 this.active_pane().update(cx, |t, _| t.write_command(&command));
                 this.focus_terminal(Some(window), cx);
             }))
