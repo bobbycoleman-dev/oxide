@@ -20,6 +20,26 @@ fn cache_dir() -> Option<PathBuf> {
     Some(home.join(".cache/oxide"))
 }
 
+/// Hand a path to a shell without putting it on the command line. Returns the
+/// file's name, which is deliberately made of characters every shell leaves
+/// alone, so the caller can embed it in a `$HOME/.cache/oxide/edit/…`
+/// reference that needs no quoting anywhere.
+///
+/// Unique per call: two panes opening files at once must not race, and the
+/// consuming shell deletes the file as it reads it.
+pub fn write_edit_target(path: &Path) -> Option<String> {
+    use std::os::unix::ffi::OsStrExt;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+
+    let dir = cache_dir()?.join("edit");
+    std::fs::create_dir_all(&dir).ok()?;
+    let name = format!("{}-{}.path", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed));
+    // Raw bytes, not a lossy string: a path is not required to be UTF-8.
+    std::fs::write(dir.join(&name), path.as_os_str().as_bytes()).ok()?;
+    Some(name)
+}
+
 #[derive(Default, Clone)]
 pub struct ShellIntegration {
     pub env: HashMap<String, String>,

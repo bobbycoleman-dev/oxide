@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use futures::StreamExt;
@@ -202,14 +202,37 @@ fn edit_file_command(path: &PathBuf, shell: &str) -> String {
             "if [ -n \"${{EDITOR:-}}\" ]; then $EDITOR {quoted}; else open -t {quoted}; fi"
         );
     }
-    // The path goes to /bin/sh as an argument rather than interpolated into
-    // the script, so the script itself contains no single quotes. That keeps
-    // the outer token a plain single-quoted string, which fish, csh, and
-    // nushell all agree on — unlike the `'\''` splice that quoting a path
-    // inline would need on every single call.
+    // A path no shell can quote goes through a file instead, so the line typed
+    // at the prompt holds no path text at all. Slower and less legible, so it
+    // is only for the paths that need it.
+    if path_needs_indirection(path)
+        && let Some(name) = crate::prompt::integration::write_edit_target(path)
+    {
+        return format!(
+            "/bin/sh -c 'f=\"$HOME/.cache/oxide/edit/{name}\"; p=$(cat \"$f\"); rm -f \"$f\"; \
+             if [ -n \"${{EDITOR:-}}\" ]; then $EDITOR \"$p\"; else open -t \"$p\"; fi'"
+        );
+    }
+    // Otherwise the path goes to /bin/sh as an argument rather than
+    // interpolated into the script, so the script itself contains no single
+    // quotes and the outer token stays a plain single-quoted string — which
+    // fish, csh, and nushell all agree on.
     format!(
         "/bin/sh -c 'if [ -n \"${{EDITOR:-}}\" ]; then $EDITOR \"$1\"; else open -t \"$1\"; fi' oxide {quoted}"
     )
+}
+
+/// Characters that no single quoting style survives across every shell at
+/// once: nushell has no escape for `'` inside a literal, fish reads `\` there
+/// as an escape, and csh expands `!` even inside single quotes. Rare enough in
+/// real paths to be worth an uglier route rather than a per-shell escaping
+/// table for every shell someone might install.
+fn path_needs_indirection(path: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    path.as_os_str()
+        .as_bytes()
+        .iter()
+        .any(|b| matches!(b, b'\'' | b'\\' | b'!'))
 }
 
 impl Oxide {
@@ -2213,7 +2236,6 @@ impl Render for Oxide {
 #[cfg(test)]
 mod edit_command_tests {
     use super::*;
-    use std::path::Path;
     use std::process::Command;
 
     /// Shells someone might plausibly have as their login shell on a Mac.
@@ -2293,17 +2315,85 @@ mod edit_command_tests {
         }
     }
 
-    /// A path containing an apostrophe is the one case that needs the outer
-    /// shell to splice quoted segments together. Split out from the test
-    /// above so a failure here is unmistakably about exotic paths in one
-    /// shell, not about whether Oxide works there at all.
+    /// Paths containing characters no shell can quote uniformly. Split out
+    /// from the test above so a failure here is unmistakably about exotic
+    /// paths in one shell, not about whether Oxide works there at all.
+    ///
+    /// Each character here broke a real shell: `'` has no escape inside a
+    /// nushell literal, fish reads `\` inside single quotes as an escape, and
+    /// csh expands `!` even there.
     #[test]
-    fn edit_command_handles_apostrophes_in_paths() {
-        let target = std::env::temp_dir().join("oxide-edit-command-test/it's a config.toml");
-        for shell in installed_shells() {
-            match opened_path(shell, &target, "apostrophe") {
-                Ok(opened) => assert_eq!(opened, target.to_string_lossy(), "{shell} mangled the path"),
-                Err(e) => panic!("{e}"),
+    fn edit_command_handles_paths_no_shell_can_quote() {
+        let cases = [
+            ("apostrophe", "it's a config.toml"),
+            ("bang", "bang!.toml"),
+            ("backslash", "back\\slash.toml"),
+            ("all-three", "it's a bang!back\\slash.toml"),
+        ];
+        for (label, name) in cases {
+            let target = std::env::temp_dir().join("oxide-edit-command-test").join(name);
+            for shell in installed_shells() {
+                match opened_path(shell, &target, label) {
+                    Ok(opened) => assert_eq!(
+                        opened,
+                        target.to_string_lossy(),
+                        "{shell} mangled {name:?}"
+                    ),
+                    Err(e) => panic!("{e}"),
+                }
+            }
+        }
+    }
+
+    /// The indirection file is consumed by the command that reads it, so a
+    /// pane that opens a hundred files does not leave a hundred files behind.
+    #[test]
+    fn indirection_file_is_cleaned_up_after_use() {
+        let target = std::env::temp_dir().join("oxide-edit-command-test/it's cleaned.toml");
+        let command = edit_file_command(&target, "/opt/homebrew/bin/fish");
+        let name = command
+            .split("/.cache/oxide/edit/")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .expect("command should reference an indirection file")
+            .to_string();
+        let file = directories::BaseDirs::new()
+            .unwrap()
+            .home_dir()
+            .join(".cache/oxide/edit")
+            .join(&name);
+        assert!(file.exists(), "the path was never written to {}", file.display());
+
+        let out = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(&command)
+            .env("EDITOR", "/usr/bin/true")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "command failed: {command}");
+        assert!(!file.exists(), "{} was left behind", file.display());
+    }
+
+    /// nushell rejected `'\''` — its single-quoted literals have no escape
+    /// at all, so a quote can only ever end the string. Whatever Oxide types
+    /// at a non-POSIX prompt must therefore never rely on that splice; the
+    /// paths that would need it go through a file instead.
+    #[test]
+    fn non_posix_commands_never_use_the_quote_splice() {
+        let hazards = [
+            "/tmp/it's a config.toml",
+            "/tmp/bang!.toml",
+            "/tmp/back\\slash.toml",
+            "/tmp/plain.toml",
+            "/tmp/a space.toml",
+        ];
+        for shell in ["/opt/homebrew/bin/fish", "/bin/tcsh", "/opt/homebrew/bin/nu", "/usr/bin/elvish"] {
+            for hazard in hazards {
+                let command = edit_file_command(&PathBuf::from(hazard), shell);
+                assert!(
+                    !command.contains("'\\''"),
+                    "{shell} would get a quote splice for {hazard:?}:\n  {command}"
+                );
             }
         }
     }
