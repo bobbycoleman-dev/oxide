@@ -146,6 +146,18 @@ follow_cwd        = true      # re-root the tree when the shell cd's
 enabled  = true               # native bar showing cwd + git branch/dirty
 position = "bottom"           # top | bottom
 
+[notifications]
+enabled             = true    # notify when a command finishes in a pane you aren't watching
+min_duration        = "30s"   # ...if it ran at least this long ("2m", "1.5s", or seconds)
+only_when_unfocused = true    # stay quiet when the pane is focused and the window active
+on_failure_always   = false   # a non-zero exit notifies regardless of duration
+passthrough_osc9    = true    # let programs post notifications (OSC 9 / OSC 777)
+
+[commands]
+track        = true           # the command log: status bar, tab dots, cmd-r history, gutter
+emit_cmdline = true           # the shell sends each command line to Oxide (memory only)
+max_entries  = 500
+
 # [keymap]                    # keystroke = "action id"; see the keybindings docs
 # "cmd-shift-p" = "app::palette"
 # "cmd-d"       = ""          # unbind a default

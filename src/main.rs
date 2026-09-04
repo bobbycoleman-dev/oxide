@@ -1,6 +1,7 @@
 mod app;
 mod config;
 mod keymap;
+mod notifications;
 mod palette;
 mod panes;
 mod prompt;
@@ -59,7 +60,12 @@ pub(crate) fn menus() -> Vec<Menu> {
                 MenuItem::separator(),
                 MenuItem::action("Select All", SelectAll),
                 MenuItem::separator(),
+                MenuItem::action("Copy Last Command's Output", CopyLastOutput),
+                MenuItem::action("Copy Last Command", CopyLastCommand),
+                MenuItem::action("Copy Last Command and Output", CopyLastBlock),
+                MenuItem::separator(),
                 MenuItem::action("Find", Search),
+                MenuItem::action("Command History…", CommandHistory),
             ],
         },
         Menu {
@@ -115,6 +121,10 @@ fn main() {
         app::open_oxide_window(config, error, None, true, cx);
     });
     app.run(move |cx: &mut App| {
+        // Must happen before launch completes, or banners never show while
+        // Oxide is frontmost.
+        notifications::init();
+
         // Bundle the default font so a machine with no Nerd Font installed
         // still gets crisp monospace and every powerline/tree glyph. GPUI
         // consults in-memory fonts before system ones, so a user-installed
@@ -158,6 +168,31 @@ fn main() {
         cx.on_action(|_: &ReportIssue, cx| cx.open_url(&format!("{REPO_URL}/issues/new")));
 
         cx.set_menus(menus());
+
+        // Notification clicks arrive on the AppKit main thread through a
+        // channel; whichever window owns the routed pane brings it forward.
+        let mut clicks = notifications::install_click_channel();
+        cx.spawn(async move |cx| {
+            use futures::StreamExt as _;
+            while let Some(key) = clicks.next().await {
+                cx.update(|cx| {
+                    for handle in cx.windows() {
+                        let handled = handle
+                            .update(cx, |root, window, cx| {
+                                root.downcast::<app::Oxide>()
+                                    .map(|oxide| oxide.update(cx, |o, cx| o.on_notification_click(key, window, cx)))
+                                    .unwrap_or(false)
+                            })
+                            .unwrap_or(false);
+                        if handled {
+                            break;
+                        }
+                    }
+                })
+                .ok();
+            }
+        })
+        .detach();
 
 
 

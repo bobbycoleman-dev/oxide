@@ -7,6 +7,11 @@ license = "MIT"
 [dependencies]
 gpui = "=0.2.2"
 alacritty_terminal = "=0.26.0"
+# Same version alacritty_terminal uses; drives our own PTY event loop.
+polling = "3"
+# Already pulled in by gpui; used for UNUserNotificationCenter.
+objc = "0.2"
+block = "0.1"
 parking_lot = "0.12"
 futures = "0.3"
 libc = "0.2"

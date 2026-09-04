@@ -191,6 +191,40 @@
             <code>"right"</code> currently behave like <code>"both"</code>.
           </p>
 
+          <h2 id="notifications">No notifications, or clicking one does nothing</h2>
+          <ul>
+            <li>
+              <strong>Allow them once.</strong> The first notification from
+              the installed app asks for permission; if you dismissed it, turn
+              Oxide on under System Settings → Notifications.
+            </li>
+            <li>
+              <strong>Development builds.</strong> A <code>cargo run</code>
+              binary isn't an app bundle, so macOS won't attach notifications
+              to it; Oxide posts them through <code>osascript</code> instead,
+              and those can't be clicked back into a pane. Run the bundled
+              app from <code>scripts/bundle.sh</code> for the real thing.
+            </li>
+            <li>
+              <strong>You were looking at it.</strong> By default a command
+              only notifies when its pane wasn't focused or the window wasn't
+              active, and only after <code>notifications.min_duration</code>.
+              Set <code>only_when_unfocused = false</code> or
+              <code>on_failure_always = true</code> to widen that.
+            </li>
+          </ul>
+
+          <h2 id="history-empty">Command history is empty</h2>
+          <p>
+            The log is fed by the shell integration's OSC 133 markers, so it
+            needs <code>shell.integration = true</code> and zsh or bash — fish
+            and nushell aren't injected into. It fills in as commands run;
+            nothing is loaded from your shell's history file, and nothing is
+            written anywhere. With <code>commands.emit_cmdline = false</code>
+            Oxide falls back to reading the command line off the grid, which
+            is fine for one-liners and misses edits made with history recall.
+          </p>
+
           <h2 id="update-failed">The update didn't install</h2>
           <p>
             Updates need Oxide to be able to replace its own bundle. If it lives

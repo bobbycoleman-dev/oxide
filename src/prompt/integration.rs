@@ -76,7 +76,7 @@ pub fn setup(config: &Config, shell_program: &str) -> ShellIntegration {
         if std::fs::create_dir_all(&zdotdir).is_err() {
             return integration;
         }
-        if write_zsh_shim(&cache, &zdotdir, &config.prompt, style_prompt).is_err() {
+        if write_zsh_shim(&cache, &zdotdir, &config.prompt, style_prompt, config.commands.emit_cmdline).is_err() {
             return integration;
         }
         if let Ok(user_zdotdir) = std::env::var("ZDOTDIR") {
@@ -87,7 +87,7 @@ pub fn setup(config: &Config, shell_program: &str) -> ShellIntegration {
             .insert("ZDOTDIR".into(), zdotdir.to_string_lossy().to_string());
     } else if shell_name.starts_with("bash") {
         let init_path = cache.join("init.bash");
-        if std::fs::write(&init_path, super::generate_init_bash(&config.prompt, style_prompt)).is_err() {
+        if std::fs::write(&init_path, super::generate_init_bash(&config.prompt, style_prompt, config.commands.emit_cmdline)).is_err() {
             return integration;
         }
         let mut args: Vec<String> = config
@@ -109,9 +109,10 @@ fn write_zsh_shim(
     zdotdir: &Path,
     prompt: &PromptConfig,
     style_prompt: bool,
+    emit_cmdline: bool,
 ) -> std::io::Result<()> {
     let init_path = cache.join("init.zsh");
-    std::fs::write(&init_path, super::generate_init(prompt, style_prompt))?;
+    std::fs::write(&init_path, super::generate_init(prompt, style_prompt, emit_cmdline))?;
 
     let sandwich = |file: &str, extra: &str| -> String {
         format!(

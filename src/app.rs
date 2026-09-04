@@ -1,6 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use gpui::prelude::FluentBuilder;
@@ -16,8 +18,10 @@ use crate::keymap::actions::*;
 use crate::keymap::registry::{self, ActionContext, ActionMeta};
 use crate::keymap::resolve::pretty_keys;
 use crate::keymap::{self, ResolvedKeymap};
+use crate::notifications;
 use crate::palette::{self, PaletteItem};
 use crate::terminal::colors::blend;
+use crate::terminal::commands::format_duration;
 use crate::terminal::{LastLayout, TerminalEvent, TerminalPane};
 use crate::panes::{Axis, Direction, Node, NodePath};
 use crate::tree::{FileTree, TreeEvent};
@@ -29,6 +33,14 @@ pub type PaneId = u64;
 struct TabState {
     layout: Node<PaneId>,
     active: PaneId,
+    /// Output arrived while this tab was in the background.
+    unread: bool,
+}
+
+impl TabState {
+    fn new(layout: Node<PaneId>, active: PaneId) -> Self {
+        Self { layout, active, unread: false }
+    }
 }
 
 /// A named collection of tabs — the tmux-session analogue. Temporary by
@@ -83,6 +95,12 @@ pub struct Oxide {
     /// Most recently run palette commands, newest first.
     palette_recent: VecDeque<&'static str>,
     divider_drag: Option<DividerDrag>,
+    /// Panes whose focus ring is flashing red after a background failure.
+    fail_flash: HashMap<PaneId, Instant>,
+    /// A once-a-second repaint is running for the status bar's elapsed time.
+    ticking: bool,
+    /// Notification route keys → the pane a click should focus.
+    notification_routes: HashMap<notifications::RouteKey, PaneId>,
     status_bar_override: Option<bool>,
     update: UpdateState,
     _config_watcher: Option<notify_debouncer_full::Debouncer<notify::RecommendedWatcher, notify_debouncer_full::FileIdMap>>,
@@ -94,7 +112,35 @@ pub struct Oxide {
 enum Overlay {
     Palette(PaletteState),
     ThemePicker(ThemePicker),
+    History(HistoryState),
 }
+
+/// One row of command history, gathered across every pane.
+#[derive(Clone)]
+struct HistoryItem {
+    text: String,
+    cwd: Option<PathBuf>,
+    exit: Option<i32>,
+    finished: Option<Instant>,
+}
+
+struct HistoryMatch {
+    item: usize,
+    highlights: Vec<usize>,
+    score: i32,
+}
+
+struct HistoryState {
+    query: String,
+    items: Vec<HistoryItem>,
+    /// Indices into `items`, best first.
+    matches: Vec<HistoryMatch>,
+    selected: usize,
+    scroll: usize,
+    return_focus: FocusTarget,
+}
+
+static NEXT_ROUTE: AtomicU64 = AtomicU64::new(1);
 
 /// What had focus when an overlay opened, so closing it hands focus back.
 /// Stored by identity rather than as a `FocusHandle`, so a pane that exits
@@ -383,6 +429,9 @@ impl Oxide {
             keymap: resolved,
             palette_recent: VecDeque::new(),
             divider_drag: None,
+            fail_flash: HashMap::new(),
+            ticking: false,
+            notification_routes: HashMap::new(),
             status_bar_override: None,
             update: UpdateState::Idle,
             _config_watcher: config_watcher,
@@ -759,7 +808,7 @@ impl Oxide {
             let fresh = Workspace {
                 name,
                 persist: false,
-                tabs: vec![TabState { layout: Node::leaf(id), active: id }],
+                tabs: vec![TabState::new(Node::leaf(id), id)],
                 active_tab: 0,
             };
             let old = std::mem::replace(&mut self.workspaces[0], fresh);
@@ -805,11 +854,19 @@ impl Oxide {
                 let focused = pane.focus_handle(cx).is_focused(window);
                 // Only mark the active pane when there is a choice to make.
                 let show_ring = focused && (self.tab().layout.len() > 1 || self.drawer_visible);
+                let flashing = self.fail_flash.get(id).is_some_and(|until| Instant::now() < *until);
+                let ring = if flashing {
+                    self.theme.ansi[1]
+                } else if show_ring {
+                    accent
+                } else {
+                    gpui::transparent_black()
+                };
                 div()
                     .size_full()
                     .overflow_hidden()
                     .border_1()
-                    .border_color(if show_ring { accent } else { gpui::transparent_black() })
+                    .border_color(ring)
                     .child(pane.clone())
                     .into_any_element()
             }
@@ -1058,6 +1115,53 @@ impl Oxide {
                 }
             }
             TerminalEvent::TitleChanged => cx.notify(),
+            TerminalEvent::Output => {
+                // A background tab gets a dot; the active one is being
+                // watched already.
+                let Some(id) = self.pane_id_of(emitter) else { return };
+                if let Some((wix, tix)) = self.locate_pane(id)
+                    && !(wix == self.active_ws && tix == self.ws().active_tab)
+                {
+                    let tab = &mut self.workspaces[wix].tabs[tix];
+                    if !tab.unread {
+                        tab.unread = true;
+                        cx.notify();
+                    }
+                }
+            }
+            TerminalEvent::CommandStarted => {
+                self.start_ticker(cx);
+                cx.notify();
+            }
+            TerminalEvent::CommandFinished { label, exit, duration } => {
+                let Some(id) = self.pane_id_of(emitter) else { return };
+                let pane_focused = window.is_window_active() && emitter.focus_handle(cx).is_focused(window);
+                let finished = notifications::Finished { duration: *duration, exit: *exit, pane_focused };
+                if notifications::should_notify(&self.config.notifications, finished) {
+                    let route = self.route_for(id);
+                    notifications::post("Oxide", &notifications::command_summary(label, *exit, *duration), Some(route));
+                }
+                // A failure somewhere you weren't looking: flash that pane's
+                // ring so the eye lands on the right split.
+                if exit.is_some_and(|e| e != 0) && !emitter.focus_handle(cx).is_focused(window) {
+                    self.fail_flash.insert(id, Instant::now() + Duration::from_millis(1500));
+                    let timer = cx.background_executor().timer(Duration::from_millis(1600));
+                    cx.spawn(async move |this, cx| {
+                        timer.await;
+                        this.update(cx, |this, cx| {
+                            this.fail_flash.retain(|_, until| Instant::now() < *until);
+                            cx.notify();
+                        })
+                        .ok();
+                    })
+                    .detach();
+                }
+                cx.notify();
+            }
+            TerminalEvent::Notify { title, body } => {
+                let route = self.pane_id_of(emitter).map(|id| self.route_for(id));
+                notifications::post(title.as_deref().unwrap_or("Oxide"), body, route);
+            }
             TerminalEvent::CwdChanged(cwd) => {
                 // Background panes change directory too; only the focused one
                 // should move the tree or the status bar.
@@ -1077,6 +1181,79 @@ impl Oxide {
                 self.save_workspaces(cx);
             }
         }
+    }
+
+    fn pane_id_of(&self, pane: &gpui::Entity<TerminalPane>) -> Option<PaneId> {
+        self.panes
+            .iter()
+            .find(|(_, p)| p.entity_id() == pane.entity_id())
+            .map(|(id, _)| *id)
+    }
+
+    /// Allocate a click-routing key for a notification about `pane`.
+    fn route_for(&mut self, pane: PaneId) -> notifications::RouteKey {
+        let key = NEXT_ROUTE.fetch_add(1, Ordering::Relaxed);
+        self.notification_routes.insert(key, pane);
+        // Keys are cheap; keep the map from growing forever.
+        if self.notification_routes.len() > 200 {
+            let oldest = self.notification_routes.keys().copied().min();
+            if let Some(k) = oldest {
+                self.notification_routes.remove(&k);
+            }
+        }
+        key
+    }
+
+    /// A notification was clicked: bring its pane to the front. Returns
+    /// false when the key isn't ours (another window's, or long gone).
+    pub fn on_notification_click(
+        &mut self,
+        key: notifications::RouteKey,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(id) = self.notification_routes.remove(&key) else { return false };
+        let Some((wix, tix)) = self.locate_pane(id) else { return true };
+        self.active_ws = wix;
+        self.ws_selected = wix;
+        self.workspaces[wix].active_tab = tix;
+        self.workspaces[wix].tabs[tix].active = id;
+        cx.activate(true);
+        window.activate_window();
+        self.focus_pane(id, window, cx);
+        true
+    }
+
+    /// Repaint once a second while any pane has a running command, so the
+    /// status bar's elapsed time ticks. Stops itself when nothing runs.
+    fn start_ticker(&mut self, cx: &mut Context<Self>) {
+        if self.ticking {
+            return;
+        }
+        self.ticking = true;
+        cx.spawn(async move |this, cx| {
+            loop {
+                let timer = match this.update(cx, |_, cx| cx.background_executor().timer(Duration::from_secs(1))) {
+                    Ok(timer) => timer,
+                    Err(_) => break,
+                };
+                timer.await;
+                let keep_going = this
+                    .update(cx, |this, cx| {
+                        cx.notify();
+                        let running = this.panes.values().any(|p| p.read(cx).log.is_running());
+                        if !running {
+                            this.ticking = false;
+                        }
+                        running
+                    })
+                    .unwrap_or(false);
+                if !keep_going {
+                    break;
+                }
+            }
+        })
+        .detach();
     }
 
     fn tree_focus(&self, cx: &Context<Self>) -> FocusHandle {
@@ -1139,6 +1316,7 @@ impl Oxide {
         let target = match &overlay {
             Overlay::Palette(p) => p.return_focus,
             Overlay::ThemePicker(t) => t.return_focus,
+            Overlay::History(h) => h.return_focus,
         };
         self.restore_focus(target, window, cx);
         cx.notify();
@@ -1148,6 +1326,7 @@ impl Oxide {
         match &self.overlay {
             Some(Overlay::ThemePicker(_)) => self.picker_move(delta, cx),
             Some(Overlay::Palette(_)) => self.palette_move(delta, cx),
+            Some(Overlay::History(_)) => self.history_move(delta, cx),
             None => {}
         }
     }
@@ -1156,15 +1335,34 @@ impl Oxide {
         match &self.overlay {
             Some(Overlay::ThemePicker(_)) => self.picker_confirm(window, cx),
             Some(Overlay::Palette(_)) => self.palette_confirm(window, cx),
+            Some(Overlay::History(_)) => self.history_confirm(false, window, cx),
             None => {}
+        }
+    }
+
+    /// cmd-enter: the overlay's second verb. The history overlay runs the
+    /// command instead of inserting it; elsewhere it's a plain confirm.
+    fn overlay_confirm_alt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match &self.overlay {
+            Some(Overlay::History(_)) => self.history_confirm(true, window, cx),
+            _ => self.overlay_confirm(window, cx),
         }
     }
 
     fn overlay_cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match &self.overlay {
             Some(Overlay::ThemePicker(_)) => self.picker_cancel(window, cx),
-            Some(Overlay::Palette(_)) => self.close_overlay(window, cx),
+            Some(Overlay::Palette(_) | Overlay::History(_)) => self.close_overlay(window, cx),
             None => {}
+        }
+    }
+
+    /// Text input shared by the overlays that have one.
+    fn overlay_query_mut(&mut self) -> Option<&mut String> {
+        match &mut self.overlay {
+            Some(Overlay::Palette(p)) => Some(&mut p.query),
+            Some(Overlay::History(h)) => Some(&mut h.query),
+            _ => None,
         }
     }
 
@@ -1318,6 +1516,10 @@ impl Oxide {
                 self.picker_cancel(window, cx);
                 self.open_palette(window, cx);
             }
+            Some(Overlay::History(_)) => {
+                self.close_overlay(window, cx);
+                self.open_palette(window, cx);
+            }
             None => self.open_palette(window, cx),
         }
     }
@@ -1403,28 +1605,260 @@ impl Oxide {
         cx.notify();
     }
 
-    fn on_palette_key_down(
+    fn on_overlay_key_down(
         &mut self,
         event: &gpui::KeyDownEvent,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(Overlay::Palette(p)) = &mut self.overlay else { return };
         let ks = &event.keystroke;
         let plain = !ks.modifiers.platform && !ks.modifiers.control && !ks.modifiers.function;
+        let Some(query) = self.overlay_query_mut() else { return };
         match ks.key.as_str() {
             "backspace" => {
-                p.query.pop();
+                query.pop();
             }
             _ if plain => match &ks.key_char {
-                Some(c) => p.query.push_str(c),
+                Some(c) => query.push_str(c),
                 None => return,
             },
             _ => return,
         }
-        self.palette_refresh();
+        match &self.overlay {
+            Some(Overlay::Palette(_)) => self.palette_refresh(),
+            Some(Overlay::History(_)) => self.history_refresh(cx),
+            _ => {}
+        }
         cx.stop_propagation();
         cx.notify();
+    }
+
+    // --- Command history (cmd-r) ---
+
+    fn toggle_history(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match &self.overlay {
+            Some(Overlay::History(_)) => self.close_overlay(window, cx),
+            Some(Overlay::ThemePicker(_)) => {
+                self.picker_cancel(window, cx);
+                self.open_history(window, cx);
+            }
+            Some(Overlay::Palette(_)) => {
+                self.close_overlay(window, cx);
+                self.open_history(window, cx);
+            }
+            None => self.open_history(window, cx),
+        }
+    }
+
+    /// Every command with known text, across every pane in the window,
+    /// newest first, one row per distinct command line.
+    fn gather_history(&self, cx: &Context<Self>) -> Vec<HistoryItem> {
+        let mut items: Vec<HistoryItem> = Vec::new();
+        for pane in self.panes.values() {
+            for cmd in pane.read(cx).log.entries() {
+                if let Some(text) = &cmd.text {
+                    items.push(HistoryItem {
+                        text: text.clone(),
+                        cwd: cmd.cwd.clone(),
+                        exit: cmd.exit,
+                        finished: cmd.finished,
+                    });
+                }
+            }
+        }
+        items.sort_by(|a, b| b.finished.cmp(&a.finished));
+        let mut seen = std::collections::HashSet::new();
+        items.retain(|it| seen.insert(it.text.clone()));
+        items
+    }
+
+    fn open_history(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let return_focus = self.current_focus_target(window, cx);
+        let items = self.gather_history(cx);
+        self.overlay = Some(Overlay::History(HistoryState {
+            query: String::new(),
+            items,
+            matches: Vec::new(),
+            selected: 0,
+            scroll: 0,
+            return_focus,
+        }));
+        self.history_refresh(cx);
+        window.focus(&self.picker_focus);
+        cx.notify();
+    }
+
+    fn history_refresh(&mut self, cx: &Context<Self>) {
+        let here = self.active_pane().read(cx).cwd.clone();
+        let Some(Overlay::History(h)) = &mut self.overlay else { return };
+        let query = h.query.trim().to_string();
+        let mut matches: Vec<HistoryMatch> = h
+            .items
+            .iter()
+            .enumerate()
+            .filter_map(|(ix, item)| {
+                let m = palette::fuzzy_match(&query, &item.text)?;
+                // Commands run in the directory you're in now are the ones
+                // you most likely want again.
+                let local = if item.cwd.is_some() && item.cwd == here { 1 } else { 0 };
+                Some(HistoryMatch { item: ix, highlights: m.positions, score: m.score * 2 + local })
+            })
+            .collect();
+        // Best match first; equal scores keep newest-first order. With no
+        // query every score is 0 or 1, so this just floats local commands.
+        matches.sort_by(|a, b| b.score.cmp(&a.score).then(a.item.cmp(&b.item)));
+        h.matches = matches;
+        h.selected = 0;
+        h.scroll = 0;
+    }
+
+    fn history_move(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let Some(Overlay::History(h)) = &mut self.overlay else { return };
+        let n = h.matches.len();
+        if n == 0 {
+            return;
+        }
+        h.selected = (h.selected as isize + delta).rem_euclid(n as isize) as usize;
+        if h.selected < h.scroll {
+            h.scroll = h.selected;
+        } else if h.selected >= h.scroll + PALETTE_ROWS {
+            h.scroll = h.selected + 1 - PALETTE_ROWS;
+        }
+        cx.notify();
+    }
+
+    /// Insert the command at the prompt, or (`run`) execute it through the
+    /// silent-run channel so it lands in shell history exactly once.
+    fn history_confirm(&mut self, run: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(Overlay::History(h)) = &self.overlay else { return };
+        let Some(m) = h.matches.get(h.selected) else { return };
+        let text = h.items[m.item].text.clone();
+        self.close_overlay(window, cx);
+        let pane = self.active_pane();
+        pane.update(cx, |t, _| {
+            if run {
+                t.run_command(&text);
+            } else {
+                t.write_command(&text);
+            }
+        });
+        self.focus_terminal(Some(window), cx);
+    }
+
+    fn render_history_body(&self, h: &HistoryState, cx: &Context<Self>) -> gpui::Div {
+        let theme = &self.theme;
+        let accent = theme.ansi[4];
+        let dim = blend(theme.foreground, theme.background, 0.45);
+        let border = blend(theme.foreground, theme.background, 0.85);
+        let home = home_dir();
+
+        let input = div()
+            .flex_none()
+            .px_3()
+            .py_2()
+            .border_b_1()
+            .border_color(border)
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(div().text_color(accent).child("history"))
+            .child(if h.query.is_empty() {
+                div().flex_1().text_color(dim).child("▏search commands you've run…")
+            } else {
+                div().flex_1().overflow_hidden().child(format!("{}▏", h.query))
+            });
+
+        let mut list = div().flex().flex_col().p_1().gap(px(1.0));
+        if h.matches.is_empty() {
+            let message = if h.items.is_empty() {
+                "no commands yet — history fills in as the shell integration sees them run"
+            } else {
+                "no matching command"
+            };
+            list = list.child(
+                div()
+                    .mx_2()
+                    .my_1()
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(theme.ansi[1])
+                    .text_color(dim)
+                    .child(message),
+            );
+        }
+        let end = (h.scroll + PALETTE_ROWS).min(h.matches.len());
+        for (ix, m) in h.matches.iter().enumerate().take(end).skip(h.scroll) {
+            let item = &h.items[m.item];
+            let is_selected = ix == h.selected;
+            let (mark, mark_color) = match item.exit {
+                Some(0) => ("✓", blend(theme.ansi[2], theme.background, 0.2)),
+                Some(_) => ("✗", theme.ansi[1]),
+                None => ("•", dim),
+            };
+            let where_ = item.cwd.as_ref().map(|p| pretty_path(p, home.as_deref())).unwrap_or_default();
+            list = list.child(
+                div()
+                    .id(("history-item", ix))
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .when(is_selected, |d| d.bg(theme.selection_bg))
+                    .on_mouse_move(cx.listener(move |this, _: &gpui::MouseMoveEvent, _w, cx| {
+                        if let Some(Overlay::History(h)) = &mut this.overlay
+                            && h.selected != ix
+                        {
+                            h.selected = ix;
+                            cx.notify();
+                        }
+                    }))
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, ev: &gpui::MouseDownEvent, window, cx| {
+                            if let Some(Overlay::History(h)) = &mut this.overlay {
+                                h.selected = ix;
+                            }
+                            this.history_confirm(ev.modifiers.platform, window, cx);
+                        }),
+                    )
+                    .child(div().flex_none().w(px(14.0)).text_color(mark_color).child(mark))
+                    .child(
+                        div()
+                            .flex_1()
+                            .overflow_hidden()
+                            .child(highlighted_text(&item.text, &m.highlights, accent)),
+                    )
+                    .child(div().flex_none().text_size(px(11.0)).text_color(dim).child(where_)),
+            );
+        }
+        if h.matches.len() > PALETTE_ROWS {
+            list = list.child(
+                div()
+                    .px_3()
+                    .py_0p5()
+                    .text_size(px(11.0))
+                    .text_color(dim)
+                    .child(format!("{} of {}", h.selected + 1, h.matches.len())),
+            );
+        }
+
+        let footer = div()
+            .flex_none()
+            .px_3()
+            .py_1()
+            .border_t_1()
+            .border_color(border)
+            .text_size(px(11.0))
+            .text_color(dim)
+            .child("↑↓ move · ⏎ insert at prompt · ⌘⏎ run · esc close");
+
+        div().flex().flex_col().child(input).child(list).child(footer)
     }
 
     fn render_palette_body(&self, p: &PaletteState, cx: &Context<Self>) -> gpui::Div {
@@ -1545,6 +1979,9 @@ impl Oxide {
             .on_action(cx.listener(|this, _: &PickerCancel, window, cx| {
                 this.overlay_cancel(window, cx);
             }))
+            .on_action(cx.listener(|this, _: &PickerConfirmAlt, window, cx| {
+                this.overlay_confirm_alt(window, cx);
+            }))
             .on_mouse_down(
                 gpui::MouseButton::Left,
                 |_: &gpui::MouseDownEvent, _w, cx| cx.stop_propagation(),
@@ -1581,8 +2018,13 @@ impl Oxide {
             Overlay::Palette(p) => panel
                 .w(px(560.0))
                 .track_focus(&self.picker_focus)
-                .on_key_down(cx.listener(Self::on_palette_key_down))
+                .on_key_down(cx.listener(Self::on_overlay_key_down))
                 .child(self.render_palette_body(p, cx)),
+            Overlay::History(h) => panel
+                .w(px(640.0))
+                .track_focus(&self.picker_focus)
+                .on_key_down(cx.listener(Self::on_overlay_key_down))
+                .child(self.render_history_body(h, cx)),
         };
 
         div()
@@ -1791,7 +2233,7 @@ impl Oxide {
         let cwd = self.new_tab_cwd(cx);
         let id = self.create_pane(cwd, window, cx);
         let ws = self.ws_mut();
-        ws.tabs.push(TabState { layout: Node::leaf(id), active: id });
+        ws.tabs.push(TabState::new(Node::leaf(id), id));
         ws.active_tab = ws.tabs.len() - 1;
         self.focus_pane(id, window, cx);
         self.save_workspaces(cx);
@@ -1839,6 +2281,30 @@ impl Oxide {
             let is_active = ix == self.ws().active_tab;
             let title = self.tab_title(tab, cx);
             let close_target = tab.active;
+            // Activity: running beats failed beats unread; nothing at all is
+            // the common case and should look like it.
+            let mut running = false;
+            let mut latest_failed: Option<(Instant, bool)> = None;
+            for id in tab.layout.leaves() {
+                let Some(pane) = self.panes.get(&id) else { continue };
+                let log = &pane.read(cx).log;
+                running |= log.is_running();
+                if let Some(cmd) = log.last_finished()
+                    && let Some(at) = cmd.finished
+                    && latest_failed.is_none_or(|(t, _)| at > t)
+                {
+                    latest_failed = Some((at, cmd.failed()));
+                }
+            }
+            let indicator = if running {
+                Some(theme.ansi[4])
+            } else if latest_failed.is_some_and(|(_, failed)| failed) {
+                Some(theme.ansi[1])
+            } else if tab.unread && !is_active {
+                Some(dim)
+            } else {
+                None
+            };
             bar = bar.child(
                 div()
                     .id(("tab", ix))
@@ -1859,6 +2325,9 @@ impl Oxide {
                             this.select_tab(ix, window, cx);
                         }),
                     )
+                    .when_some(indicator, |d, color| {
+                        d.child(div().flex_none().w(px(6.0)).h(px(6.0)).rounded_full().bg(color))
+                    })
                     .child(title)
                     .child(
                         div()
@@ -1924,7 +2393,7 @@ impl Oxide {
         self.workspaces.push(Workspace {
             name,
             persist: false,
-            tabs: vec![TabState { layout: Node::leaf(id), active: id }],
+            tabs: vec![TabState::new(Node::leaf(id), id)],
             active_tab: 0,
         });
         self.active_ws = self.workspaces.len() - 1;
@@ -1994,7 +2463,7 @@ impl Oxide {
                     let layout = st.layout.map(&mut |cwd| self.create_pane(cwd.clone(), window, cx));
                     let leaves = layout.leaves();
                     let active = leaves.get(st.active).copied().unwrap_or(leaves[0]);
-                    tabs.push(TabState { layout, active });
+                    tabs.push(TabState::new(layout, active));
                 }
                 let active_tab = saved.active_tab.min(tabs.len() - 1);
                 self.workspaces.push(Workspace {
@@ -2016,7 +2485,7 @@ impl Oxide {
             self.workspaces.push(Workspace {
                 name,
                 persist: false,
-                tabs: vec![TabState { layout: Node::leaf(id), active: id }],
+                tabs: vec![TabState::new(Node::leaf(id), id)],
                 active_tab: 0,
             });
         }
@@ -2444,6 +2913,25 @@ impl Oxide {
                     .child(div().text_color(theme.ansi[4]).child("\u{f07b}"))
                     .child(cwd_text),
             )
+            .child({
+                // What the focused pane is doing: elapsed time while a
+                // command runs; the last failure once it's done. Success is
+                // silent, like the prompt's exit segment.
+                let log = &self.active_pane().read(cx).log;
+                if let Some(cmd) = log.running() {
+                    div()
+                        .flex_none()
+                        .text_color(theme.ansi[4])
+                        .child(format!("⟳ {}  {}", cmd.label(), format_duration(cmd.duration())))
+                } else if let Some(cmd) = log.last_finished().filter(|c| c.failed()) {
+                    div()
+                        .flex_none()
+                        .text_color(theme.ansi[1])
+                        .child(format!("✗ {} · {}", cmd.exit.unwrap_or(1), format_duration(cmd.duration())))
+                } else {
+                    div().flex_none()
+                }
+            })
             .child(div().flex_1())
             .when_some(git.branch.clone(), |d, branch| {
                 let branch_color = if git.dirty { theme.ansi[3] } else { theme.ansi[2] };
@@ -2464,10 +2952,23 @@ impl Oxide {
 
 /// A palette row's title with the matched characters picked out.
 fn highlighted_title(item: &PaletteItem, accent: gpui::Hsla) -> gpui::StyledText {
-    let text = item.title;
+    highlighted_text(item.title, &item.highlights, accent)
+}
+
+/// `$HOME` as `~`, for compact directory labels.
+fn pretty_path(path: &Path, home: Option<&Path>) -> String {
+    match home.and_then(|h| path.strip_prefix(h).ok()) {
+        Some(rest) if rest.as_os_str().is_empty() => "~".into(),
+        Some(rest) => format!("~/{}", rest.display()),
+        None => path.display().to_string(),
+    }
+}
+
+/// Text with the matched character positions picked out in the accent.
+fn highlighted_text(text: &str, highlights: &[usize], accent: gpui::Hsla) -> gpui::StyledText {
     let mut ranges: Vec<(std::ops::Range<usize>, gpui::HighlightStyle)> = Vec::new();
     let byte_offsets: Vec<(usize, usize)> = text.char_indices().map(|(b, c)| (b, b + c.len_utf8())).collect();
-    for &pos in &item.highlights {
+    for &pos in highlights {
         let Some(&(start, end)) = byte_offsets.get(pos) else { continue };
         // Merge with the previous range when adjacent, so a run is one span.
         if let Some((last, _)) = ranges.last_mut()
@@ -2485,7 +2986,7 @@ fn highlighted_title(item: &PaletteItem, accent: gpui::Hsla) -> gpui::StyledText
             },
         ));
     }
-    gpui::StyledText::new(text).with_highlights(ranges)
+    gpui::StyledText::new(text.to_string()).with_highlights(ranges)
 }
 
 /// Rewrite the `[colors]` section of config.toml to just the chosen preset,
@@ -2583,6 +3084,8 @@ impl Render for Oxide {
                 });
             }
         }
+
+        self.tab_mut().unread = false;
 
         let theme = self.theme.clone();
         let config = self.config.clone();
@@ -2750,6 +3253,9 @@ impl Render for Oxide {
             }))
             .on_action(cx.listener(|this, _: &CommandPalette, window, cx| {
                 this.toggle_palette(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &CommandHistory, window, cx| {
+                this.toggle_history(window, cx);
             }))
             // Resize steps are in cells, converted to a share of the split at
             // apply time; a few columns per press feels right for a keyboard.

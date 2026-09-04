@@ -70,6 +70,10 @@ oxide_actions! {
     FontIncrease    => "terminal::font_increase",    "Increase Font Size",    "Terminal", ["zoom in", "bigger"], Root;
     FontDecrease    => "terminal::font_decrease",    "Decrease Font Size",    "Terminal", ["zoom out", "smaller"], Root;
     FontReset       => "terminal::font_reset",       "Reset Font Size",       "Terminal", [], Root;
+    CommandHistory  => "terminal::history",          "Command History",       "Terminal", ["recent", "search commands"], Root;
+    CopyLastOutput  => "terminal::copy_last_output", "Copy Last Command's Output", "Terminal", ["clipboard"], Root;
+    CopyLastCommand => "terminal::copy_last_command", "Copy Last Command",    "Terminal", ["clipboard"], Root;
+    CopyLastBlock   => "terminal::copy_last_block",  "Copy Last Command and Output", "Terminal", ["clipboard", "issue"], Root;
 
     // --- Drawer (file tree + workspaces panel) ---
     ToggleDrawer    => "drawer::toggle",           "Toggle Drawer",           "Drawer", ["sidebar", "file tree"], Root;
@@ -114,5 +118,6 @@ oxide_actions! {
     PickerNext    => "overlay::next",    "Overlay: Next Item",     "Overlay", [], Overlay;
     PickerPrev    => "overlay::prev",    "Overlay: Previous Item", "Overlay", [], Overlay;
     PickerConfirm => "overlay::confirm", "Overlay: Confirm",       "Overlay", [], Overlay;
+    PickerConfirmAlt => "overlay::confirm_alt", "Overlay: Confirm (alternate)", "Overlay", ["run"], Overlay;
     PickerCancel  => "overlay::cancel",  "Overlay: Cancel",        "Overlay", [], Overlay;
 }

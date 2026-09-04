@@ -187,6 +187,9 @@
                 <tr><td><kbd>cmd-a</kbd></td><td>select all</td><td><code>terminal::select_all</code></td></tr>
                 <tr><td><kbd>cmd-f</kbd></td><td>search scrollback — <kbd>⏎</kbd> older, <kbd>⇧⏎</kbd> newer, <kbd>esc</kbd> closes</td><td><code>terminal::search</code></td></tr>
                 <tr><td><kbd>cmd-↑</kbd> <span class="sep">/</span> <kbd>cmd-↓</kbd></td><td>jump to previous / next prompt</td><td><code>terminal::prompt_up / terminal::prompt_down</code></td></tr>
+                <tr><td><kbd>cmd-r</kbd></td><td>command history — <kbd>⏎</kbd> inserts, <kbd>⌘⏎</kbd> runs</td><td><code>terminal::history</code></td></tr>
+                <tr><td><kbd>cmd-shift-c</kbd></td><td>copy the last command's output</td><td><code>terminal::copy_last_output</code></td></tr>
+                <tr><td>click a gutter tick</td><td>scroll to that command</td><td></td></tr>
                 <tr><td><kbd>cmd-+</kbd> <kbd>cmd--</kbd> <kbd>cmd-0</kbd></td><td>font size up / down / reset</td><td><code>terminal::font_increase / …decrease / …reset</code></td></tr>
                 <tr><td><kbd>cmd-click</kbd></td><td>open the URL under the pointer</td><td></td></tr>
                 <tr><td><kbd>shift</kbd> + drag</td><td>select text even while a program grabs the mouse</td><td></td></tr>
@@ -271,13 +274,14 @@
             </table>
           </div>
 
-          <h3 id="overlays">In the command palette and theme picker</h3>
+          <h3 id="overlays">In the command palette, history, and theme picker</h3>
           <div class="table-wrap">
             <table class="keys">
               <tbody>
                 <tr><td><kbd>↓</kbd> <kbd>↑</kbd> <span class="sep">/</span> <kbd>ctrl-n</kbd> <kbd>ctrl-p</kbd></td><td>move (the theme picker previews as you go)</td><td><code>overlay::next / overlay::prev</code></td></tr>
                 <tr><td><kbd>j</kbd> <kbd>k</kbd></td><td>move — theme picker only; the palette is typing</td><td><code>overlay::next / overlay::prev</code></td></tr>
-                <tr><td><kbd>enter</kbd></td><td>run the command / apply the theme and write it to your config</td><td><code>overlay::confirm</code></td></tr>
+                <tr><td><kbd>enter</kbd></td><td>run the command / apply the theme / insert the history entry</td><td><code>overlay::confirm</code></td></tr>
+                <tr><td><kbd>cmd-enter</kbd></td><td>in history: run the entry immediately</td><td><code>overlay::confirm_alt</code></td></tr>
                 <tr><td><kbd>esc</kbd></td><td>close, restoring focus (and the previous theme)</td><td><code>overlay::cancel</code></td></tr>
               </tbody>
             </table>
@@ -292,6 +296,8 @@
             <table class="keys">
               <tbody>
                 <tr><td>View → Clear Scrollback</td><td>empty the focused pane's history</td><td><code>terminal::clear_scrollback</code></td></tr>
+                <tr><td>Edit → Copy Last Command</td><td>the last command line</td><td><code>terminal::copy_last_command</code></td></tr>
+                <tr><td>Edit → Copy Last Command and Output</td><td>both together, for an issue</td><td><code>terminal::copy_last_block</code></td></tr>
                 <tr><td>View → Toggle Status Bar</td><td>show or hide the bar for this window</td><td><code>app::toggle_status_bar</code></td></tr>
                 <tr><td>File → New Workspace</td><td>create an unnamed workspace</td><td><code>workspace::new</code></td></tr>
                 <tr><td>Oxide → Check for Updates…</td><td>check GitHub for a newer release</td><td><code>app::check_for_updates</code></td></tr>

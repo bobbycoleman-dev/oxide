@@ -179,6 +179,83 @@
             itself in red with <code>no match</code> when there isn't one.
           </p>
 
+          <h2 id="commands">Commands: what ran, and how it went</h2>
+          <p>
+            With shell integration on (zsh or bash), Oxide's prompt hooks emit
+            OSC 133 markers around every command, and Oxide reads them
+            straight off the PTY — so it knows when a command starts, when it
+            finishes, its exit status, how long it took, and exactly which
+            rows of scrollback it wrote. Everything below follows from that.
+          </p>
+          <ul>
+            <li>
+              <strong>Status bar.</strong> While a command runs the focused
+              pane shows <code>⟳ cargo build 1m02s</code>, ticking. Once it's
+              done, a failure stays up as <code>✗ 1 · 4.2s</code>; success is
+              silent, like the prompt's exit segment.
+            </li>
+            <li>
+              <strong>Tab dots.</strong> A tab gets an accent dot while any of
+              its panes is running something, a red dot when the last command
+              in it failed, and a dim dot when a background tab has produced
+              output you haven't looked at.
+            </li>
+            <li>
+              <strong>Focus ring.</strong> When a command fails in a pane you
+              aren't focused on, that pane's ring flashes red for a moment so
+              the eye lands on the right split.
+            </li>
+            <li>
+              <strong>Notifications.</strong> A command that ran longer than
+              <code>notifications.min_duration</code> (30 seconds by default)
+              and finished while its pane wasn't focused, or the window wasn't
+              active, posts a desktop notification:
+              <code>✓ cargo build — 2m14s</code> or
+              <code>✗ npm test — exit 1 · 4.2s</code>. Clicking it brings that
+              pane to the front. See
+              <a class="link" href="/docs/configuration/#notifications">[notifications]</a>.
+            </li>
+            <li>
+              <strong>The gutter.</strong> A tick per command down the right
+              edge of the pane, placed by where it sits in the scrollback:
+              dim for success, red for failure, accent while running. Click a
+              tick to jump there — scroll past an error in a long build, glance
+              at the gutter, click the red one.
+            </li>
+            <li>
+              <strong>Copy actions.</strong> <kbd>cmd-shift-c</kbd> copies the
+              last command's output. The Edit menu (and the palette) also
+              offer the last command itself, and command plus output together
+              for pasting into an issue.
+            </li>
+          </ul>
+          <p>
+            Programs that post their own notifications with OSC 9 or OSC 777
+            (<code>ntfy</code>-style tools) work too, rate-limited to one every
+            few seconds per pane; <code>notifications.passthrough_osc9</code>
+            turns that off.
+          </p>
+
+          <h3 id="history">Command history</h3>
+          <p>
+            <kbd>cmd-r</kbd> opens a history search over every command Oxide
+            has seen run, across all panes and tabs — newest first, fuzzy
+            filtered as you type, each with the directory it ran in and
+            whether it failed. Commands from your current directory rank
+            first. <kbd>enter</kbd> inserts the command at the prompt;
+            <kbd>cmd-enter</kbd> runs it straight away through the silent-run
+            channel, so it lands in shell history once. The log lives in
+            memory only and is never written to disk; turn
+            <code>commands.emit_cmdline</code> off if you'd rather the shell
+            didn't send the text at all.
+          </p>
+          <p>
+            Rows are tracked in absolute scrollback coordinates, so once the
+            scrollback fills and old lines fall off, or the grid reflows on a
+            resize, older ticks and copy ranges drift. The log itself keeps
+            working.
+          </p>
+
           <h2 id="prompt-jumping">Prompt jumping</h2>
           <p>
             <kbd>cmd-↑</kbd> and <kbd>cmd-↓</kbd> scroll to the previous and next

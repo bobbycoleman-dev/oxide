@@ -1,6 +1,9 @@
 pub mod colors;
+pub mod commands;
 pub mod element;
+pub mod event_loop;
 pub mod keys;
+pub mod osc;
 pub mod session;
 
 use std::collections::HashMap;
@@ -26,9 +29,14 @@ use gpui::{
 
 use crate::config::schema::BellMode;
 use crate::config::{Config, Theme, theme::hsla_to_rgb8};
-use crate::keymap::actions::{ClearScrollback, Copy, Paste, PromptDown, PromptUp, Search, SelectAll};
+use crate::keymap::actions::{
+    ClearScrollback, Copy, CopyLastBlock, CopyLastCommand, CopyLastOutput, Paste, PromptDown, PromptUp,
+    Search, SelectAll,
+};
+pub use commands::{Command, CommandLog};
 use element::TerminalElement;
-use session::{SessionOptions, TermSize, TerminalSession, resolve_shell};
+pub use osc::{Marker, MarkerKind};
+use session::{SessionEvent, SessionOptions, TermSize, TerminalSession, resolve_shell};
 
 #[link(name = "AppKit", kind = "framework")]
 unsafe extern "C" {
@@ -41,6 +49,16 @@ pub enum TerminalEvent {
     Exited(Option<i32>),
     TitleChanged,
     CwdChanged(PathBuf),
+    /// Output arrived (coalesced with the repaint tick) — for the "unread"
+    /// dot on background tabs.
+    Output,
+    /// The shell integration reported a command starting.
+    CommandStarted,
+    /// ...and finishing. `label` is the command's first line or a stand-in.
+    CommandFinished { label: String, exit: Option<i32>, duration: Duration },
+    /// A program asked for a desktop notification (OSC 9 / OSC 777), already
+    /// rate-limited and gated on the config.
+    Notify { title: Option<String>, body: String },
 }
 
 /// Geometry of the last painted frame, for mouse -> grid math.
@@ -78,8 +96,19 @@ pub struct TerminalPane {
     bell_until: Option<Instant>,
     search: Option<SearchState>,
     /// Prompt rows in absolute line coordinates (history_size + line). Stable
-    /// until the scrollback cap rotates lines out; see prompt_up/down.
+    /// until the scrollback cap rotates lines out; see prompt_up/down. Fed
+    /// by OSC 133;A when the shell integration is live, else by the Enter
+    /// heuristic in `on_key_down`.
     prompt_marks: Vec<usize>,
+    /// What has run in this pane, from the OSC 133 markers.
+    pub log: CommandLog,
+    /// Where the last 133;B landed, so a command line can be read back off
+    /// the grid when the shell didn't send it.
+    last_input_start: Option<(usize, usize)>,
+    /// OSC 7 is live for this session, so the cwd poll can stand down.
+    osc7_seen: bool,
+    /// Rate limit for program-posted notifications.
+    last_program_notify: Option<Instant>,
 }
 
 struct SearchState {
@@ -114,6 +143,7 @@ impl TerminalPane {
         working_dir: PathBuf,
         cx: &mut Context<Self>,
     ) -> Self {
+        let log = CommandLog::new(config.commands.max_entries.max(1));
         let mut this = Self {
             session: None,
             // Plausible bring-up size; real measurement happens on first layout.
@@ -139,6 +169,10 @@ impl TerminalPane {
             bell_until: None,
             search: None,
             prompt_marks: Vec::new(),
+            log,
+            last_input_start: None,
+            osc7_seen: false,
+            last_program_notify: None,
         };
         this.spawn_session(cx);
         this.spawn_blink_task(cx);
@@ -200,7 +234,10 @@ impl TerminalPane {
                         let alive = this
                             .update(cx, |pane, cx| {
                                 for event in batch {
-                                    pane.handle_alac_event(event, cx);
+                                    match event {
+                                        SessionEvent::Term(event) => pane.handle_alac_event(event, cx),
+                                        SessionEvent::Marker(marker) => pane.handle_marker(marker, cx),
+                                    }
                                 }
                             })
                             .is_ok();
@@ -224,11 +261,162 @@ impl TerminalPane {
         cx.notify();
     }
 
+    fn handle_marker(&mut self, marker: Marker, cx: &mut Context<Self>) {
+        let now = Instant::now();
+        match &marker.kind {
+            MarkerKind::Cwd(path) => {
+                self.osc7_seen = true;
+                self.log.cwd = Some(path.clone());
+                if self.cwd.as_ref() != Some(path) {
+                    self.cwd = Some(path.clone());
+                    cx.emit(TerminalEvent::CwdChanged(path.clone()));
+                }
+                return;
+            }
+            MarkerKind::Notify { title, body } => {
+                // A remote host can spam these; one every few seconds is
+                // plenty for anything legitimate.
+                let recent = self.last_program_notify.is_some_and(|t| now.duration_since(t) < Duration::from_secs(3));
+                if self.config.notifications.enabled && self.config.notifications.passthrough_osc9 && !recent {
+                    self.last_program_notify = Some(now);
+                    cx.emit(TerminalEvent::Notify { title: title.clone(), body: body.clone() });
+                }
+                return;
+            }
+            MarkerKind::PromptStart if !marker.alt_screen => self.push_prompt_mark(marker.row),
+            MarkerKind::InputStart if !marker.alt_screen => {
+                self.last_input_start = Some((marker.row, marker.column));
+            }
+            _ => {}
+        }
+        if !self.config.commands.track {
+            // Still note that integration is live, so cmd-↑ trusts A markers.
+            self.log.markers_seen = true;
+            return;
+        }
+        match self.log.on_marker(&marker, now) {
+            Some(commands::LogEvent::Started(id)) => {
+                if self.log.get(id).is_some_and(|c| c.text.is_none())
+                    && let Some(text) = self.read_command_line(marker.row)
+                {
+                    self.log.set_text(id, text);
+                }
+                self.last_input_start = None;
+                cx.emit(TerminalEvent::CommandStarted);
+                cx.notify();
+            }
+            Some(commands::LogEvent::Finished(id)) => {
+                if let Some(cmd) = self.log.get(id) {
+                    cx.emit(TerminalEvent::CommandFinished {
+                        label: cmd.label().to_string(),
+                        exit: cmd.exit,
+                        duration: cmd.duration(),
+                    });
+                }
+                cx.notify();
+            }
+            None => {}
+        }
+    }
+
+    fn push_prompt_mark(&mut self, row: usize) {
+        if self.prompt_marks.last() != Some(&row) {
+            self.prompt_marks.push(row);
+            if self.prompt_marks.len() > 500 {
+                self.prompt_marks.remove(0);
+            }
+        }
+    }
+
+    /// The text between the last 133;B and the row before `command_row`:
+    /// what the user typed, as the grid shows it. The fallback for shells
+    /// that don't send `cmdline=`.
+    fn read_command_line(&self, command_row: usize) -> Option<String> {
+        let (row, column) = self.last_input_start?;
+        let session = self.session.as_ref()?;
+        let term = session.term.lock();
+        let history = term.grid().history_size() as i32;
+        let start = Line(row as i32 - history);
+        let end = Line(command_row.checked_sub(1)? as i32 - history);
+        if end < start || start < term.topmost_line() || end > term.bottommost_line() {
+            return None;
+        }
+        let text = term.bounds_to_string(GridPoint::new(start, Column(column)), GridPoint::new(end, term.last_column()));
+        let text = text.trim().to_string();
+        (!text.is_empty()).then_some(text)
+    }
+
+    /// A command's output as text, if its rows are still in the buffer.
+    pub fn output_text(&self, cmd: &Command) -> Option<String> {
+        let rows = cmd.output_rows.clone()?;
+        if rows.is_empty() {
+            return None;
+        }
+        let session = self.session.as_ref()?;
+        let term = session.term.lock();
+        let history = term.grid().history_size() as i32;
+        let start = Line(rows.start as i32 - history).max(term.topmost_line());
+        let end = Line(rows.end as i32 - 1 - history).min(term.bottommost_line());
+        if end < start {
+            return None;
+        }
+        let text = term.bounds_to_string(GridPoint::new(start, Column(0)), GridPoint::new(end, term.last_column()));
+        let text = text.trim_end().to_string();
+        (!text.is_empty()).then_some(text)
+    }
+
+    /// Scroll so absolute `row` sits at the top of the viewport.
+    pub fn scroll_to_row(&mut self, row: usize, cx: &mut Context<Self>) {
+        let Some(session) = &self.session else { return };
+        let mut term = session.term.lock();
+        let history = term.grid().history_size();
+        let current = term.grid().display_offset() as i32;
+        let target = history.saturating_sub(row).min(history) as i32;
+        term.scroll_display(Scroll::Delta(target - current));
+        drop(term);
+        cx.notify();
+    }
+
+    fn copy_last_output(&mut self, _: &CopyLastOutput, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(cmd) = self.log.last_finished().cloned() else { return };
+        if let Some(text) = self.output_text(&cmd) {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+        }
+    }
+
+    fn copy_last_command(&mut self, _: &CopyLastCommand, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(cmd) = self.log.last_finished().cloned() else { return };
+        if let Some(text) = cmd.text {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+        }
+    }
+
+    fn copy_last_block(&mut self, _: &CopyLastBlock, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(cmd) = self.log.last_finished().cloned() else { return };
+        let mut block = String::new();
+        if let Some(text) = &cmd.text {
+            block.push_str("$ ");
+            block.push_str(text);
+            block.push('\n');
+        }
+        if let Some(output) = self.output_text(&cmd) {
+            block.push_str(&output);
+            block.push('\n');
+        }
+        if !block.is_empty() {
+            cx.write_to_clipboard(ClipboardItem::new_string(block));
+        }
+    }
+
     fn handle_alac_event(&mut self, event: AlacEvent, cx: &mut Context<Self>) {
         match event {
             AlacEvent::Wakeup => {
                 self.schedule_repaint(cx);
-                self.poll_cwd(cx);
+                // With OSC 7 live, the shell tells us; polling would only
+                // race it.
+                if !self.osc7_seen {
+                    self.poll_cwd(cx);
+                }
             }
             AlacEvent::Title(title) => {
                 self.title = title;
@@ -325,6 +513,7 @@ impl TerminalPane {
             timer.await;
             this.update(cx, |pane, cx| {
                 pane.repaint_scheduled = false;
+                cx.emit(TerminalEvent::Output);
                 cx.notify();
             })
             .ok();
@@ -490,19 +679,19 @@ impl TerminalPane {
             }
             // Record a prompt mark: the row where Enter was pressed is (about
             // to be) a completed prompt line — the anchor cmd-up jumps to.
+            // Once the shell integration's A markers are flowing they are
+            // the better source, and this heuristic stands down.
             if event.keystroke.key == "enter"
                 && !event.keystroke.modifiers.modified()
                 && !term.mode().contains(TermMode::ALT_SCREEN)
+                && !self.log.markers_seen
             {
                 let abs = term.grid().history_size() + term.renderable_content().cursor.point.line.0.max(0) as usize;
-                if self.prompt_marks.last() != Some(&abs) {
-                    self.prompt_marks.push(abs);
-                    if self.prompt_marks.len() > 500 {
-                        self.prompt_marks.remove(0);
-                    }
-                }
+                drop(term);
+                self.push_prompt_mark(abs);
+            } else {
+                drop(term);
             }
-            drop(term);
             self.last_input = Instant::now();
             self.blink_show = true;
             cx.stop_propagation();
@@ -701,6 +890,7 @@ impl TerminalPane {
         term.clear_screen(ClearMode::Saved);
         drop(term);
         self.prompt_marks.clear();
+        self.log.forget_rows();
         cx.notify();
     }
 
@@ -910,6 +1100,60 @@ impl TerminalPane {
     }
 }
 
+impl TerminalPane {
+    /// The failure gutter: a tick per command down the right edge, placed by
+    /// its share of the whole buffer. Dim for success, red for failure,
+    /// accent while running. Click to scroll there.
+    fn render_gutter(&self, cx: &Context<Self>) -> Option<gpui::Div> {
+        if self.log.is_empty() || self.child_exited.is_some() {
+            return None;
+        }
+        let session = self.session.as_ref()?;
+        let (total, alt) = {
+            let term = session.term.lock();
+            (term.grid().history_size() + term.screen_lines(), term.mode().contains(TermMode::ALT_SCREEN))
+        };
+        if alt || total == 0 {
+            return None;
+        }
+        let theme = &self.theme;
+        let dim = colors::blend(theme.foreground, theme.background, 0.6);
+        let mut strip = div().absolute().top_0().bottom_0().right_0().w(gpui::px(6.0));
+        for cmd in self.log.entries() {
+            let Some(row) = cmd.prompt_row else { continue };
+            let color = if cmd.finished.is_none() {
+                theme.ansi[4]
+            } else if cmd.failed() {
+                theme.ansi[1]
+            } else {
+                dim
+            };
+            let frac = (row as f32 / total as f32).clamp(0.0, 1.0);
+            let id = cmd.id;
+            strip = strip.child(
+                div()
+                    .id(("gutter-mark", id as usize))
+                    .absolute()
+                    .right_0()
+                    .top(gpui::relative(frac))
+                    .w(gpui::px(4.0))
+                    .h(gpui::px(3.0))
+                    .rounded_sm()
+                    .bg(color)
+                    .cursor_pointer()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _: &MouseDownEvent, _w, cx| {
+                            cx.stop_propagation();
+                            this.scroll_to_row(row, cx);
+                        }),
+                    ),
+            );
+        }
+        Some(strip)
+    }
+}
+
 impl Render for TerminalPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let focused = self.focus_handle.is_focused(window);
@@ -932,12 +1176,16 @@ impl Render for TerminalPane {
             .on_action(cx.listener(Self::toggle_search))
             .on_action(cx.listener(Self::prompt_up))
             .on_action(cx.listener(Self::prompt_down))
+            .on_action(cx.listener(Self::copy_last_output))
+            .on_action(cx.listener(Self::copy_last_command))
+            .on_action(cx.listener(Self::copy_last_block))
             .on_key_down(cx.listener(Self::on_key_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
             .child(TerminalElement::new(cx.entity(), focused))
+            .when_some(self.render_gutter(cx), |this, gutter| this.child(gutter))
             .when_some(self.search.as_ref(), |this, search| {
                 let hint = if search.current.is_some() { "⏎ older  ⇧⏎ newer  esc" } else if search.query.is_empty() { "type to search" } else { "no match" };
                 this.child(

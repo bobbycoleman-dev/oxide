@@ -61,6 +61,8 @@ pub static DEFAULTS: &[DefaultBinding] = &[
     b("cmd-f", "terminal::search", Root),
     b("cmd-up", "terminal::prompt_up", Root),
     b("cmd-down", "terminal::prompt_down", Root),
+    b("cmd-r", "terminal::history", Root),
+    b("cmd-shift-c", "terminal::copy_last_output", Root),
     b("cmd-n", "window::new", Root),
     b("cmd-t", "tab::new", Root),
     b("ctrl-tab", "tab::next", Root),
@@ -99,6 +101,7 @@ pub static DEFAULTS: &[DefaultBinding] = &[
     b("up", "overlay::prev", Overlay),
     b("ctrl-p", "overlay::prev", Overlay),
     b("enter", "overlay::confirm", Overlay),
+    b("cmd-enter", "overlay::confirm_alt", Overlay),
     b("escape", "overlay::cancel", Overlay),
     // OverlayList — modal lists with no text input (the theme picker), where
     // vim keys are free.

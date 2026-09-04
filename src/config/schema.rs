@@ -17,6 +17,105 @@ pub struct Config {
     pub bell: BellMode,
     pub copy_on_select: bool,
     pub keymap: KeymapConfig,
+    pub notifications: NotificationsConfig,
+    pub commands: CommandsConfig,
+}
+
+/// Desktop notifications when a long or failed command finishes in a pane
+/// you aren't looking at, plus passthrough for programs that post their own
+/// (OSC 9 / OSC 777).
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct NotificationsConfig {
+    pub enabled: bool,
+    /// Commands shorter than this never notify. `"30s"`, `"2m"`, `"1.5s"`,
+    /// or a bare number of seconds.
+    pub min_duration: DurationText,
+    /// Only notify when the pane isn't focused or the window isn't active.
+    pub only_when_unfocused: bool,
+    /// A non-zero exit notifies regardless of duration (still subject to
+    /// `only_when_unfocused`).
+    pub on_failure_always: bool,
+    /// Let programs post notifications with OSC 9 / OSC 777.
+    pub passthrough_osc9: bool,
+}
+
+impl Default for NotificationsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            min_duration: DurationText(std::time::Duration::from_secs(30)),
+            only_when_unfocused: true,
+            on_failure_always: false,
+            passthrough_osc9: true,
+        }
+    }
+}
+
+/// The per-pane command log built from the shell integration's OSC 133
+/// markers: what feeds the status bar, tab indicators, history search, and
+/// the failure gutter.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct CommandsConfig {
+    pub track: bool,
+    /// Have the shell send each command line to Oxide, so history search
+    /// and notifications can name the command. The text stays in memory
+    /// only; nothing is written to disk.
+    pub emit_cmdline: bool,
+    pub max_entries: usize,
+}
+
+impl Default for CommandsConfig {
+    fn default() -> Self {
+        Self { track: true, emit_cmdline: true, max_entries: 500 }
+    }
+}
+
+/// A duration written the way people write them: `"30s"`, `"2m"`, `"1h"`,
+/// `"1.5s"`, `"250ms"`, or a bare number of seconds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DurationText(pub std::time::Duration);
+
+impl DurationText {
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let text = text.trim();
+        let split = text.find(|c: char| c.is_ascii_alphabetic()).unwrap_or(text.len());
+        let (number, unit) = text.split_at(split);
+        let value: f64 = number
+            .trim()
+            .parse()
+            .map_err(|_| format!("bad duration \"{text}\" — try \"30s\", \"2m\", or \"1.5s\""))?;
+        if !value.is_finite() || value < 0.0 {
+            return Err(format!("bad duration \"{text}\""));
+        }
+        let secs = match unit.trim() {
+            "" | "s" | "sec" | "secs" => value,
+            "ms" => value / 1000.0,
+            "m" | "min" | "mins" => value * 60.0,
+            "h" | "hr" | "hrs" => value * 3600.0,
+            other => return Err(format!("bad duration unit \"{other}\" in \"{text}\" — use ms, s, m, or h")),
+        };
+        Ok(Self(std::time::Duration::from_secs_f64(secs)))
+    }
+}
+
+impl<'de> Deserialize<'de> for DurationText {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Text(String),
+            Number(f64),
+        }
+        match Raw::deserialize(deserializer)? {
+            Raw::Text(t) => DurationText::parse(&t).map_err(serde::de::Error::custom),
+            Raw::Number(n) if n.is_finite() && n >= 0.0 => {
+                Ok(DurationText(std::time::Duration::from_secs_f64(n)))
+            }
+            Raw::Number(_) => Err(serde::de::Error::custom("duration must be a non-negative number of seconds")),
+        }
+    }
 }
 
 /// User keybindings. Written flat — keystroke on the left, action id on the
@@ -472,5 +571,37 @@ replace_defaults = true
 size = 12
 ").unwrap();
         assert_eq!(config.keymap, KeymapConfig::default());
+    }
+}
+
+#[cfg(test)]
+mod duration_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn parses_common_spellings() {
+        assert_eq!(DurationText::parse("30s").unwrap().0, Duration::from_secs(30));
+        assert_eq!(DurationText::parse("2m").unwrap().0, Duration::from_secs(120));
+        assert_eq!(DurationText::parse("1.5s").unwrap().0, Duration::from_millis(1500));
+        assert_eq!(DurationText::parse("250ms").unwrap().0, Duration::from_millis(250));
+        assert_eq!(DurationText::parse("1h").unwrap().0, Duration::from_secs(3600));
+        assert_eq!(DurationText::parse("45").unwrap().0, Duration::from_secs(45));
+        assert!(DurationText::parse("soon").is_err());
+        assert!(DurationText::parse("3 fortnights").is_err());
+        assert!(DurationText::parse("-1s").is_err());
+    }
+
+    #[test]
+    fn config_accepts_strings_and_numbers() {
+        let c: Config = toml::from_str("[notifications]\nmin_duration = \"2m\"\n").unwrap();
+        assert_eq!(c.notifications.min_duration.0, Duration::from_secs(120));
+        let c: Config = toml::from_str("[notifications]\nmin_duration = 10\n").unwrap();
+        assert_eq!(c.notifications.min_duration.0, Duration::from_secs(10));
+        assert!(toml::from_str::<Config>("[notifications]\nmin_duration = \"never\"\n").is_err());
+        let c: Config = toml::from_str("[commands]\nemit_cmdline = false\nmax_entries = 50\n").unwrap();
+        assert!(!c.commands.emit_cmdline);
+        assert_eq!(c.commands.max_entries, 50);
+        assert!(c.commands.track);
     }
 }

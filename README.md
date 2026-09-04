@@ -30,6 +30,14 @@ with a file-tree drawer you drive like vim and a status bar that knows where you
   Respects `.gitignore`, watches the filesystem, and follows the shell's `cd` automatically.
 - **Scrollback search** — `cmd-f`, live and case-insensitive, `⏎`/`⇧⏎` to walk matches.
 - **Prompt jumping** — `cmd-↑`/`cmd-↓` hop between previous prompts in scrollback.
+- **Command awareness** — the shell integration's OSC 133 markers are read straight off the
+  PTY, so Oxide knows what's running, how long it took, and whether it failed: elapsed time
+  in the status bar, activity dots on tabs, a red flash on a background pane that failed, a
+  failure gutter you can click to jump to the command, and desktop notifications for long or
+  failed commands in panes you aren't watching (click to focus the pane).
+- **Command history** — `cmd-r` searches every command run in any pane, with its directory
+  and exit status; `⏎` inserts it at the prompt, `⌘⏎` runs it. `cmd-shift-c` copies the last
+  command's output.
 - **Status bar** — cwd plus git branch, dirty state, and ahead/behind, rendered natively.
 - **Configurable prompt** *(optional)* — compile a powerline prompt from TOML segments
   (`cwd`, `git`, `exit_status`, `time`, `duration`, …), injected without touching your
@@ -91,6 +99,8 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 | `ctrl-w t` / `cmd-shift-e` | focus the file tree from anywhere |
 | `cmd-f` | search scrollback (`⏎` older, `⇧⏎` newer, `esc` close) |
 | `cmd-↑` / `cmd-↓` | jump to previous / next prompt |
+| `cmd-r` | command history (`⏎` insert, `⌘⏎` run) |
+| `cmd-shift-c` | copy the last command's output |
 | `cmd-t` / `cmd-n` | new tab / new window |
 | `cmd-1..9` | jump to tab |
 | `⌃tab` / `⇧⌘[` `⇧⌘]` | previous / next tab |

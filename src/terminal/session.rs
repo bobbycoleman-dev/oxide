@@ -5,23 +5,25 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-use alacritty_terminal::event::{Event as AlacEvent, EventListener, Notify, WindowSize};
-use alacritty_terminal::event_loop::{EventLoop, Msg, Notifier, State};
+use alacritty_terminal::event::{Event as AlacEvent, EventListener, WindowSize};
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::{Config as TermConfig, Term};
-use alacritty_terminal::tty::{self, Pty};
+use alacritty_terminal::tty;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
+
+use super::event_loop::{EventLoop, LoopSender, Msg};
+pub use super::event_loop::SessionEvent;
 
 /// Bridge from the PTY thread to the GPUI main thread. Invoked on the PTY
 /// reader thread, possibly while it holds the term lock — it must do nothing
 /// but send on the channel.
 #[derive(Clone)]
-pub struct EventProxy(UnboundedSender<AlacEvent>);
+pub struct EventProxy(UnboundedSender<SessionEvent>);
 
 impl EventListener for EventProxy {
     fn send_event(&self, event: AlacEvent) {
-        self.0.unbounded_send(event).ok();
+        self.0.unbounded_send(SessionEvent::Term(event)).ok();
     }
 }
 
@@ -96,17 +98,17 @@ pub fn is_posix_shell(program: &str) -> bool {
 
 pub struct TerminalSession {
     pub term: Arc<FairMutex<Term<EventProxy>>>,
-    notifier: Notifier,
+    sender: LoopSender,
     master_fd: RawFd,
     child_pid: i32,
-    join: Option<JoinHandle<(EventLoop<Pty, EventProxy>, State)>>,
+    join: Option<JoinHandle<()>>,
 }
 
 impl TerminalSession {
     pub fn spawn(
         options: SessionOptions,
         size: TermSize,
-    ) -> anyhow::Result<(Self, UnboundedReceiver<AlacEvent>)> {
+    ) -> anyhow::Result<(Self, UnboundedReceiver<SessionEvent>)> {
         let (tx, rx) = unbounded();
         let proxy = EventProxy(tx);
 
@@ -137,20 +139,23 @@ impl TerminalSession {
         };
         let term = Arc::new(FairMutex::new(Term::new(term_config, &size, proxy.clone())));
 
-        let event_loop = EventLoop::new(Arc::clone(&term), proxy, pty, false, false)?;
-        let notifier = Notifier(event_loop.channel());
+        let marker_tx = proxy.0.clone();
+        let event_loop = EventLoop::new(Arc::clone(&term), proxy, pty, move |marker| {
+            marker_tx.unbounded_send(SessionEvent::Marker(marker)).ok();
+        })?;
+        let sender = event_loop.sender();
         let join = event_loop.spawn();
 
-        Ok((Self { term, notifier, master_fd, child_pid, join: Some(join) }, rx))
+        Ok((Self { term, sender, master_fd, child_pid, join: Some(join) }, rx))
     }
 
     pub fn write_input(&self, bytes: impl Into<Cow<'static, [u8]>>) {
-        self.notifier.notify(bytes);
+        self.sender.write(bytes);
     }
 
     pub fn resize(&self, size: TermSize) {
         self.term.lock().resize(size);
-        let _ = self.notifier.0.send(Msg::Resize(size.window_size()));
+        let _ = self.sender.send(Msg::Resize(size.window_size()));
     }
 
     /// The cwd of the foreground process group on the PTY, via tcgetpgrp +
@@ -188,7 +193,7 @@ impl Drop for TerminalSession {
         // won't close"). Signal the shell, then join + drop the event loop
         // (and with it the Pty) on a detached thread, escalating to SIGKILL
         // after a grace period.
-        let _ = self.notifier.0.send(Msg::Shutdown);
+        let _ = self.sender.send(Msg::Shutdown);
         let child_pid = self.child_pid;
         unsafe {
             libc::kill(child_pid, libc::SIGHUP);
@@ -225,6 +230,85 @@ mod tests {
             text.push(indexed.cell.c);
         }
         text
+    }
+
+    /// The event loop splits parser slices at OSC 133 markers: a real zsh
+    /// with the integration installed must deliver `CommandEnd { exit: 1 }`
+    /// for `false`, with exact rows, and a non-integrated shell must deliver
+    /// no markers at all.
+    #[test]
+    fn integrated_shell_delivers_markers_with_rows() {
+        use super::super::osc::MarkerKind;
+        if !std::path::Path::new("/bin/zsh").exists() {
+            return;
+        }
+        let config = crate::config::Config::default();
+        let integration = crate::prompt::integration::setup(&config, "/bin/zsh");
+        if !integration.env.contains_key("ZDOTDIR") {
+            return; // cache dir unavailable in this environment
+        }
+        let size = TermSize { columns: 100, screen_lines: 24, cell_width: 8.0, cell_height: 16.0 };
+        let options = SessionOptions {
+            program: "/bin/zsh".into(),
+            args: vec![],
+            working_directory: Some(std::env::temp_dir()),
+            scrollback: 100,
+            env: integration.env,
+        };
+        let (session, mut rx) = TerminalSession::spawn(options, size).expect("spawn zsh");
+        session.write_input(b"false\r".to_vec());
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut markers = Vec::new();
+        while Instant::now() < deadline {
+            while let Ok(event) = rx.try_recv() {
+                if let SessionEvent::Marker(m) = event {
+                    markers.push(m);
+                }
+            }
+            let started = markers.iter().position(|m| matches!(m.kind, MarkerKind::CommandStart { .. }));
+            if started.is_some_and(|ix| markers[ix..].iter().any(|m| matches!(m.kind, MarkerKind::CommandEnd { .. }))) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let kinds: Vec<_> = markers.iter().map(|m| &m.kind).collect();
+        assert!(kinds.contains(&&MarkerKind::PromptStart), "{kinds:?}");
+        assert!(kinds.contains(&&MarkerKind::InputStart), "{kinds:?}");
+        // The startup prompt emits its own D;0 before anything runs; the one
+        // that matters follows the C marker for `false`.
+        let start_ix = markers.iter().position(|m| matches!(m.kind, MarkerKind::CommandStart { .. })).expect("C marker");
+        let start = &markers[start_ix];
+        assert_eq!(start.kind, MarkerKind::CommandStart { cmdline: Some("false".into()) });
+        let end = markers[start_ix..].iter().find(|m| matches!(m.kind, MarkerKind::CommandEnd { .. })).expect("D marker");
+        assert_eq!(end.kind, MarkerKind::CommandEnd { exit: Some(1) });
+        // Enter moved the cursor to a fresh line before C fired, and `false`
+        // prints nothing, so D lands on that same row: exact rows, not
+        // "somewhere in the chunk".
+        assert_eq!(end.row, start.row, "start {start:?} end {end:?}");
+        assert!(markers.iter().any(|m| matches!(m.kind, MarkerKind::Cwd(_))), "OSC 7 should report the cwd");
+        assert!(markers.iter().all(|m| !m.alt_screen));
+    }
+
+    #[test]
+    fn plain_sh_delivers_no_markers() {
+        let size = TermSize { columns: 80, screen_lines: 24, cell_width: 8.0, cell_height: 16.0 };
+        let options = SessionOptions {
+            program: "/bin/sh".into(),
+            args: vec![],
+            working_directory: None,
+            scrollback: 100,
+            env: HashMap::new(),
+        };
+        let (session, mut rx) = TerminalSession::spawn(options, size).expect("spawn sh");
+        session.write_input(b"echo marker_free\r".to_vec());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline && !visible_text(&session).contains("marker_free") {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        while let Ok(event) = rx.try_recv() {
+            assert!(!matches!(event, SessionEvent::Marker(_)), "unexpected {event:?}");
+        }
     }
 
     /// M3: a real shell runs, output lands in the grid, and input round-trips.

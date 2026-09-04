@@ -104,14 +104,15 @@
               <strong>Live:</strong> <code>[font]</code>,
               <code>[colors]</code>, <code>[window]</code>,
               <code>[tree]</code>, <code>[status_bar]</code>,
-              <code>[keymap]</code>, <code>bell</code>,
-              <code>copy_on_select</code>. Save the file and the window
-              repaints.
+              <code>[keymap]</code>, <code>[notifications]</code>,
+              <code>bell</code>, <code>copy_on_select</code>. Save the file
+              and the window repaints.
             </li>
             <li>
-              <strong>New sessions only:</strong> <code>[shell]</code> and
-              <code>[prompt]</code> — they're baked into a shell's environment
-              and init script when it starts. Open a new tab to pick them up.
+              <strong>New sessions only:</strong> <code>[shell]</code>,
+              <code>[prompt]</code>, and <code>commands.emit_cmdline</code> —
+              they're baked into a shell's environment and init script when it
+              starts. Open a new tab to pick them up.
             </li>
           </ul>
 
@@ -535,6 +536,76 @@ background   = <span class="s">"#0d0b0a"</span>   <span class="c"># override jus
             </table>
           </div>
 
+          <h2 id="notifications">[notifications]</h2>
+          <p>
+            Desktop notifications when a command finishes in a pane you aren't
+            watching. From the installed app these are real macOS
+            notifications (you'll be asked to allow them once), and clicking
+            one focuses the pane; a <code>cargo run</code> build has no bundle
+            to attach them to and falls back to <code>osascript</code>, which
+            can't route a click.
+          </p>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead>
+                <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>enabled</td><td>bool</td><td>true</td><td>Master switch.</td></tr>
+                <tr>
+                  <td>min_duration</td>
+                  <td>string</td>
+                  <td>"30s"</td>
+                  <td>Commands shorter than this never notify. <code>"2m"</code>, <code>"1.5s"</code>, <code>"250ms"</code>, or a bare number of seconds.</td>
+                </tr>
+                <tr>
+                  <td>only_when_unfocused</td>
+                  <td>bool</td>
+                  <td>true</td>
+                  <td>Stay quiet when the pane is focused and the window is active — you saw it finish.</td>
+                </tr>
+                <tr>
+                  <td>on_failure_always</td>
+                  <td>bool</td>
+                  <td>false</td>
+                  <td>A non-zero exit notifies however short the command was.</td>
+                </tr>
+                <tr>
+                  <td>passthrough_osc9</td>
+                  <td>bool</td>
+                  <td>true</td>
+                  <td>Let programs post notifications themselves with OSC 9 / OSC 777, rate-limited per pane.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="commands">[commands]</h2>
+          <p>
+            The per-pane command log built from the shell integration's OSC 133
+            markers — what feeds the status bar, tab dots,
+            <a class="link" href="/docs/terminal/#history">history search</a>,
+            and the gutter. Needs <code>shell.integration = true</code> and zsh
+            or bash.
+          </p>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead>
+                <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>track</td><td>bool</td><td>true</td><td>Keep the log at all. Off means no history, no indicators, no gutter.</td></tr>
+                <tr>
+                  <td>emit_cmdline</td>
+                  <td>bool</td>
+                  <td>true</td>
+                  <td>The shell sends each command line to Oxide alongside the start marker, so history and notifications can name the command. Kept in memory only, never written to disk. Applies to new sessions.</td>
+                </tr>
+                <tr><td>max_entries</td><td>int</td><td>500</td><td>Commands remembered per pane.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
           <h2 id="keymap">[keymap]</h2>
           <p>
             Keystroke on the left, action id on the right. Pairs directly under
@@ -627,6 +698,18 @@ follow_cwd        = <span class="k">true</span>      <span class="c"># re-root t
 <span class="c">[status_bar]</span>
 enabled  = <span class="k">true</span>               <span class="c"># native bar showing cwd + git branch/dirty</span>
 position = <span class="s">"bottom"</span>           <span class="c"># top | bottom</span>
+
+<span class="c">[notifications]</span>
+enabled             = <span class="k">true</span>    <span class="c"># notify when a command finishes in a pane you aren't watching</span>
+min_duration        = <span class="s">"30s"</span>   <span class="c"># ...if it ran at least this long ("2m", "1.5s", or seconds)</span>
+only_when_unfocused = <span class="k">true</span>    <span class="c"># stay quiet when the pane is focused and the window active</span>
+on_failure_always   = <span class="k">false</span>   <span class="c"># a non-zero exit notifies regardless of duration</span>
+passthrough_osc9    = <span class="k">true</span>    <span class="c"># let programs post notifications (OSC 9 / OSC 777)</span>
+
+<span class="c">[commands]</span>
+track        = <span class="k">true</span>           <span class="c"># the command log: status bar, tab dots, cmd-r history, gutter</span>
+emit_cmdline = <span class="k">true</span>           <span class="c"># the shell sends each command line to Oxide (memory only)</span>
+max_entries  = <span class="n">500</span>
 
 <span class="c"># [keymap]                    # keystroke = "action id"; see the keybindings page
 # "cmd-shift-p" = "app::palette"

@@ -3786,6 +3786,7 @@ version = "0.3.3"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
+ "block",
  "directories",
  "futures",
  "gpui",
@@ -3793,7 +3794,9 @@ dependencies = [
  "libc",
  "notify",
  "notify-debouncer-full",
+ "objc",
  "parking_lot",
+ "polling",
  "serde",
  "serde_json",
  "toml 0.8.23",
