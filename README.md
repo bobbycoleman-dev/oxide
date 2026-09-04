@@ -171,6 +171,8 @@ The tree follows `cd` by polling the PTY's foreground process group cwd
 ## Known limitations
 
 - No IME / dead-key composition yet (two-stroke accents, CJK input).
+- Narrowing a pane past the width of a multi-line bash prompt can scroll the prompt's
+  first line into scrollback until the next prompt is drawn (`enter` brings it back).
 - Pinned workspaces restore layout and directories with fresh shells; running
   programs can't survive a full quit (tmux only manages it because its server
   never exits).

@@ -229,6 +229,17 @@ rm ~/.config/oxide/config.toml   <span class="c"># regenerated on next launch</s
               and CJK input methods don't work yet.
             </li>
             <li>
+              <strong>Narrowing a pane can scroll a long prompt's first line
+              off the top.</strong> When a line above the cursor wraps during a
+              resize, the terminal core pushes the top row into scrollback
+              rather than using the blank rows below — even on an otherwise
+              empty screen. bash's readline only repaints the last line of a
+              multi-line prompt, so the first line stays out of view until the
+              next prompt is drawn (press <kbd>enter</kbd>). Nothing is lost;
+              scroll up and it's there. zsh redraws its whole prompt, so it
+              isn't affected.
+            </li>
+            <li>
               <strong>Pinned workspaces restore layout, not processes.</strong>
               Directories and shape come back with fresh shells; running programs
               can't survive a quit.
