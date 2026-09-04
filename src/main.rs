@@ -1,6 +1,7 @@
 mod app;
 mod config;
 mod keymap;
+mod palette;
 mod panes;
 mod prompt;
 mod terminal;
@@ -14,7 +15,7 @@ use crate::keymap::actions::*;
 
 const REPO_URL: &str = "https://github.com/bobbycoleman-dev/oxide";
 
-fn menus() -> Vec<Menu> {
+pub(crate) fn menus() -> Vec<Menu> {
     vec![
         Menu {
             // The first menu takes the app's name in the menu bar.
@@ -64,6 +65,8 @@ fn menus() -> Vec<Menu> {
         Menu {
             name: "View".into(),
             items: vec![
+                MenuItem::action("Command Palette…", CommandPalette),
+                MenuItem::separator(),
                 MenuItem::action("Toggle File Tree", ToggleDrawer),
                 MenuItem::action("Focus File Tree", FocusTree),
                 MenuItem::action("Toggle Status Bar", ToggleStatusBar),
@@ -82,6 +85,8 @@ fn menus() -> Vec<Menu> {
             items: vec![
                 MenuItem::action("Minimize", Minimize),
                 MenuItem::action("Zoom", Zoom),
+                MenuItem::separator(),
+                MenuItem::action("Equalize Splits", PaneEqualize),
                 MenuItem::separator(),
                 MenuItem::action("Show Next Tab", SelectNextTab),
                 MenuItem::action("Show Previous Tab", SelectPreviousTab),
@@ -131,7 +136,9 @@ fn main() {
             ])
             .ok();
 
-        cx.bind_keys(keymap::default::bindings());
+        // Defaults merged with the user's [keymap]; bad entries are skipped
+        // here and reported in the window banner by `Oxide::new`.
+        cx.bind_keys(keymap::resolve(&config.keymap).bindings());
 
         // App-level actions (no window required).
         cx.on_action(|_: &Quit, cx| cx.quit());

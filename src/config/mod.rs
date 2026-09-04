@@ -146,6 +146,10 @@ follow_cwd        = true      # re-root the tree when the shell cd's
 enabled  = true               # native bar showing cwd + git branch/dirty
 position = "bottom"           # top | bottom
 
+# [keymap]                    # keystroke = "action id"; see the keybindings docs
+# "cmd-shift-p" = "app::palette"
+# "cmd-d"       = ""          # unbind a default
+
 [colors]
 # Presets: catppuccin-mocha | catppuccin-latte | gruvbox-dark | tokyonight
 #          | dracula | nord | solarized-dark | oxide

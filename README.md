@@ -39,7 +39,11 @@ with a file-tree drawer you drive like vim and a status bar that knows where you
   `dracula`, `nord`, `solarized-dark`, and `oxide` (rust-toned, naturally). Any color
   individually overridable. Config reloads live.
 - **Split panes** — split in any direction and nest freely; navigation moves by what's
-  on screen, and `exit` or `ctrl-w q` closes a pane and reclaims its space.
+  on screen, and `exit` or `ctrl-w q` closes a pane and reclaims its space. Drag a
+  divider or use `ctrl-w < > - + =` to resize.
+- **Command palette** — `cmd-shift-p` lists every action with its binding, fuzzy-searchable.
+- **Configurable keys** — a `[keymap]` table in config.toml rebinds anything; typos get a
+  banner with a suggestion, and a bare key that would steal from your shell is refused.
 - **Tabs** — a Zed-style in-app tab bar, so tabs work everywhere (including under
   tiling window managers). `cmd-t` opens one in the current directory or `~/`
   (`window.new_tab_directory`); `cmd-1..9` jump straight to a tab.
@@ -96,6 +100,8 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 | `ctrl-w h` `j` `k` `l` | move between panes (`h` from the leftmost focuses the tree) |
 | `cmd-opt-←↓↑→` | move between panes |
 | `ctrl-w q` / `cmd-w` | close pane (closes the window when it's the last one) |
+| `ctrl-w <` `>` `-` `+` | resize the pane by a few cells (`ctrl-w =` equalises) |
+| `cmd-shift-p` | command palette |
 | `cmd-c` / `cmd-v` | copy / paste (bracketed) |
 | `cmd +` / `-` / `0` | font size |
 
@@ -147,6 +153,9 @@ position = "bottom"
 
 [prompt]
 enabled = false               # keep your own prompt (starship, p10k, ...)
+
+[keymap]
+"cmd-j" = "pane::split_down"  # keystroke = "action id"; "" unbinds
 ```
 
 ## Architecture
@@ -162,7 +171,6 @@ The tree follows `cd` by polling the PTY's foreground process group cwd
 ## Known limitations
 
 - No IME / dead-key composition yet (two-stroke accents, CJK input).
-- Splits can't be resized yet; panes divide their space evenly.
 - Pinned workspaces restore layout and directories with fresh shells; running
   programs can't survive a full quit (tmux only manages it because its server
   never exits).

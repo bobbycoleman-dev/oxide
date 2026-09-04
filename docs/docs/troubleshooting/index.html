@@ -119,6 +119,12 @@
               <strong>unknown color preset "…"</strong> — the message lists every
               valid name.
             </li>
+            <li>
+              <strong>keymap: …</strong> — one line per bad
+              <code>[keymap]</code> entry: an unknown action id (with a
+              suggestion), a keystroke that doesn't parse, or a bare key in the
+              terminal. The rest of the map is still bound.
+            </li>
           </ul>
           <p>Fix the file and save; the banner clears on the next reload.</p>
 
@@ -221,15 +227,6 @@ rm ~/.config/oxide/config.toml   <span class="c"># regenerated on next launch</s
             <li>
               <strong>No IME or dead-key composition.</strong> Two-stroke accents
               and CJK input methods don't work yet.
-            </li>
-            <li>
-              <strong>Splits can't be resized.</strong> Panes divide their space
-              evenly along each axis.
-            </li>
-            <li>
-              <strong>Keybindings aren't configurable.</strong> The
-              <a class="link" href="/docs/keybindings/">built-in map</a> is the
-              whole map.
             </li>
             <li>
               <strong>Pinned workspaces restore layout, not processes.</strong>

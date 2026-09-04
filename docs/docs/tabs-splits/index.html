@@ -190,12 +190,37 @@
             actually sits in that direction. The file tree re-roots to follow the
             newly focused pane's directory, and so does the status bar.
           </p>
-          <div class="note warn">
-            <p>
-              Splits can't be resized yet — panes divide their space evenly along
-              each axis.
-            </p>
+          <h3 id="resizing">Resizing</h3>
+          <p>
+            Drag the divider between two panes, or use the keyboard: steps are
+            in cells, so they feel the same at any font size. Sizes are saved
+            with pinned workspaces.
+          </p>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr>
+                  <td><kbd>ctrl-w &lt;</kbd> <span class="sep">/</span> <kbd>ctrl-w &gt;</kbd></td>
+                  <td>narrower / wider by 4 columns</td>
+                </tr>
+                <tr>
+                  <td><kbd>ctrl-w -</kbd> <span class="sep">/</span> <kbd>ctrl-w +</kbd></td>
+                  <td>shorter / taller by 2 rows</td>
+                </tr>
+                <tr>
+                  <td><kbd>ctrl-w =</kbd></td>
+                  <td>make every split in the tab even again</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
+          <p>
+            A pane never shrinks below 20 columns by 3 rows — smaller than that
+            and full-screen programs stop making sense. Resizing applies to the
+            nearest split around the focused pane that runs in that direction,
+            so <kbd>ctrl-w &gt;</kbd> in a pane stacked inside a column widens
+            the whole column.
+          </p>
 
           <h2 id="windows">Windows</h2>
           <div class="table-wrap">

@@ -104,8 +104,9 @@
               <strong>Live:</strong> <code>[font]</code>,
               <code>[colors]</code>, <code>[window]</code>,
               <code>[tree]</code>, <code>[status_bar]</code>,
-              <code>bell</code>, <code>copy_on_select</code>. Save the file and
-              the window repaints.
+              <code>[keymap]</code>, <code>bell</code>,
+              <code>copy_on_select</code>. Save the file and the window
+              repaints.
             </li>
             <li>
               <strong>New sessions only:</strong> <code>[shell]</code> and
@@ -125,7 +126,9 @@
             Unknown keys are an error rather than a shrug — a typo'd
             <code>show_hiden</code> tells you so instead of silently doing
             nothing. An unrecognised color preset is reported the same way, with
-            the list of valid names.
+            the list of valid names. Bad <code>[keymap]</code> entries are
+            listed in the banner too, one per line, while the rest of the map
+            still binds.
           </p>
 
           <h2 id="top-level">Top level</h2>
@@ -532,6 +535,53 @@ background   = <span class="s">"#0d0b0a"</span>   <span class="c"># override jus
             </table>
           </div>
 
+          <h2 id="keymap">[keymap]</h2>
+          <p>
+            Keystroke on the left, action id on the right. Pairs directly under
+            <code>[keymap]</code> bind everywhere; the subtables scope a binding
+            to one context. An empty string unbinds a default. The full list of
+            action ids and the rules for what's allowed where are on the
+            <a class="link" href="/docs/keybindings/#configuring">keybindings page</a>.
+          </p>
+          <pre><span class="c">[keymap]</span>
+<span class="s">"cmd-shift-p"</span>  = <span class="s">"app::palette"</span>
+<span class="s">"cmd-d"</span>        = <span class="s">""</span>            <span class="c"># unbind</span>
+
+<span class="c">[keymap.file_tree]</span>
+<span class="s">"y"</span>            = <span class="s">"tree::refresh"</span></pre>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead>
+                <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>replace_defaults</td>
+                  <td>bool</td>
+                  <td>false</td>
+                  <td>
+                    Start from an empty map instead of merging over the
+                    built-in one. Rarely what you want: every action that has
+                    no entry becomes unreachable.
+                  </td>
+                </tr>
+                <tr>
+                  <td>root / terminal / file_tree / workspaces / overlay</td>
+                  <td>table</td>
+                  <td>{}</td>
+                  <td>
+                    Context-scoped bindings. <code>[keymap.root]</code> is the
+                    same as writing the pairs directly under
+                    <code>[keymap]</code>. A bare key (no <code>cmd</code>,
+                    <code>ctrl</code>, or <code>alt</code>) is rejected in
+                    <code>root</code> and <code>terminal</code> — it would be
+                    stolen from your shell.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
           <h2 id="default-file">The generated default</h2>
           <p>This is what lands in <code>config.toml</code> on first run.</p>
           <pre><span class="c"># Oxide configuration.
@@ -577,6 +627,10 @@ follow_cwd        = <span class="k">true</span>      <span class="c"># re-root t
 <span class="c">[status_bar]</span>
 enabled  = <span class="k">true</span>               <span class="c"># native bar showing cwd + git branch/dirty</span>
 position = <span class="s">"bottom"</span>           <span class="c"># top | bottom</span>
+
+<span class="c"># [keymap]                    # keystroke = "action id"; see the keybindings page
+# "cmd-shift-p" = "app::palette"
+# "cmd-d"       = ""          # unbind a default</span>
 
 <span class="c">[colors]</span>
 <span class="c"># Presets: catppuccin-mocha | catppuccin-latte | gruvbox-dark | tokyonight
