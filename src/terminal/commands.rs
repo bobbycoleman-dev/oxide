@@ -83,10 +83,6 @@ impl CommandLog {
         self.entries.iter()
     }
 
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -111,15 +107,6 @@ impl CommandLog {
     /// The most recent command that has finished.
     pub fn last_finished(&self) -> Option<&Command> {
         self.entries.iter().rev().find(|c| c.finished.is_some())
-    }
-
-    pub fn last(&self) -> Option<&Command> {
-        self.entries.back()
-    }
-
-    /// Absolute rows of every prompt start, oldest first — what cmd-↑/↓ walk.
-    pub fn prompt_rows(&self) -> impl Iterator<Item = usize> + '_ {
-        self.entries.iter().filter_map(|c| c.prompt_row)
     }
 
     /// The grid was cleared: every stored row now points at nothing. Keep
@@ -259,12 +246,11 @@ mod tests {
         assert!(!log.is_running());
         assert!(log.markers_seen);
         assert_eq!(log.last_finished().map(|c| c.id), Some(id));
-        assert_eq!(log.prompt_rows().collect::<Vec<_>>(), vec![5]);
         // Clearing the screen keeps the entry but nothing points at rows.
         log.forget_rows();
         assert_eq!(log.get(id).unwrap().output_rows, None);
-        assert_eq!(log.prompt_rows().count(), 0);
-        assert_eq!(log.len(), 1);
+        assert_eq!(log.get(id).unwrap().prompt_row, None);
+        assert_eq!(log.entries().count(), 1);
     }
 
     #[test]
@@ -277,7 +263,7 @@ mod tests {
         // ctrl-c'd before D: the next prompt arrives directly.
         log.on_marker(&m(MarkerKind::PromptStart, 9), t);
         assert!(!log.is_running());
-        let cmd = log.last().unwrap();
+        let cmd = log.entries().last().unwrap();
         assert!(cmd.finished.is_some());
         assert_eq!(cmd.exit, None);
         assert_eq!(cmd.output_rows, Some(2..9));
@@ -300,7 +286,6 @@ mod tests {
         for i in 0..5 {
             run(&mut log, &format!("cmd{i}"), 0, (i, i + 1));
         }
-        assert_eq!(log.len(), 3);
         assert_eq!(log.entries().map(|c| c.label()).collect::<Vec<_>>(), vec!["cmd2", "cmd3", "cmd4"]);
     }
 
@@ -309,7 +294,7 @@ mod tests {
         let mut log = CommandLog::new(3);
         let t = Instant::now();
         log.on_marker(&m(MarkerKind::CommandStart { cmdline: None }, 1), t);
-        let id = log.last().unwrap().id;
+        let id = log.entries().last().unwrap().id;
         log.set_text(id, "   ".into());
         assert_eq!(log.get(id).unwrap().text, None);
         log.set_text(id, "ls -la".into());
