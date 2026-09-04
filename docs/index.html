@@ -1159,12 +1159,14 @@
               </p>
             </div>
             <div class="card">
-              <h3>Scrollback search</h3>
+              <h3>Search and history</h3>
               <p>
                 <code>cmd-f</code> for live, case-insensitive search;
-                <code>⏎</code> and <code>⇧⏎</code> walk the matches. And
-                <code>cmd-↑</code>/<code>cmd-↓</code> hop between previous
-                prompts in scrollback.
+                <code>⏎</code> and <code>⇧⏎</code> walk the matches, and
+                <code>cmd-↑</code>/<code>cmd-↓</code> hop between prompts.
+                <code>cmd-r</code> searches every command run in any pane, with
+                its directory and exit status: <code>⏎</code> inserts it at the
+                prompt, <code>⌘⏎</code> runs it.
               </p>
             </div>
             <div class="card">
@@ -1173,6 +1175,19 @@
                 Current working directory plus branch, dirty state, and
                 ahead/behind — rendered natively, not shelled out to on every
                 prompt.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Commands, understood</h3>
+              <p>
+                The shell integration's OSC 133 markers are read straight off
+                the PTY, so Oxide knows what's running, how long it took, and
+                whether it failed. Elapsed time ticks in the status bar, tabs
+                get activity dots, a background pane that fails flashes red,
+                and a gutter tick per command jumps you back to it. Long or
+                failed commands in a pane you aren't watching post a
+                notification you can click to get there.
+                <code>cmd-shift-c</code> copies the last command's output.
               </p>
             </div>
             <div class="card">
@@ -1214,6 +1229,16 @@
                 panel below the file tree &mdash; add, rename, delete, or pin one to
                 persist. Pinned workspaces restore their full layout and every
                 pane's directory the next time you launch, with fresh shells.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Palette and keys</h3>
+              <p>
+                <code>cmd-shift-p</code> lists every action with its binding,
+                fuzzy-searchable. A <code>[keymap]</code> table rebinds
+                anything; a typo gets a banner with a suggestion, and a bare key
+                that would steal from your shell is refused. Splits resize by
+                dragging a divider or with <code>ctrl-w &lt; &gt; - + =</code>.
               </p>
             </div>
             <div class="card">
@@ -1266,6 +1291,16 @@
                     <td>split right / down</td>
                   </tr>
                   <tr>
+                    <td>
+                      <kbd>ctrl-w &lt;</kbd> <kbd>&gt;</kbd> <kbd>-</kbd> <kbd>+</kbd> <kbd>=</kbd>
+                    </td>
+                    <td>resize the pane / equalise</td>
+                  </tr>
+                  <tr>
+                    <td><kbd>cmd-shift-p</kbd></td>
+                    <td>command palette</td>
+                  </tr>
+                  <tr>
                     <td><kbd>cmd-b</kbd></td>
                     <td>toggle the drawer</td>
                   </tr>
@@ -1279,6 +1314,13 @@
                       ><kbd>cmd-↓</kbd>
                     </td>
                     <td>previous / next prompt</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <kbd>cmd-r</kbd><span class="kbd-sep">/</span
+                      ><kbd>cmd-shift-c</kbd>
+                    </td>
+                    <td>command history / copy last output</td>
                   </tr>
                   <tr>
                     <td>
@@ -1408,9 +1450,9 @@ cp -R target/Oxide.app /Applications/</pre>
               <p>
                 Everything lives in one file at
                 <code class="inline">~/.config/oxide/config.toml</code>, and a
-                fully commented default is generated on first run. Font and
-                colors apply live — save the file and the window repaints.
-                <code class="inline">[shell]</code> and
+                fully commented default is generated on first run. Font,
+                colors, keys, and notifications apply live — save the file and
+                the window repaints. <code class="inline">[shell]</code> and
                 <code class="inline">[prompt]</code> apply to new sessions.
               </p>
             </div>
@@ -1425,7 +1467,13 @@ size = 14.0
 <span class="c">[[prompt.segments]]</span>
 kind = <span class="p">"cwd"</span>
 <span class="c">[[prompt.segments]]</span>
-kind = <span class="p">"git"</span></pre>
+kind = <span class="p">"git"</span>
+
+<span class="c">[keymap]</span>
+<span class="p">"cmd-j"</span> = <span class="p">"pane::split_down"</span>
+
+<span class="c">[notifications]</span>
+min_duration = <span class="p">"1m"</span></pre>
               <p class="note">
                 <a class="link" href="/docs/configuration/"
                   >Every option, with defaults →</a
