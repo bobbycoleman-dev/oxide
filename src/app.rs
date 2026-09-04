@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -13,9 +13,13 @@ use gpui::{
 use crate::config::schema::{StatusBarPosition, TitlebarMode};
 use crate::config::{self, Config, Theme};
 use crate::keymap::actions::*;
+use crate::keymap::registry::{self, ActionContext, ActionMeta};
+use crate::keymap::resolve::pretty_keys;
+use crate::keymap::{self, ResolvedKeymap};
+use crate::palette::{self, PaletteItem};
 use crate::terminal::colors::blend;
-use crate::terminal::{TerminalEvent, TerminalPane};
-use crate::panes::{Direction, Node};
+use crate::terminal::{LastLayout, TerminalEvent, TerminalPane};
+use crate::panes::{Axis, Direction, Node, NodePath};
 use crate::tree::{FileTree, TreeEvent};
 use crate::workspaces::{SavedTab, SavedWorkspace};
 
@@ -72,18 +76,74 @@ pub struct Oxide {
     git_status: GitStatus,
     last_bounds: Option<gpui::Bounds<gpui::Pixels>>,
     bounds_save_scheduled: bool,
-    theme_picker: Option<ThemePicker>,
+    overlay: Option<Overlay>,
+    /// Focus handle for whichever overlay is open; only one can be.
     picker_focus: FocusHandle,
+    keymap: Rc<ResolvedKeymap>,
+    /// Most recently run palette commands, newest first.
+    palette_recent: VecDeque<&'static str>,
+    divider_drag: Option<DividerDrag>,
     status_bar_override: Option<bool>,
     update: UpdateState,
     _config_watcher: Option<notify_debouncer_full::Debouncer<notify::RecommendedWatcher, notify_debouncer_full::FileIdMap>>,
     _subscriptions: Vec<Subscription>,
 }
 
+/// A modal over the window. At most one is open at a time; both share the
+/// `Overlay` keybinding context and `picker_focus`.
+enum Overlay {
+    Palette(PaletteState),
+    ThemePicker(ThemePicker),
+}
+
+/// What had focus when an overlay opened, so closing it hands focus back.
+/// Stored by identity rather than as a `FocusHandle`, so a pane that exits
+/// meanwhile falls back to the active one instead of a dead element.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FocusTarget {
+    Pane(PaneId),
+    Tree,
+    Workspaces,
+}
+
 struct ThemePicker {
     selected: usize,
     /// Theme to restore on cancel.
     original: Rc<Theme>,
+    return_focus: FocusTarget,
+}
+
+/// Rows visible in the palette list before it scrolls.
+const PALETTE_ROWS: usize = 12;
+
+struct PaletteState {
+    query: String,
+    /// The filtered, ranked list; recomputed on every keystroke.
+    matches: Vec<PaletteItem>,
+    selected: usize,
+    /// Index of the first visible row.
+    scroll: usize,
+    return_focus: FocusTarget,
+}
+
+/// The smallest a pane may be dragged or resized to, in cells. Narrower
+/// than this and TUI programs start misbehaving.
+const MIN_PANE_COLS: f32 = 20.0;
+const MIN_PANE_ROWS: f32 = 3.0;
+
+/// An in-progress divider drag. Pixel deltas are converted to ratio deltas
+/// against the split's measured extent, and only the two panes either side
+/// of the divider move.
+struct DividerDrag {
+    path: NodePath,
+    divider: usize,
+    axis: Axis,
+    start_ratios: Vec<f32>,
+    /// Pointer position along the axis at mouse-down.
+    start_pos: f32,
+    /// The split's size along the axis, in pixels.
+    extent: f32,
+    min_ratio: f32,
 }
 
 #[derive(Clone, PartialEq)]
@@ -293,6 +353,11 @@ impl Oxide {
         })
         .detach();
 
+        // Bad [keymap] entries are skipped by `resolve`; report them here so
+        // the user learns why a binding didn't take.
+        let resolved = Rc::new(keymap::resolve(&config.keymap));
+        let banner = config_error.or_else(|| resolved.error_banner());
+
         let mut this = Self {
             config,
             theme,
@@ -308,13 +373,16 @@ impl Oxide {
             next_pane_id: 0,
             pane_subscriptions: HashMap::new(),
             drawer_visible: true,
-            banner: config_error,
+            banner,
             banner_generation: 0,
             git_status: GitStatus::default(),
             last_bounds: None,
             bounds_save_scheduled: false,
-            theme_picker: None,
+            overlay: None,
             picker_focus: cx.focus_handle(),
+            keymap: resolved,
+            palette_recent: VecDeque::new(),
+            divider_drag: None,
             status_bar_override: None,
             update: UpdateState::Idle,
             _config_watcher: config_watcher,
@@ -724,6 +792,7 @@ impl Oxide {
     fn render_pane_node(
         &self,
         node: &Node<PaneId>,
+        path: &NodePath,
         accent: gpui::Hsla,
         window: &Window,
         cx: &Context<Self>,
@@ -744,8 +813,8 @@ impl Oxide {
                     .child(pane.clone())
                     .into_any_element()
             }
-            Node::Split { axis, children } => {
-                let horizontal = *axis == crate::panes::Axis::Horizontal;
+            Node::Split { axis, children, ratios } => {
+                let horizontal = *axis == Axis::Horizontal;
                 let mut container = div().size_full().flex().min_w_0().min_h_0();
                 container = if horizontal { container.flex_row() } else { container.flex_col() };
                 // A hairline between siblings; the focus ring stays the only
@@ -753,25 +822,70 @@ impl Oxide {
                 let divider = blend(self.theme.foreground, self.theme.background, 0.72);
                 for (ix, child) in children.iter().enumerate() {
                     if ix > 0 {
-                        let line = div().flex_none().bg(divider);
-                        container = container.child(if horizontal {
-                            line.w(px(1.0)).h_full()
-                        } else {
-                            line.h(px(1.0)).w_full()
-                        });
+                        container = container.child(self.render_divider(path, ix - 1, *axis, divider, cx));
+                    }
+                    let ratio = ratios.get(ix).copied().unwrap_or(1.0 / children.len() as f32);
+                    let mut child_path = path.clone();
+                    child_path.push(ix);
+                    // Flex weights rather than percentages: taffy shares out
+                    // whatever is left after the 1px dividers in whole pixels,
+                    // so N children never overflow by N-1 px or leave a gap.
+                    let mut cell = div().min_w_0().min_h_0().overflow_hidden();
+                    {
+                        let style = cell.style();
+                        style.flex_grow = Some(ratio.max(0.0001));
+                        style.flex_shrink = Some(1.0);
+                        style.flex_basis = Some(px(0.0).into());
                     }
                     container = container.child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .min_h_0()
-                            .overflow_hidden()
-                            .child(self.render_pane_node(child, accent, window, cx)),
+                        cell.child(self.render_pane_node(child, &child_path, accent, window, cx)),
                     );
                 }
                 container.into_any_element()
             }
         }
+    }
+
+    /// The 1px line between two siblings, with a wider invisible grab area
+    /// drawn on top of both neighbours. `deferred` paints it after the panes
+    /// so their hitboxes don't swallow the edge that overlaps them.
+    fn render_divider(
+        &self,
+        path: &NodePath,
+        divider: usize,
+        axis: Axis,
+        color: gpui::Hsla,
+        cx: &Context<Self>,
+    ) -> gpui::Div {
+        let horizontal = axis == Axis::Horizontal;
+        // While a modal or a drag is up, the deferred grab areas would paint
+        // above it; they aren't needed then anyway.
+        let interactive = self.overlay.is_none() && self.divider_drag.is_none() && self.ws_context_menu.is_none();
+        let path = path.clone();
+        let line = div().flex_none().relative().bg(color);
+        let line = if horizontal { line.w(px(1.0)).h_full() } else { line.h(px(1.0)).w_full() };
+        line.when(interactive, |line| {
+            let hit = div()
+                .absolute()
+                .cursor(if horizontal {
+                    gpui::CursorStyle::ResizeLeftRight
+                } else {
+                    gpui::CursorStyle::ResizeUpDown
+                })
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(move |this, ev: &gpui::MouseDownEvent, _w, cx| {
+                        cx.stop_propagation();
+                        this.start_divider_drag(path.clone(), divider, axis, ev.position, cx);
+                    }),
+                );
+            let hit = if horizontal {
+                hit.top_0().bottom_0().left(px(-3.0)).w(px(7.0))
+            } else {
+                hit.left_0().right_0().top(px(-3.0)).h(px(7.0))
+            };
+            line.child(gpui::deferred(hit))
+        })
     }
 
     fn refresh_git_status(&mut self, cx: &mut Context<Self>) {
@@ -831,6 +945,7 @@ impl Oxide {
                 }
                 let shell_or_prompt_changed = new_config.shell != self.config.shell
                     || new_config.prompt != self.config.prompt;
+                let keymap_changed = new_config.keymap != self.config.keymap;
                 self.config = Rc::new(new_config);
                 self.theme = Rc::new(Theme::from_config(&self.config.colors));
                 let config = self.config.clone();
@@ -838,7 +953,12 @@ impl Oxide {
                 self.active_pane()
                     .update(cx, |t, cx| t.set_config(config.clone(), theme.clone(), cx));
                 self.tree.update(cx, |t, cx| t.set_config(config, theme, cx));
-                if shell_or_prompt_changed {
+                let keymap_banner = if keymap_changed { self.rebind_keys(cx) } else { None };
+                if let Some(message) = keymap_banner {
+                    // Like a parse error: stays up until the next clean reload.
+                    self.banner = Some(message);
+                    self.banner_generation += 1;
+                } else if shell_or_prompt_changed {
                     self.show_transient_banner(
                         "config reloaded — shell/prompt changes apply to new sessions".into(),
                         cx,
@@ -856,6 +976,19 @@ impl Oxide {
             }
         }
         cx.notify();
+    }
+
+    /// Re-resolve the keymap and swap it in live. GPUI's keymap is
+    /// app-global, so this also refreshes the menu bar's key equivalents.
+    /// Returns a banner describing any entries that were skipped.
+    fn rebind_keys(&mut self, cx: &mut Context<Self>) -> Option<String> {
+        let resolved = Rc::new(keymap::resolve(&self.config.keymap));
+        cx.clear_key_bindings();
+        cx.bind_keys(resolved.bindings());
+        cx.set_menus(crate::menus());
+        let banner = resolved.error_banner();
+        self.keymap = resolved;
+        banner
     }
 
     fn show_transient_banner(&mut self, message: String, cx: &mut Context<Self>) {
@@ -974,6 +1107,67 @@ impl Oxide {
         crate::terminal::session::resolve_shell(self.config.shell.program.as_deref())
     }
 
+    // --- Overlays: theme picker and command palette ---
+
+    fn current_focus_target(&self, window: &Window, cx: &Context<Self>) -> FocusTarget {
+        if self.tree_focus(cx).is_focused(window) {
+            FocusTarget::Tree
+        } else if self.ws_focus.is_focused(window) {
+            FocusTarget::Workspaces
+        } else {
+            FocusTarget::Pane(self.active_id())
+        }
+    }
+
+    fn restore_focus(&mut self, target: FocusTarget, window: &mut Window, cx: &mut Context<Self>) {
+        match target {
+            FocusTarget::Tree if self.drawer_visible => self.focus_tree(Some(window), cx),
+            FocusTarget::Workspaces if self.drawer_visible => self.focus_workspaces_panel(window, cx),
+            FocusTarget::Pane(id) if self.panes.contains_key(&id) => {
+                if let Some(pane) = self.panes.get(&id) {
+                    window.focus(&pane.focus_handle(cx));
+                }
+                cx.notify();
+            }
+            _ => self.focus_terminal(Some(window), cx),
+        }
+    }
+
+    /// Dismiss whichever overlay is open and hand focus back to where it was.
+    fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(overlay) = self.overlay.take() else { return };
+        let target = match &overlay {
+            Overlay::Palette(p) => p.return_focus,
+            Overlay::ThemePicker(t) => t.return_focus,
+        };
+        self.restore_focus(target, window, cx);
+        cx.notify();
+    }
+
+    fn overlay_move(&mut self, delta: isize, cx: &mut Context<Self>) {
+        match &self.overlay {
+            Some(Overlay::ThemePicker(_)) => self.picker_move(delta, cx),
+            Some(Overlay::Palette(_)) => self.palette_move(delta, cx),
+            None => {}
+        }
+    }
+
+    fn overlay_confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match &self.overlay {
+            Some(Overlay::ThemePicker(_)) => self.picker_confirm(window, cx),
+            Some(Overlay::Palette(_)) => self.palette_confirm(window, cx),
+            None => {}
+        }
+    }
+
+    fn overlay_cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match &self.overlay {
+            Some(Overlay::ThemePicker(_)) => self.picker_cancel(window, cx),
+            Some(Overlay::Palette(_)) => self.close_overlay(window, cx),
+            None => {}
+        }
+    }
+
     // --- Theme picker ---
 
     fn current_preset(&self) -> String {
@@ -981,12 +1175,20 @@ impl Oxide {
     }
 
     fn open_theme_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(Overlay::Palette(_)) = &self.overlay {
+            self.close_overlay(window, cx);
+        }
         let current = self.current_preset();
         let selected = config::theme::PRESET_NAMES
             .iter()
             .position(|n| *n == current)
             .unwrap_or(0);
-        self.theme_picker = Some(ThemePicker { selected, original: self.theme.clone() });
+        let return_focus = self.current_focus_target(window, cx);
+        self.overlay = Some(Overlay::ThemePicker(ThemePicker {
+            selected,
+            original: self.theme.clone(),
+            return_focus,
+        }));
         window.focus(&self.picker_focus);
         cx.notify();
     }
@@ -1004,7 +1206,7 @@ impl Oxide {
     /// means "I want this theme", so explicit color overrides (including the
     /// fully-pinned [colors] block older generated configs carry) don't apply.
     fn preview_selected(&mut self, cx: &mut Context<Self>) {
-        let Some(picker) = &self.theme_picker else { return };
+        let Some(Overlay::ThemePicker(picker)) = &self.overlay else { return };
         let name = config::theme::PRESET_NAMES[picker.selected];
         let colors = crate::config::schema::ColorsConfig {
             preset: Some(name.to_string()),
@@ -1013,22 +1215,16 @@ impl Oxide {
         self.apply_theme(Rc::new(Theme::from_config(&colors)), cx);
     }
 
-    fn close_theme_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.theme_picker = None;
-        window.focus(&self.term_focus(cx));
-        cx.notify();
-    }
-
     fn picker_move(&mut self, delta: isize, cx: &mut Context<Self>) {
         let count = config::theme::PRESET_NAMES.len() as isize;
-        if let Some(picker) = &mut self.theme_picker {
+        if let Some(Overlay::ThemePicker(picker)) = &mut self.overlay {
             picker.selected = (picker.selected as isize + delta).rem_euclid(count) as usize;
             self.preview_selected(cx);
         }
     }
 
     fn picker_confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(picker) = &self.theme_picker else { return };
+        let Some(Overlay::ThemePicker(picker)) = &self.overlay else { return };
         let name = config::theme::PRESET_NAMES[picker.selected].to_string();
         // Update in-memory config first so the file-watcher reload no-ops.
         // Committing a preset replaces the whole [colors] block — explicit
@@ -1044,24 +1240,19 @@ impl Oxide {
             self.banner_generation += 1;
         }
         self.preview_selected(cx);
-        self.close_theme_picker(window, cx);
+        self.close_overlay(window, cx);
     }
 
     fn picker_cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(picker) = &self.theme_picker {
+        if let Some(Overlay::ThemePicker(picker)) = &self.overlay {
             let original = picker.original.clone();
             self.apply_theme(original, cx);
         }
-        self.close_theme_picker(window, cx);
+        self.close_overlay(window, cx);
     }
 
-    fn render_theme_picker(&self, cx: &Context<Self>) -> gpui::Div {
-        let Some(picker) = &self.theme_picker else { return div() };
+    fn render_theme_list(&self, picker: &ThemePicker, cx: &Context<Self>) -> gpui::Div {
         let theme = &self.theme;
-        let panel_bg = blend(theme.background, gpui::black(), 0.2);
-        let mut backdrop = gpui::black();
-        backdrop.a = 0.35;
-
         let mut list = div().flex().flex_col().p_1().gap(px(1.0));
         for (ix, name) in config::theme::PRESET_NAMES.iter().enumerate() {
             let preset_theme = Theme::from_config(&crate::config::schema::ColorsConfig {
@@ -1095,7 +1286,7 @@ impl Oxide {
                     .gap_3()
                     .when(is_selected, |d| d.bg(theme.selection_bg))
                     .on_mouse_move(cx.listener(move |this, _: &gpui::MouseMoveEvent, _w, cx| {
-                        if let Some(p) = &mut this.theme_picker
+                        if let Some(Overlay::ThemePicker(p)) = &mut this.overlay
                             && p.selected != ix
                         {
                             p.selected = ix;
@@ -1105,7 +1296,7 @@ impl Oxide {
                     .on_mouse_down(
                         gpui::MouseButton::Left,
                         cx.listener(move |this, _: &gpui::MouseDownEvent, window, cx| {
-                            if let Some(p) = &mut this.theme_picker {
+                            if let Some(Overlay::ThemePicker(p)) = &mut this.overlay {
                                 p.selected = ix;
                             }
                             this.picker_confirm(window, cx);
@@ -1115,6 +1306,284 @@ impl Oxide {
                     .child(swatches),
             );
         }
+        list
+    }
+
+    // --- Command palette ---
+
+    fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match &self.overlay {
+            Some(Overlay::Palette(_)) => self.close_overlay(window, cx),
+            Some(Overlay::ThemePicker(_)) => {
+                self.picker_cancel(window, cx);
+                self.open_palette(window, cx);
+            }
+            None => self.open_palette(window, cx),
+        }
+    }
+
+    fn open_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let return_focus = self.current_focus_target(window, cx);
+        self.overlay = Some(Overlay::Palette(PaletteState {
+            query: String::new(),
+            matches: Vec::new(),
+            selected: 0,
+            scroll: 0,
+            return_focus,
+        }));
+        self.palette_refresh();
+        window.focus(&self.picker_focus);
+        cx.notify();
+    }
+
+    /// Actions the palette offers right now. Tree and workspace actions
+    /// need the drawer on screen to have anything to act on; overlay
+    /// navigation is meaningless from inside an overlay.
+    fn palette_candidates(&self) -> impl Iterator<Item = &'static ActionMeta> {
+        let drawer = self.drawer_visible;
+        registry::all().iter().filter(move |m| {
+            m.id != "app::palette"
+                && match m.context {
+                    ActionContext::Root => true,
+                    ActionContext::FileTree | ActionContext::Workspaces => drawer,
+                    ActionContext::Overlay => false,
+                }
+        })
+    }
+
+    fn palette_refresh(&mut self) {
+        let Some(Overlay::Palette(p)) = &self.overlay else { return };
+        let query = p.query.clone();
+        let recent: Vec<&str> = self.palette_recent.iter().copied().collect();
+        let keymap = self.keymap.clone();
+        let items = palette::build_items(&query, self.palette_candidates(), &recent, |id| {
+            keymap.display_for(id).map(|e| pretty_keys(&e.keys))
+        });
+        let Some(Overlay::Palette(p)) = &mut self.overlay else { return };
+        p.matches = items;
+        p.selected = 0;
+        p.scroll = 0;
+    }
+
+    fn palette_move(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let Some(Overlay::Palette(p)) = &mut self.overlay else { return };
+        let n = p.matches.len();
+        if n == 0 {
+            return;
+        }
+        p.selected = (p.selected as isize + delta).rem_euclid(n as isize) as usize;
+        if p.selected < p.scroll {
+            p.scroll = p.selected;
+        } else if p.selected >= p.scroll + PALETTE_ROWS {
+            p.scroll = p.selected + 1 - PALETTE_ROWS;
+        }
+        cx.notify();
+    }
+
+    /// Run the selected command. Focus goes back first — to the context the
+    /// action belongs to, or to wherever it was — so the action dispatches
+    /// into a live element rather than the overlay we're tearing down.
+    fn palette_confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(Overlay::Palette(p)) = &self.overlay else { return };
+        let Some(item) = p.matches.get(p.selected) else { return };
+        let Some(meta) = registry::by_id(item.action_id) else { return };
+        let return_focus = p.return_focus;
+        self.overlay = None;
+
+        self.palette_recent.retain(|id| *id != meta.id);
+        self.palette_recent.push_front(meta.id);
+        self.palette_recent.truncate(20);
+
+        match meta.context {
+            ActionContext::FileTree => self.focus_tree(Some(window), cx),
+            ActionContext::Workspaces => self.focus_workspaces_panel(window, cx),
+            _ => self.restore_focus(return_focus, window, cx),
+        }
+        window.dispatch_action((meta.build)(), cx);
+        cx.notify();
+    }
+
+    fn on_palette_key_down(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(Overlay::Palette(p)) = &mut self.overlay else { return };
+        let ks = &event.keystroke;
+        let plain = !ks.modifiers.platform && !ks.modifiers.control && !ks.modifiers.function;
+        match ks.key.as_str() {
+            "backspace" => {
+                p.query.pop();
+            }
+            _ if plain => match &ks.key_char {
+                Some(c) => p.query.push_str(c),
+                None => return,
+            },
+            _ => return,
+        }
+        self.palette_refresh();
+        cx.stop_propagation();
+        cx.notify();
+    }
+
+    fn render_palette_body(&self, p: &PaletteState, cx: &Context<Self>) -> gpui::Div {
+        let theme = &self.theme;
+        let accent = theme.ansi[4];
+        let dim = blend(theme.foreground, theme.background, 0.45);
+        let border = blend(theme.foreground, theme.background, 0.85);
+
+        let input = div()
+            .flex_none()
+            .px_3()
+            .py_2()
+            .border_b_1()
+            .border_color(border)
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(div().text_color(accent).child(">"))
+            .child(if p.query.is_empty() {
+                div().flex_1().text_color(dim).child("▏type a command…")
+            } else {
+                div().flex_1().overflow_hidden().child(format!("{}▏", p.query))
+            });
+
+        let mut list = div().flex().flex_col().p_1().gap(px(1.0));
+        if p.matches.is_empty() {
+            list = list.child(
+                div()
+                    .mx_2()
+                    .my_1()
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(theme.ansi[1])
+                    .text_color(dim)
+                    .child("no matching command"),
+            );
+        }
+        let end = (p.scroll + PALETTE_ROWS).min(p.matches.len());
+        for (ix, item) in p.matches.iter().enumerate().take(end).skip(p.scroll) {
+            let is_selected = ix == p.selected;
+            list = list.child(
+                div()
+                    .id(("palette-item", ix))
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .when(is_selected, |d| d.bg(theme.selection_bg))
+                    .on_mouse_move(cx.listener(move |this, _: &gpui::MouseMoveEvent, _w, cx| {
+                        if let Some(Overlay::Palette(p)) = &mut this.overlay
+                            && p.selected != ix
+                        {
+                            p.selected = ix;
+                            cx.notify();
+                        }
+                    }))
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _: &gpui::MouseDownEvent, window, cx| {
+                            if let Some(Overlay::Palette(p)) = &mut this.overlay {
+                                p.selected = ix;
+                            }
+                            this.palette_confirm(window, cx);
+                        }),
+                    )
+                    .child(div().flex_none().text_color(dim).child(item.category))
+                    .child(div().flex_none().text_color(dim).child("›"))
+                    .child(div().flex_1().overflow_hidden().child(highlighted_title(item, accent)))
+                    .when_some(item.binding.clone(), |d, keys| {
+                        d.child(div().flex_none().text_size(px(11.0)).text_color(dim).child(keys))
+                    }),
+            );
+        }
+        if p.matches.len() > PALETTE_ROWS {
+            list = list.child(
+                div()
+                    .px_3()
+                    .py_0p5()
+                    .text_size(px(11.0))
+                    .text_color(dim)
+                    .child(format!("{} of {}", p.selected + 1, p.matches.len())),
+            );
+        }
+
+        let footer = div()
+            .flex_none()
+            .px_3()
+            .py_1()
+            .border_t_1()
+            .border_color(border)
+            .text_size(px(11.0))
+            .text_color(dim)
+            .child("↑↓ move · ⏎ run · esc close");
+
+        div().flex().flex_col().child(input).child(list).child(footer)
+    }
+
+    fn render_overlay(&self, cx: &Context<Self>) -> gpui::Div {
+        let Some(overlay) = &self.overlay else { return div() };
+        let theme = &self.theme;
+        let panel_bg = blend(theme.background, gpui::black(), 0.2);
+        let mut backdrop = gpui::black();
+        backdrop.a = 0.35;
+
+        let panel = div()
+            .key_context("Overlay")
+            .on_action(cx.listener(|this, _: &PickerNext, _w, cx| this.overlay_move(1, cx)))
+            .on_action(cx.listener(|this, _: &PickerPrev, _w, cx| this.overlay_move(-1, cx)))
+            .on_action(cx.listener(|this, _: &PickerConfirm, window, cx| {
+                this.overlay_confirm(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &PickerCancel, window, cx| {
+                this.overlay_cancel(window, cx);
+            }))
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                |_: &gpui::MouseDownEvent, _w, cx| cx.stop_propagation(),
+            )
+            .mt(px(80.0))
+            .rounded_lg()
+            .border_1()
+            .border_color(theme.ansi[8])
+            .bg(panel_bg)
+            .shadow_lg()
+            .flex()
+            .flex_col()
+            .overflow_hidden();
+
+        let panel = match overlay {
+            Overlay::ThemePicker(picker) => panel
+                .w(px(360.0))
+                .child(
+                    div()
+                        .px_3()
+                        .py_2()
+                        .border_b_1()
+                        .border_color(blend(theme.foreground, theme.background, 0.85))
+                        .text_color(blend(theme.foreground, theme.background, 0.3))
+                        .child("Select Theme — ↑↓ preview, ⏎ apply, esc cancel"),
+                )
+                // The list has no text input, so vim keys are free here.
+                .child(
+                    div()
+                        .key_context("OverlayList")
+                        .track_focus(&self.picker_focus)
+                        .child(self.render_theme_list(picker, cx)),
+                ),
+            Overlay::Palette(p) => panel
+                .w(px(560.0))
+                .track_focus(&self.picker_focus)
+                .on_key_down(cx.listener(Self::on_palette_key_down))
+                .child(self.render_palette_body(p, cx)),
+        };
 
         div()
             .absolute()
@@ -1126,44 +1595,166 @@ impl Oxide {
             .on_mouse_down(
                 gpui::MouseButton::Left,
                 cx.listener(|this, _: &gpui::MouseDownEvent, window, cx| {
-                    this.picker_cancel(window, cx);
+                    this.overlay_cancel(window, cx);
                 }),
             )
-            .child(
-                div()
-                    .key_context("ThemePicker")
-                    .track_focus(&self.picker_focus)
-                    .on_action(cx.listener(|this, _: &PickerNext, _w, cx| this.picker_move(1, cx)))
-                    .on_action(cx.listener(|this, _: &PickerPrev, _w, cx| this.picker_move(-1, cx)))
-                    .on_action(cx.listener(|this, _: &PickerConfirm, window, cx| {
-                        this.picker_confirm(window, cx);
-                    }))
-                    .on_action(cx.listener(|this, _: &PickerCancel, window, cx| {
-                        this.picker_cancel(window, cx);
-                    }))
-                    .on_mouse_down(
-                        gpui::MouseButton::Left,
-                        |_: &gpui::MouseDownEvent, _w, cx| cx.stop_propagation(),
-                    )
-                    .mt(px(80.0))
-                    .w(px(360.0))
-                    .rounded_lg()
-                    .border_1()
-                    .border_color(theme.ansi[8])
-                    .bg(panel_bg)
-                    .shadow_lg()
-                    .flex()
-                    .flex_col()
-                    .child(
-                        div()
-                            .px_3()
-                            .py_2()
-                            .border_b_1()
-                            .border_color(blend(theme.foreground, theme.background, 0.85))
-                            .text_color(blend(theme.foreground, theme.background, 0.3))
-                            .child("Select Theme — ↑↓ preview, ⏎ apply, esc cancel"),
-                    )
-                    .child(list),
+            .child(panel)
+    }
+
+    // --- Split resizing ---
+
+    /// Smallest pane size along `axis`, in pixels, for a pane with these
+    /// cell metrics: a few cells plus the padding and focus ring.
+    fn min_pane_px(&self, axis: Axis, layout: &LastLayout) -> f32 {
+        let pad = self.config.window.padding;
+        match axis {
+            Axis::Horizontal => MIN_PANE_COLS * layout.cell_width + pad.x * 2.0 + 2.0,
+            Axis::Vertical => MIN_PANE_ROWS * layout.cell_height + pad.y * 2.0 + 2.0,
+        }
+    }
+
+    /// A pane's on-screen extent along `axis`, including its focus ring.
+    fn pane_extent(&self, id: PaneId, axis: Axis, cx: &Context<Self>) -> Option<f32> {
+        let bounds = self.pane_bounds(id, cx)?;
+        Some(match axis {
+            Axis::Horizontal => f32::from(bounds.size.width),
+            Axis::Vertical => f32::from(bounds.size.height),
+        } + 2.0)
+    }
+
+    fn start_divider_drag(
+        &mut self,
+        path: NodePath,
+        divider: usize,
+        axis: Axis,
+        position: gpui::Point<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let layout = &self.tab().layout;
+        let Some(Node::Split { ratios, children, .. }) = layout.at_path(&path) else { return };
+        if divider + 1 >= children.len() || ratios.len() != children.len() {
+            return;
+        }
+        // Measure the split through a pane inside the child before the
+        // divider: that child spans the split's full extent along the axis
+        // scaled by its ratio, since nested splits always alternate axes.
+        let Some(leaf) = children[divider].leaves().first().copied() else { return };
+        let Some(extent_child) = self.pane_extent(leaf, axis, cx) else { return };
+        let Some(pane_layout) = self.panes.get(&leaf).and_then(|p| p.read(cx).last_layout) else { return };
+        let extent = extent_child / ratios[divider];
+        if !extent.is_finite() || extent <= 0.0 {
+            return;
+        }
+        let min_ratio = (self.min_pane_px(axis, &pane_layout) / extent).min(0.45);
+        let start_pos = match axis {
+            Axis::Horizontal => f32::from(position.x),
+            Axis::Vertical => f32::from(position.y),
+        };
+        self.divider_drag = Some(DividerDrag {
+            path,
+            divider,
+            axis,
+            start_ratios: ratios.clone(),
+            start_pos,
+            extent,
+            min_ratio,
+        });
+        cx.notify();
+    }
+
+    fn update_divider_drag(&mut self, position: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
+        let Some(drag) = &self.divider_drag else { return };
+        let pos = match drag.axis {
+            Axis::Horizontal => f32::from(position.x),
+            Axis::Vertical => f32::from(position.y),
+        };
+        let delta = (pos - drag.start_pos) / drag.extent;
+        let (path, divider, start, min) =
+            (drag.path.clone(), drag.divider, drag.start_ratios.clone(), drag.min_ratio);
+        let layout = &mut self.tab_mut().layout;
+        // Always move relative to where the drag began, so the divider tracks
+        // the pointer instead of accumulating rounding from each event.
+        if let Some(Node::Split { ratios, .. }) = layout.at_path_mut(&path)
+            && ratios.len() == start.len()
+        {
+            *ratios = start;
+        }
+        layout.resize_divider(&path, divider, delta, min);
+        cx.notify();
+    }
+
+    fn end_divider_drag(&mut self, cx: &mut Context<Self>) {
+        if self.divider_drag.take().is_some() {
+            self.save_workspaces(cx);
+            cx.notify();
+        }
+    }
+
+    /// Grow or shrink the focused pane along `axis` by a number of cells.
+    fn resize_active(&mut self, axis: Axis, cells: f32, cx: &mut Context<Self>) {
+        let id = self.active_id();
+        let Some(pane_extent) = self.pane_extent(id, axis, cx) else { return };
+        let Some(pane_layout) = self.panes.get(&id).and_then(|p| p.read(cx).last_layout) else { return };
+        let layout = &self.tab().layout;
+        let Some(path) = layout.path_to(&id) else { return };
+        // The nearest enclosing split that runs along `axis` is the one the
+        // resize applies to; the pane's own extent equals its child's there.
+        let mut share = None;
+        for depth in (0..path.len()).rev() {
+            if let Some(Node::Split { axis: a, ratios, .. }) = layout.at_path(&path[..depth])
+                && *a == axis
+            {
+                share = ratios.get(path[depth]).copied();
+                break;
+            }
+        }
+        let Some(share) = share else { return };
+        let extent = pane_extent / share;
+        if !extent.is_finite() || extent <= 0.0 {
+            return;
+        }
+        let cell = match axis {
+            Axis::Horizontal => pane_layout.cell_width,
+            Axis::Vertical => pane_layout.cell_height,
+        };
+        let delta = cells * cell / extent;
+        let min = (self.min_pane_px(axis, &pane_layout) / extent).min(0.45);
+        if self.tab_mut().layout.resize_leaf(&id, axis, delta, min) {
+            self.save_workspaces(cx);
+            cx.notify();
+        }
+    }
+
+    fn equalize_splits(&mut self, cx: &mut Context<Self>) {
+        self.tab_mut().layout.equalise();
+        self.save_workspaces(cx);
+        cx.notify();
+    }
+
+    fn render_drag_overlay(&self, cx: &Context<Self>) -> gpui::Div {
+        let Some(drag) = &self.divider_drag else { return div() };
+        let cursor = match drag.axis {
+            Axis::Horizontal => gpui::CursorStyle::ResizeLeftRight,
+            Axis::Vertical => gpui::CursorStyle::ResizeUpDown,
+        };
+        // Sits over everything while dragging so the pointer can leave the
+        // divider, and so the terminals underneath never see the drag as a
+        // text selection.
+        div()
+            .absolute()
+            .inset_0()
+            .occlude()
+            .cursor(cursor)
+            .on_mouse_move(cx.listener(|this, ev: &gpui::MouseMoveEvent, _w, cx| {
+                this.update_divider_drag(ev.position, cx);
+            }))
+            .on_mouse_up(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _: &gpui::MouseUpEvent, _w, cx| this.end_divider_drag(cx)),
+            )
+            .on_mouse_up_out(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _: &gpui::MouseUpEvent, _w, cx| this.end_divider_drag(cx)),
             )
     }
 
@@ -1871,6 +2462,32 @@ impl Oxide {
     }
 }
 
+/// A palette row's title with the matched characters picked out.
+fn highlighted_title(item: &PaletteItem, accent: gpui::Hsla) -> gpui::StyledText {
+    let text = item.title;
+    let mut ranges: Vec<(std::ops::Range<usize>, gpui::HighlightStyle)> = Vec::new();
+    let byte_offsets: Vec<(usize, usize)> = text.char_indices().map(|(b, c)| (b, b + c.len_utf8())).collect();
+    for &pos in &item.highlights {
+        let Some(&(start, end)) = byte_offsets.get(pos) else { continue };
+        // Merge with the previous range when adjacent, so a run is one span.
+        if let Some((last, _)) = ranges.last_mut()
+            && last.end == start
+        {
+            last.end = end;
+            continue;
+        }
+        ranges.push((
+            start..end,
+            gpui::HighlightStyle {
+                color: Some(accent),
+                font_weight: Some(gpui::FontWeight::BOLD),
+                ..Default::default()
+            },
+        ));
+    }
+    gpui::StyledText::new(text).with_highlights(ranges)
+}
+
 /// Rewrite the `[colors]` section of config.toml to just the chosen preset,
 /// preserving the rest of the file's comments and formatting. Explicit color
 /// keys are dropped deliberately — they override presets, so leaving them
@@ -1951,6 +2568,20 @@ impl Render for Oxide {
         {
             self.tab_mut().active = id;
             self.sync_tree_to_active(cx);
+        }
+
+        // Root bindings still fire under an overlay (cmd-1 switches tabs and
+        // focuses that tab's pane, say). An overlay that lost focus that way
+        // would linger unreachable, so drop it; a theme preview reverts.
+        if self.overlay.is_some() && !self.picker_focus.is_focused(window) {
+            if let Some(Overlay::ThemePicker(picker)) = self.overlay.take() {
+                let original = picker.original;
+                let entity = cx.entity();
+                // Deferred: entity updates aren't allowed from inside render.
+                cx.defer(move |cx| {
+                    entity.update(cx, |this, cx| this.apply_theme(original, cx));
+                });
+            }
         }
 
         let theme = self.theme.clone();
@@ -2117,6 +2748,26 @@ impl Render for Oxide {
             .on_action(cx.listener(|this, _: &SelectTheme, window, cx| {
                 this.open_theme_picker(window, cx);
             }))
+            .on_action(cx.listener(|this, _: &CommandPalette, window, cx| {
+                this.toggle_palette(window, cx);
+            }))
+            // Resize steps are in cells, converted to a share of the split at
+            // apply time; a few columns per press feels right for a keyboard.
+            .on_action(cx.listener(|this, _: &PaneWider, _w, cx| {
+                this.resize_active(Axis::Horizontal, 4.0, cx);
+            }))
+            .on_action(cx.listener(|this, _: &PaneNarrower, _w, cx| {
+                this.resize_active(Axis::Horizontal, -4.0, cx);
+            }))
+            .on_action(cx.listener(|this, _: &PaneTaller, _w, cx| {
+                this.resize_active(Axis::Vertical, 2.0, cx);
+            }))
+            .on_action(cx.listener(|this, _: &PaneShorter, _w, cx| {
+                this.resize_active(Axis::Vertical, -2.0, cx);
+            }))
+            .on_action(cx.listener(|this, _: &PaneEqualize, _w, cx| {
+                this.equalize_splits(cx);
+            }))
             .on_action(cx.listener(|this, _: &CheckForUpdates, _w, cx| {
                 this.check_for_updates(true, cx);
             }))
@@ -2184,7 +2835,7 @@ impl Render for Oxide {
                                     .flex_1()
                                     .min_h_0()
                                     .overflow_hidden()
-                                    .child(self.render_pane_node(&layout, accent, window, cx))
+                                    .child(self.render_pane_node(&layout, &Vec::new(), accent, window, cx))
                             }),
                     ),
             )
@@ -2229,7 +2880,8 @@ impl Render for Oxide {
             .when(self.ws_context_menu.is_some(), |d| {
                 d.child(self.render_ws_context_menu(window, cx))
             })
-            .when(self.theme_picker.is_some(), |d| d.child(self.render_theme_picker(cx)))
+            .when(self.divider_drag.is_some(), |d| d.child(self.render_drag_overlay(cx)))
+            .when(self.overlay.is_some(), |d| d.child(self.render_overlay(cx)))
     }
 }
 

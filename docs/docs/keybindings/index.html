@@ -76,20 +76,17 @@
         <article>
           <h1>Keybindings</h1>
           <p class="lede">
-            The complete built-in keymap. Bindings are grouped by context: the
-            terminal deliberately steals nothing, so every bare key reaches your
-            shell.
+            The complete built-in keymap, and how to change it. Bindings are
+            grouped by context: the terminal deliberately steals nothing, so
+            every bare key reaches your shell. The third column is the action
+            id you use in <code>[keymap]</code>.
           </p>
 
-          <div class="note warn">
+          <div class="note tip">
             <p>
-              Keybindings aren't user-configurable yet — this table is the whole
-              story. If a binding fights something you rely on, that's worth
-              <a
-                class="link"
-                href="https://github.com/bobbycoleman-dev/oxide/issues/new"
-                >an issue</a
-              >.
+              Can't remember a key? <kbd>cmd-shift-p</kbd> opens the command
+              palette: every action, fuzzy-searchable, with its current binding
+              shown alongside.
             </p>
           </div>
 
@@ -100,18 +97,84 @@
             and bound at the root, so no bare keystroke is taken away from the
             shell. The file tree, the workspaces panel, and the theme picker are
             modeless lists with no text input, so bare letters are free there.
+            The command palette has a text input, so only arrows and
+            <kbd>ctrl-n</kbd> / <kbd>ctrl-p</kbd> move its selection.
           </p>
+
+          <h2 id="configuring">Configuring</h2>
+          <p>
+            Add a <code>[keymap]</code> table to
+            <a class="link" href="/docs/configuration/">config.toml</a>:
+            keystroke on the left, action id on the right. Anything you don't
+            mention keeps its default. Changes apply live when you save.
+          </p>
+          <pre><span class="c">[keymap]</span>
+<span class="s">"cmd-shift-p"</span>  = <span class="s">"app::palette"</span>
+<span class="s">"ctrl-w z"</span>     = <span class="s">"pane::equalize"</span>
+<span class="s">"cmd-shift-]"</span>  = <span class="s">"tab::next"</span>
+
+<span class="c"># Unbind by assigning nothing.</span>
+<span class="s">"cmd-d"</span>        = <span class="s">""</span>
+
+<span class="c">[keymap.file_tree]</span>    <span class="c"># context-scoped tables</span>
+<span class="s">"y"</span>            = <span class="s">"tree::refresh"</span>
+
+<span class="c">[keymap.terminal]</span>
+<span class="s">"cmd-shift-c"</span>  = <span class="s">"terminal::copy"</span></pre>
+          <ul>
+            <li>
+              <strong>Keystrokes</strong> are <code>modifier-…-key</code>, with
+              <code>cmd</code>, <code>ctrl</code>, <code>alt</code>,
+              <code>shift</code>, and <code>fn</code> as modifiers, in any order.
+              Separate the steps of a chord with a space:
+              <code>"ctrl-w z"</code>. Named keys: <code>up</code>,
+              <code>down</code>, <code>left</code>, <code>right</code>,
+              <code>enter</code>, <code>escape</code>, <code>tab</code>,
+              <code>space</code>, <code>backspace</code>, <code>f1</code>…
+            </li>
+            <li>
+              <strong>Contexts.</strong> Pairs directly under
+              <code>[keymap]</code> bind at the root and work everywhere.
+              Subtables scope a binding: <code>[keymap.terminal]</code>,
+              <code>[keymap.file_tree]</code>,
+              <code>[keymap.workspaces]</code>, and
+              <code>[keymap.overlay]</code> (the theme picker and command
+              palette). A binding in a deeper context wins over the same key at
+              the root.
+            </li>
+            <li>
+              <strong>The shell comes first.</strong> A bare key — no
+              <code>cmd</code>, <code>ctrl</code>, or <code>alt</code> — at the
+              root or in <code>[keymap.terminal]</code> would hide that key from
+              whatever you're running, so Oxide refuses it and tells you why.
+              Use a modifier, or a <kbd>ctrl-w</kbd> chord.
+            </li>
+            <li>
+              <strong>Mistakes are reported, not ignored.</strong> An unknown
+              action id (with a "did you mean" suggestion), a keystroke that
+              doesn't parse, or a bare key in the terminal each produce a line
+              in the banner at the top of the window. Everything else in the
+              table still binds.
+            </li>
+            <li>
+              <strong>Starting from scratch.</strong>
+              <code>replace_defaults = true</code> under <code>[keymap]</code>
+              drops the built-in map entirely. Every action Oxide ships after
+              that is unreachable until you bind it, so prefer overriding.
+            </li>
+          </ul>
 
           <h2 id="application">Application</h2>
           <div class="table-wrap">
             <table class="keys">
               <tbody>
-                <tr><td><kbd>cmd-,</kbd></td><td>open the config file in <code>$EDITOR</code></td></tr>
-                <tr><td><kbd>cmd-k</kbd> <kbd>cmd-t</kbd></td><td>theme picker</td></tr>
-                <tr><td><kbd>cmd-q</kbd></td><td>quit</td></tr>
-                <tr><td><kbd>cmd-h</kbd> <span class="sep">/</span> <kbd>alt-cmd-h</kbd></td><td>hide Oxide / hide others</td></tr>
-                <tr><td><kbd>cmd-m</kbd></td><td>minimize</td></tr>
-                <tr><td><kbd>ctrl-cmd-f</kbd></td><td>toggle full screen</td></tr>
+                <tr><td><kbd>cmd-,</kbd></td><td>open the config file in <code>$EDITOR</code></td><td><code>app::settings</code></td></tr>
+                <tr><td><kbd>cmd-shift-p</kbd> <span class="sep">/</span> <kbd>cmd-k</kbd> <kbd>cmd-p</kbd></td><td>command palette</td><td><code>app::palette</code></td></tr>
+                <tr><td><kbd>cmd-k</kbd> <kbd>cmd-t</kbd></td><td>theme picker</td><td><code>app::select_theme</code></td></tr>
+                <tr><td><kbd>cmd-q</kbd></td><td>quit</td><td><code>app::quit</code></td></tr>
+                <tr><td><kbd>cmd-h</kbd> <span class="sep">/</span> <kbd>alt-cmd-h</kbd></td><td>hide Oxide / hide others</td><td><code>app::hide / app::hide_others</code></td></tr>
+                <tr><td><kbd>cmd-m</kbd></td><td>minimize</td><td><code>window::minimize</code></td></tr>
+                <tr><td><kbd>ctrl-cmd-f</kbd></td><td>toggle full screen</td><td><code>window::toggle_fullscreen</code></td></tr>
               </tbody>
             </table>
           </div>
@@ -120,13 +183,13 @@
           <div class="table-wrap">
             <table class="keys">
               <tbody>
-                <tr><td><kbd>cmd-c</kbd> <span class="sep">/</span> <kbd>cmd-v</kbd></td><td>copy / paste (bracketed)</td></tr>
-                <tr><td><kbd>cmd-a</kbd></td><td>select all</td></tr>
-                <tr><td><kbd>cmd-f</kbd></td><td>search scrollback — <kbd>⏎</kbd> older, <kbd>⇧⏎</kbd> newer, <kbd>esc</kbd> closes</td></tr>
-                <tr><td><kbd>cmd-↑</kbd> <span class="sep">/</span> <kbd>cmd-↓</kbd></td><td>jump to previous / next prompt</td></tr>
-                <tr><td><kbd>cmd-+</kbd> <kbd>cmd--</kbd> <kbd>cmd-0</kbd></td><td>font size up / down / reset</td></tr>
-                <tr><td><kbd>cmd-click</kbd></td><td>open the URL under the pointer</td></tr>
-                <tr><td><kbd>shift</kbd> + drag</td><td>select text even while a program grabs the mouse</td></tr>
+                <tr><td><kbd>cmd-c</kbd> <span class="sep">/</span> <kbd>cmd-v</kbd></td><td>copy / paste (bracketed)</td><td><code>terminal::copy / terminal::paste</code></td></tr>
+                <tr><td><kbd>cmd-a</kbd></td><td>select all</td><td><code>terminal::select_all</code></td></tr>
+                <tr><td><kbd>cmd-f</kbd></td><td>search scrollback — <kbd>⏎</kbd> older, <kbd>⇧⏎</kbd> newer, <kbd>esc</kbd> closes</td><td><code>terminal::search</code></td></tr>
+                <tr><td><kbd>cmd-↑</kbd> <span class="sep">/</span> <kbd>cmd-↓</kbd></td><td>jump to previous / next prompt</td><td><code>terminal::prompt_up / terminal::prompt_down</code></td></tr>
+                <tr><td><kbd>cmd-+</kbd> <kbd>cmd--</kbd> <kbd>cmd-0</kbd></td><td>font size up / down / reset</td><td><code>terminal::font_increase / …decrease / …reset</code></td></tr>
+                <tr><td><kbd>cmd-click</kbd></td><td>open the URL under the pointer</td><td></td></tr>
+                <tr><td><kbd>shift</kbd> + drag</td><td>select text even while a program grabs the mouse</td><td></td></tr>
               </tbody>
             </table>
           </div>
@@ -135,12 +198,12 @@
           <div class="table-wrap">
             <table class="keys">
               <tbody>
-                <tr><td><kbd>cmd-t</kbd></td><td>new tab</td></tr>
-                <tr><td><kbd>cmd-n</kbd></td><td>new window</td></tr>
-                <tr><td><kbd>cmd-1</kbd> … <kbd>cmd-9</kbd></td><td>select tab 1–9</td></tr>
-                <tr><td><kbd>⌃tab</kbd> <span class="sep">/</span> <kbd>⌃⇧tab</kbd></td><td>next / previous tab</td></tr>
-                <tr><td><kbd>⇧⌘]</kbd> <span class="sep">/</span> <kbd>⇧⌘[</kbd></td><td>next / previous tab</td></tr>
-                <tr><td><kbd>cmd-w</kbd></td><td>close the pane; the window with the last one</td></tr>
+                <tr><td><kbd>cmd-t</kbd></td><td>new tab</td><td><code>tab::new</code></td></tr>
+                <tr><td><kbd>cmd-n</kbd></td><td>new window</td><td><code>window::new</code></td></tr>
+                <tr><td><kbd>cmd-1</kbd> … <kbd>cmd-9</kbd></td><td>select tab 1–9</td><td><code>tab::select_1 … tab::select_9</code></td></tr>
+                <tr><td><kbd>⌃tab</kbd> <span class="sep">/</span> <kbd>⌃⇧tab</kbd></td><td>next / previous tab</td><td><code>tab::next / tab::previous</code></td></tr>
+                <tr><td><kbd>⇧⌘]</kbd> <span class="sep">/</span> <kbd>⇧⌘[</kbd></td><td>next / previous tab</td><td><code>tab::next / tab::previous</code></td></tr>
+                <tr><td><kbd>cmd-w</kbd></td><td>close the pane; the window with the last one</td><td><code>window::close</code></td></tr>
               </tbody>
             </table>
           </div>
@@ -149,13 +212,17 @@
           <div class="table-wrap">
             <table class="keys">
               <tbody>
-                <tr><td><kbd>ctrl-w v</kbd> <span class="sep">/</span> <kbd>cmd-d</kbd></td><td>split right</td></tr>
-                <tr><td><kbd>ctrl-w s</kbd> <span class="sep">/</span> <kbd>cmd-shift-d</kbd></td><td>split down</td></tr>
-                <tr><td><kbd>ctrl-w V</kbd> <span class="sep">/</span> <kbd>ctrl-w S</kbd></td><td>split left / up</td></tr>
-                <tr><td><kbd>ctrl-w h</kbd> <kbd>j</kbd> <kbd>k</kbd> <kbd>l</kbd></td><td>focus the pane in that direction</td></tr>
-                <tr><td><kbd>cmd-opt-←↓↑→</kbd></td><td>focus the pane in that direction</td></tr>
-                <tr><td><kbd>ctrl-w q</kbd></td><td>close the focused pane</td></tr>
-                <tr><td><kbd>ctrl-w w</kbd></td><td>toggle focus: drawer ↔ terminal</td></tr>
+                <tr><td><kbd>ctrl-w v</kbd> <span class="sep">/</span> <kbd>cmd-d</kbd></td><td>split right</td><td><code>pane::split_right</code></td></tr>
+                <tr><td><kbd>ctrl-w s</kbd> <span class="sep">/</span> <kbd>cmd-shift-d</kbd></td><td>split down</td><td><code>pane::split_down</code></td></tr>
+                <tr><td><kbd>ctrl-w V</kbd> <span class="sep">/</span> <kbd>ctrl-w S</kbd></td><td>split left / up</td><td><code>pane::split_left / pane::split_up</code></td></tr>
+                <tr><td><kbd>ctrl-w h</kbd> <kbd>j</kbd> <kbd>k</kbd> <kbd>l</kbd></td><td>focus the pane in that direction</td><td><code>pane::focus_left / …down / …up / …right</code></td></tr>
+                <tr><td><kbd>cmd-opt-←↓↑→</kbd></td><td>focus the pane in that direction</td><td><code>pane::focus_left / …down / …up / …right</code></td></tr>
+                <tr><td><kbd>ctrl-w q</kbd></td><td>close the focused pane</td><td><code>pane::close</code></td></tr>
+                <tr><td><kbd>ctrl-w &lt;</kbd> <span class="sep">/</span> <kbd>ctrl-w &gt;</kbd></td><td>shrink / grow the pane horizontally (4 columns)</td><td><code>pane::narrower / pane::wider</code></td></tr>
+                <tr><td><kbd>ctrl-w -</kbd> <span class="sep">/</span> <kbd>ctrl-w +</kbd></td><td>shrink / grow the pane vertically (2 rows)</td><td><code>pane::shorter / pane::taller</code></td></tr>
+                <tr><td><kbd>ctrl-w =</kbd></td><td>equalise every split in the tab</td><td><code>pane::equalize</code></td></tr>
+                <tr><td>drag a divider</td><td>resize the two panes either side of it</td><td></td></tr>
+                <tr><td><kbd>ctrl-w w</kbd></td><td>toggle focus: drawer ↔ terminal</td><td><code>drawer::focus_toggle</code></td></tr>
               </tbody>
             </table>
           </div>
@@ -164,10 +231,10 @@
           <div class="table-wrap">
             <table class="keys">
               <tbody>
-                <tr><td><kbd>cmd-b</kbd></td><td>show / hide the drawer</td></tr>
-                <tr><td><kbd>ctrl-w t</kbd> <span class="sep">/</span> <kbd>cmd-shift-e</kbd></td><td>focus the file tree</td></tr>
-                <tr><td><kbd>ctrl-w p</kbd></td><td>focus the workspaces panel</td></tr>
-                <tr><td><kbd>tab</kbd></td><td>switch between the two panels</td></tr>
+                <tr><td><kbd>cmd-b</kbd></td><td>show / hide the drawer</td><td><code>drawer::toggle</code></td></tr>
+                <tr><td><kbd>ctrl-w t</kbd> <span class="sep">/</span> <kbd>cmd-shift-e</kbd></td><td>focus the file tree</td><td><code>drawer::focus_tree</code></td></tr>
+                <tr><td><kbd>ctrl-w p</kbd></td><td>focus the workspaces panel</td><td><code>drawer::focus_workspaces</code></td></tr>
+                <tr><td><kbd>tab</kbd></td><td>switch between the two panels</td><td><code>drawer::focus_workspaces / drawer::focus_tree</code></td></tr>
               </tbody>
             </table>
           </div>
@@ -176,17 +243,17 @@
           <div class="table-wrap">
             <table class="keys">
               <tbody>
-                <tr><td><kbd>j</kbd> <kbd>k</kbd> <span class="sep">/</span> <kbd>↓</kbd> <kbd>↑</kbd></td><td>move</td></tr>
-                <tr><td><kbd>gg</kbd> <span class="sep">/</span> <kbd>G</kbd></td><td>top / bottom</td></tr>
-                <tr><td><kbd>ctrl-d</kbd> <span class="sep">/</span> <kbd>ctrl-u</kbd></td><td>half page down / up</td></tr>
-                <tr><td><kbd>l</kbd> <span class="sep">/</span> <kbd>h</kbd></td><td>expand &amp; descend / collapse &amp; ascend</td></tr>
-                <tr><td><kbd>p</kbd></td><td>select the parent directory</td></tr>
-                <tr><td><kbd>enter</kbd> <span class="sep">/</span> <kbd>o</kbd></td><td>open a directory, or a file in <code>$EDITOR</code></td></tr>
-                <tr><td><kbd>c</kbd> <span class="sep">/</span> <kbd>-</kbd></td><td>re-root at the selection / one level up</td></tr>
-                <tr><td><kbd>/</kbd></td><td>filter</td></tr>
-                <tr><td><kbd>a</kbd> <kbd>r</kbd> <kbd>d</kbd></td><td>add / rename / delete to Trash</td></tr>
-                <tr><td><kbd>I</kbd> <span class="sep">/</span> <kbd>R</kbd></td><td>toggle hidden files / refresh</td></tr>
-                <tr><td><kbd>esc</kbd></td><td>dismiss input → clear filter → back to the terminal</td></tr>
+                <tr><td><kbd>j</kbd> <kbd>k</kbd> <span class="sep">/</span> <kbd>↓</kbd> <kbd>↑</kbd></td><td>move</td><td><code>tree::down / tree::up</code></td></tr>
+                <tr><td><kbd>gg</kbd> <span class="sep">/</span> <kbd>G</kbd></td><td>top / bottom</td><td><code>tree::top / tree::bottom</code></td></tr>
+                <tr><td><kbd>ctrl-d</kbd> <span class="sep">/</span> <kbd>ctrl-u</kbd></td><td>half page down / up</td><td><code>tree::half_page_down / tree::half_page_up</code></td></tr>
+                <tr><td><kbd>l</kbd> <span class="sep">/</span> <kbd>h</kbd></td><td>expand &amp; descend / collapse &amp; ascend</td><td><code>tree::expand / tree::collapse</code></td></tr>
+                <tr><td><kbd>p</kbd></td><td>select the parent directory</td><td><code>tree::parent</code></td></tr>
+                <tr><td><kbd>enter</kbd> <span class="sep">/</span> <kbd>o</kbd></td><td>open a directory, or a file in <code>$EDITOR</code></td><td><code>tree::open</code></td></tr>
+                <tr><td><kbd>c</kbd> <span class="sep">/</span> <kbd>-</kbd></td><td>re-root at the selection / one level up</td><td><code>tree::set_root / tree::root_up</code></td></tr>
+                <tr><td><kbd>/</kbd></td><td>filter</td><td><code>tree::filter</code></td></tr>
+                <tr><td><kbd>a</kbd> <kbd>r</kbd> <kbd>d</kbd></td><td>add / rename / delete to Trash</td><td><code>tree::add / tree::rename / tree::delete</code></td></tr>
+                <tr><td><kbd>I</kbd> <span class="sep">/</span> <kbd>R</kbd></td><td>toggle hidden files / refresh</td><td><code>tree::toggle_hidden / tree::refresh</code></td></tr>
+                <tr><td><kbd>esc</kbd></td><td>dismiss input → clear filter → back to the terminal</td><td><code>tree::escape</code></td></tr>
               </tbody>
             </table>
           </div>
@@ -195,35 +262,42 @@
           <div class="table-wrap">
             <table class="keys">
               <tbody>
-                <tr><td><kbd>j</kbd> <kbd>k</kbd> <span class="sep">/</span> <kbd>↓</kbd> <kbd>↑</kbd></td><td>move</td></tr>
-                <tr><td><kbd>enter</kbd> <span class="sep">/</span> <kbd>o</kbd></td><td>switch to the workspace</td></tr>
-                <tr><td><kbd>a</kbd> <kbd>r</kbd> <kbd>d</kbd></td><td>add / rename / delete (<kbd>y</kbd> confirms)</td></tr>
-                <tr><td><kbd>p</kbd></td><td>pin — persist across restarts</td></tr>
-                <tr><td><kbd>esc</kbd></td><td>dismiss input → back to the terminal</td></tr>
+                <tr><td><kbd>j</kbd> <kbd>k</kbd> <span class="sep">/</span> <kbd>↓</kbd> <kbd>↑</kbd></td><td>move</td><td><code>workspace::down / workspace::up</code></td></tr>
+                <tr><td><kbd>enter</kbd> <span class="sep">/</span> <kbd>o</kbd></td><td>switch to the workspace</td><td><code>workspace::open</code></td></tr>
+                <tr><td><kbd>a</kbd> <kbd>r</kbd> <kbd>d</kbd></td><td>add / rename / delete (<kbd>y</kbd> confirms)</td><td><code>workspace::add / workspace::rename / workspace::delete</code></td></tr>
+                <tr><td><kbd>p</kbd></td><td>pin — persist across restarts</td><td><code>workspace::toggle_persist</code></td></tr>
+                <tr><td><kbd>esc</kbd></td><td>dismiss input → back to the terminal</td><td><code>workspace::escape</code></td></tr>
               </tbody>
             </table>
           </div>
 
-          <h3 id="theme-picker">In the theme picker</h3>
+          <h3 id="overlays">In the command palette and theme picker</h3>
           <div class="table-wrap">
             <table class="keys">
               <tbody>
-                <tr><td><kbd>j</kbd> <kbd>k</kbd> <span class="sep">/</span> <kbd>↓</kbd> <kbd>↑</kbd> <span class="sep">/</span> <kbd>ctrl-n</kbd> <kbd>ctrl-p</kbd></td><td>move, previewing as you go</td></tr>
-                <tr><td><kbd>enter</kbd></td><td>apply and write the preset to your config</td></tr>
-                <tr><td><kbd>esc</kbd></td><td>cancel and restore the previous theme</td></tr>
+                <tr><td><kbd>↓</kbd> <kbd>↑</kbd> <span class="sep">/</span> <kbd>ctrl-n</kbd> <kbd>ctrl-p</kbd></td><td>move (the theme picker previews as you go)</td><td><code>overlay::next / overlay::prev</code></td></tr>
+                <tr><td><kbd>j</kbd> <kbd>k</kbd></td><td>move — theme picker only; the palette is typing</td><td><code>overlay::next / overlay::prev</code></td></tr>
+                <tr><td><kbd>enter</kbd></td><td>run the command / apply the theme and write it to your config</td><td><code>overlay::confirm</code></td></tr>
+                <tr><td><kbd>esc</kbd></td><td>close, restoring focus (and the previous theme)</td><td><code>overlay::cancel</code></td></tr>
               </tbody>
             </table>
           </div>
 
           <h2 id="menu-only">Menu-only commands</h2>
-          <p>These have no default binding:</p>
+          <p>
+            These have no default binding, but every one is in the command
+            palette and can be bound in <code>[keymap]</code>:
+          </p>
           <div class="table-wrap">
             <table class="keys">
               <tbody>
-                <tr><td>View → Clear Scrollback</td><td>empty the focused pane's history</td></tr>
-                <tr><td>View → Toggle Status Bar</td><td>show or hide the bar for this window</td></tr>
-                <tr><td>File → New Workspace</td><td>create an unnamed workspace</td></tr>
-                <tr><td>Oxide → Check for Updates…</td><td>check GitHub for a newer release</td></tr>
+                <tr><td>View → Clear Scrollback</td><td>empty the focused pane's history</td><td><code>terminal::clear_scrollback</code></td></tr>
+                <tr><td>View → Toggle Status Bar</td><td>show or hide the bar for this window</td><td><code>app::toggle_status_bar</code></td></tr>
+                <tr><td>File → New Workspace</td><td>create an unnamed workspace</td><td><code>workspace::new</code></td></tr>
+                <tr><td>Oxide → Check for Updates…</td><td>check GitHub for a newer release</td><td><code>app::check_for_updates</code></td></tr>
+                <tr><td>Oxide → About Oxide</td><td>open the project page</td><td><code>app::about</code></td></tr>
+                <tr><td>Window → Zoom</td><td>zoom the window</td><td><code>window::zoom</code></td></tr>
+                <tr><td>Help → Oxide Help / Report an Issue</td><td>open the docs / a new issue</td><td><code>app::help / app::report_issue</code></td></tr>
               </tbody>
             </table>
           </div>

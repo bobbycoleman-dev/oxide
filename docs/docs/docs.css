@@ -454,6 +454,13 @@ table.keys td:first-child {
   width: 38%;
 }
 
+table.keys td:nth-child(3) {
+  white-space: nowrap;
+  text-align: right;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
 table.opts td:first-child {
   white-space: nowrap;
   font-family: var(--mono);

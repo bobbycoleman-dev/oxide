@@ -1,0 +1,55 @@
+[
+  {
+    "name": "workspace 1",
+    "active_tab": 1,
+    "tabs": [
+      {
+        "layout": {
+          "leaf": "/Users/x"
+        },
+        "active": 0
+      },
+      {
+        "layout": {
+          "split": {
+            "axis": "horizontal",
+            "children": [
+              {
+                "leaf": "/Users/x/dev"
+              },
+              {
+                "split": {
+                  "axis": "vertical",
+                  "children": [
+                    {
+                      "leaf": "/Users/x/dev/a"
+                    },
+                    {
+                      "leaf": "/Users/x/dev/b"
+                    },
+                    {
+                      "leaf": "/Users/x/dev/c"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "active": 2
+      }
+    ]
+  },
+  {
+    "name": "notes",
+    "active_tab": 0,
+    "tabs": [
+      {
+        "layout": {
+          "leaf": "/Users/x/notes"
+        },
+        "active": 0
+      }
+    ]
+  }
+]
