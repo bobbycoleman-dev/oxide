@@ -15,7 +15,7 @@ use gpui::{App, Application, Menu, MenuItem, SystemMenuType};
 
 use crate::keymap::actions::*;
 
-const REPO_URL: &str = "https://github.com/bobbycoleman-dev/oxide";
+const WEBSITE_URL: &str = "https://oxideterminal.com";
 
 pub(crate) fn menus() -> Vec<Menu> {
     vec![
@@ -133,16 +133,19 @@ fn main() {
         cx.text_system()
             .add_fonts(vec![
                 std::borrow::Cow::Borrowed(
-                    include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf").as_slice(),
+                    include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf")
+                        .as_slice(),
                 ),
                 std::borrow::Cow::Borrowed(
                     include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Bold.ttf").as_slice(),
                 ),
                 std::borrow::Cow::Borrowed(
-                    include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Italic.ttf").as_slice(),
+                    include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Italic.ttf")
+                        .as_slice(),
                 ),
                 std::borrow::Cow::Borrowed(
-                    include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-BoldItalic.ttf").as_slice(),
+                    include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-BoldItalic.ttf")
+                        .as_slice(),
                 ),
             ])
             .ok();
@@ -155,7 +158,7 @@ fn main() {
         cx.on_action(|_: &Quit, cx| cx.quit());
         cx.on_action(|_: &Hide, cx| cx.hide());
         cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
-        cx.on_action(|_: &About, cx| cx.open_url(REPO_URL));
+        cx.on_action(|_: &About, cx| cx.open_url(WEBSITE_URL));
         // App-level fallback: with no windows open there is no element tree to
         // dispatch to, so the window-scoped handler cannot run. Without this,
         // closing the last window strands the app with a dead File menu.
@@ -165,8 +168,8 @@ fn main() {
                 app::open_oxide_window(config, error, None, false, cx);
             }
         });
-        cx.on_action(|_: &OpenHelp, cx| cx.open_url(&format!("{REPO_URL}#readme")));
-        cx.on_action(|_: &ReportIssue, cx| cx.open_url(&format!("{REPO_URL}/issues/new")));
+        cx.on_action(|_: &OpenHelp, cx| cx.open_url(&format!("{WEBSITE_URL}/docs/")));
+        cx.on_action(|_: &ReportIssue, cx| cx.open_url(&format!("{WEBSITE_URL}/issues/new")));
 
         cx.set_menus(menus());
 
@@ -181,7 +184,11 @@ fn main() {
                         let handled = handle
                             .update(cx, |root, window, cx| {
                                 root.downcast::<app::Oxide>()
-                                    .map(|oxide| oxide.update(cx, |o, cx| o.on_notification_click(key, window, cx)))
+                                    .map(|oxide| {
+                                        oxide.update(cx, |o, cx| {
+                                            o.on_notification_click(key, window, cx)
+                                        })
+                                    })
                                     .unwrap_or(false)
                             })
                             .unwrap_or(false);
@@ -194,8 +201,6 @@ fn main() {
             }
         })
         .detach();
-
-
 
         app::open_oxide_window(config, config_error, None, true, cx);
     });
