@@ -1,3 +1,4 @@
+pub mod click;
 pub mod colors;
 pub mod commands;
 pub mod element;
@@ -21,9 +22,9 @@ use alacritty_terminal::vte::ansi::Rgb;
 use futures::StreamExt;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, Bounds, ClipboardItem, Context, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    ParentElement, Pixels, Render, ScrollDelta, ScrollWheelEvent, ShapedLine,
+    App, Bounds, ClipboardItem, Context, EventEmitter, ExternalPaths, FocusHandle, Focusable,
+    InteractiveElement, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, ParentElement, Pixels, Render, ScrollDelta, ScrollWheelEvent, ShapedLine,
     Styled, Window, div,
 };
 
@@ -33,6 +34,7 @@ use crate::keymap::actions::{
     ClearScrollback, Copy, CopyLastBlock, CopyLastCommand, CopyLastOutput, Paste, PromptDown, PromptUp,
     Search, SelectAll,
 };
+pub use click::ClickTarget;
 pub use commands::{Command, CommandLog};
 use element::TerminalElement;
 pub use osc::{Marker, MarkerKind};
@@ -59,7 +61,23 @@ pub enum TerminalEvent {
     /// A program asked for a desktop notification (OSC 9 / OSC 777), already
     /// rate-limited and gated on the config.
     Notify { title: Option<String>, body: String },
+    /// cmd-click on a `path:line:col` that resolved to a file.
+    OpenPath { path: PathBuf, line: Option<u32>, col: Option<u32> },
+    /// cmd-click on a directory: point the tree there.
+    RevealDir(PathBuf),
 }
+
+/// A cmd-hover underline: which screen row and columns to draw it under.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct HoverSpan {
+    pub row: usize,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// How long a "does this path exist" answer is trusted. Hover resolution
+/// runs on every mouse move with cmd held; stat on a network volume is slow.
+const EXISTS_TTL: Duration = Duration::from_secs(2);
 
 /// Geometry of the last painted frame, for mouse -> grid math.
 #[derive(Clone, Copy)]
@@ -109,6 +127,14 @@ pub struct TerminalPane {
     osc7_seen: bool,
     /// Rate limit for program-posted notifications.
     last_program_notify: Option<Instant>,
+    /// The file tree's root, for resolving relative paths in output.
+    pub tree_root: Option<PathBuf>,
+    /// Repo root for the current cwd, looked up on the background pool.
+    git_root: Option<PathBuf>,
+    git_root_for: Option<PathBuf>,
+    exists_cache: HashMap<PathBuf, (bool, Instant)>,
+    /// The token under a cmd-hover, underlined to show it's clickable.
+    pub hover: Option<HoverSpan>,
 }
 
 struct SearchState {
@@ -173,8 +199,14 @@ impl TerminalPane {
             last_input_start: None,
             osc7_seen: false,
             last_program_notify: None,
+            tree_root: None,
+            git_root: None,
+            git_root_for: None,
+            exists_cache: HashMap::new(),
+            hover: None,
         };
         this.spawn_session(cx);
+        this.refresh_git_root(cx);
         this.spawn_blink_task(cx);
         this
     }
@@ -270,6 +302,7 @@ impl TerminalPane {
                 if self.cwd.as_ref() != Some(path) {
                     self.cwd = Some(path.clone());
                     cx.emit(TerminalEvent::CwdChanged(path.clone()));
+                    self.refresh_git_root(cx);
                 }
                 return;
             }
@@ -589,7 +622,90 @@ impl TerminalPane {
         {
             self.cwd = Some(cwd.clone());
             cx.emit(TerminalEvent::CwdChanged(cwd));
+            self.refresh_git_root(cx);
         }
+    }
+
+    /// Look up the repo root for the cwd, off the main thread, so
+    /// repo-relative paths in output resolve even from a subdirectory.
+    fn refresh_git_root(&mut self, cx: &mut Context<Self>) {
+        let Some(cwd) = self.cwd.clone() else { return };
+        if self.git_root_for.as_ref() == Some(&cwd) {
+            return;
+        }
+        self.git_root_for = Some(cwd.clone());
+        let bg = cx.background_executor().clone();
+        cx.spawn(async move |this, cx| {
+            let lookup = cwd.clone();
+            let root = bg.spawn(async move { crate::git::toplevel(&lookup) }).await;
+            this.update(cx, |pane, _| {
+                if pane.git_root_for.as_ref() == Some(&cwd) {
+                    pane.git_root = root;
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn path_exists(&mut self, path: &std::path::Path) -> bool {
+        let now = Instant::now();
+        if let Some((exists, at)) = self.exists_cache.get(path)
+            && now.duration_since(*at) < EXISTS_TTL
+        {
+            return *exists;
+        }
+        if self.exists_cache.len() > 512 {
+            self.exists_cache.clear();
+        }
+        let exists = path.exists();
+        self.exists_cache.insert(path.to_path_buf(), (exists, now));
+        exists
+    }
+
+    /// What a cmd-click at `point` would open, and the token's span.
+    fn target_at(&mut self, point: GridPoint) -> Option<(ClickTarget, click::Token)> {
+        let session = self.session.as_ref()?;
+        let term = session.term.lock();
+        let grid = term.grid();
+        // Explicit hyperlinks (OSC 8) win over textual detection.
+        if let Some(link) = grid[point.line][point.column].hyperlink() {
+            let col = point.column.0;
+            return Some((
+                ClickTarget::Url(link.uri().to_string()),
+                click::Token { start: col, end: col + 1, text: link.uri().to_string() },
+            ));
+        }
+        let cols = self.size.columns;
+        let chars: Vec<char> = (0..cols).map(|c| grid[point.line][Column(c)].c).collect();
+        drop(term);
+        let token = click::token_at(&chars, point.column.0)?;
+        let home = crate::app::home_dir();
+        let cwd = self.cwd.clone();
+        let git_root = self.git_root.clone();
+        let tree_root = self.tree_root.clone();
+        let roots = click::Roots {
+            cwd: cwd.as_deref(),
+            git_root: git_root.as_deref(),
+            tree_root: tree_root.as_deref(),
+            home: home.as_deref(),
+        };
+        let target = click::classify(&token.text, &roots, &mut |p| self.path_exists(p))?;
+        Some((target, token))
+    }
+
+    /// Type a path at the prompt, quoted. Relative to the cwd when it lies
+    /// beneath it (and `absolute` is false), which is what a command wants.
+    pub fn insert_path(&mut self, path: &std::path::Path, absolute: bool) {
+        let text = match (&self.cwd, absolute) {
+            (Some(cwd), false) => match path.strip_prefix(cwd) {
+                Ok(rel) if !rel.as_os_str().is_empty() => rel.to_string_lossy().to_string(),
+                Ok(_) => ".".to_string(),
+                Err(_) => path.to_string_lossy().to_string(),
+            },
+            _ => path.to_string_lossy().to_string(),
+        };
+        self.write_command(&format!("{} ", click::shell_quote(&text)));
     }
 
     /// Change the shell's directory. With shell integration installed this
@@ -946,39 +1062,20 @@ impl TerminalPane {
         }
     }
 
-    /// The OSC 8 hyperlink or URL-looking whitespace-delimited token at `point`.
-    fn url_at(&self, point: GridPoint) -> Option<String> {
-        let session = self.session.as_ref()?;
-        let term = session.term.lock();
-        let grid = term.grid();
-        // Explicit hyperlinks (OSC 8) win over textual detection.
-        if let Some(link) = grid[point.line][point.column].hyperlink() {
-            return Some(link.uri().to_string());
-        }
-        let cols = self.size.columns;
-        let chars: Vec<char> = (0..cols)
-            .map(|c| grid[point.line][Column(c)].c)
-            .collect();
-        drop(term);
-        let is_break = |c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '(' | ')' | '[' | ']' | '{' | '}');
-        let ix = point.column.0.min(cols.saturating_sub(1));
-        if is_break(chars[ix]) {
-            return None;
-        }
-        let start = (0..=ix).rev().find(|&i| is_break(chars[i])).map_or(0, |i| i + 1);
-        let end = (ix..cols).find(|&i| is_break(chars[i])).unwrap_or(cols);
-        let token: String = chars[start..end].iter().collect();
-        let token = token.trim_end_matches([',', '.', ';', ':', '!', '?']).to_string();
-        (token.starts_with("http://") || token.starts_with("https://") || token.starts_with("file://"))
-            .then_some(token)
-    }
-
     fn on_mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus_handle);
         let Some((point, side, col, row)) = self.grid_point(event.position) else { return };
         if event.modifiers.platform {
-            if let Some(url) = self.url_at(point) {
-                cx.open_url(&url);
+            match self.target_at(point).map(|(t, _)| t) {
+                Some(ClickTarget::Url(url)) => cx.open_url(&url),
+                Some(ClickTarget::Path { path, line, col }) => {
+                    if path.is_dir() {
+                        cx.emit(TerminalEvent::RevealDir(path));
+                    } else {
+                        cx.emit(TerminalEvent::OpenPath { path, line, col });
+                    }
+                }
+                None => {}
             }
             return;
         }
@@ -1005,6 +1102,21 @@ impl TerminalPane {
     }
 
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        if event.pressed_button.is_none() {
+            // cmd-hover: underline whatever a click would open.
+            let span = if event.modifiers.platform {
+                self.grid_point(event.position).and_then(|(point, _, _, row)| {
+                    self.target_at(point).map(|(_, token)| HoverSpan { row, start: token.start, end: token.end })
+                })
+            } else {
+                None
+            };
+            if span != self.hover {
+                self.hover = span;
+                cx.notify();
+            }
+            return;
+        }
         if event.pressed_button != Some(MouseButton::Left) {
             return;
         }
@@ -1184,6 +1296,27 @@ impl Render for TerminalPane {
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
+            .on_modifiers_changed(cx.listener(|this, ev: &gpui::ModifiersChangedEvent, _w, cx| {
+                if !ev.modifiers.platform && this.hover.is_some() {
+                    this.hover = None;
+                    cx.notify();
+                }
+            }))
+            .when(self.hover.is_some(), |d| d.cursor_pointer())
+            // Files dropped from Finder, or dragged out of the tree, land at
+            // the prompt as quoted paths.
+            .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
+                window.focus(&this.focus_handle);
+                for path in paths.paths() {
+                    this.insert_path(path, true);
+                }
+                cx.notify();
+            }))
+            .on_drop(cx.listener(|this, drag: &crate::tree::TreeDrag, window, cx| {
+                window.focus(&this.focus_handle);
+                this.insert_path(&drag.path, false);
+                cx.notify();
+            }))
             .child(TerminalElement::new(cx.entity(), focused))
             .when_some(self.render_gutter(cx), |this, gutter| this.child(gutter))
             .when_some(self.search.as_ref(), |this, search| {

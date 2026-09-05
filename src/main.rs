@@ -1,5 +1,6 @@
 mod app;
 mod config;
+mod git;
 mod keymap;
 mod notifications;
 mod palette;

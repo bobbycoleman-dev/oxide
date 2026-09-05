@@ -361,6 +361,41 @@
                   <td>true</td>
                   <td>Re-root the tree when the focused shell changes directory.</td>
                 </tr>
+                <tr>
+                  <td>git_status</td>
+                  <td>bool</td>
+                  <td>true</td>
+                  <td>Colour rows by git state, rolled up onto collapsed directories.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="editor">[editor]</h2>
+          <p>
+            How <kbd>cmd-click</kbd> on a <code>path:line</code> opens your
+            editor. Oxide maps the line-number flag for vim/nvim, VS Code and
+            friends, emacs, Sublime, and Helix on its own; set this for
+            anything else.
+          </p>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead>
+                <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>open_at_line</td>
+                  <td>string</td>
+                  <td>—</td>
+                  <td>
+                    A shell command with <code>{path}</code>,
+                    <code>{line}</code>, and <code>{col}</code> substituted
+                    (the path arrives quoted; a missing column is 1), e.g.
+                    <code>"myeditor --line {line} {path}"</code>. Overrides the
+                    built-in mapping.
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -691,6 +726,10 @@ respect_gitignore = <span class="k">true</span>
 indent            = <span class="n">16</span>
 icons             = <span class="k">true</span>      <span class="c"># nerd-font icons in the drawer</span>
 follow_cwd        = <span class="k">true</span>      <span class="c"># re-root the tree when the shell cd's</span>
+git_status        = <span class="k">true</span>      <span class="c"># colour rows by git state (modified, added, untracked…)</span>
+
+<span class="c"># [editor]
+# open_at_line = "myeditor --line {line} {path}"   # for editors Oxide doesn't know</span>
 
 <span class="c"># bell = "none"               # none | sound | visual
 # copy_on_select = false      # mouse selection copies to clipboard on release</span>

@@ -28,6 +28,11 @@ with a file-tree drawer you drive like vim and a status bar that knows where you
   that shell's directory. Modeless vim navigation (`j`/`k`/`gg`/`G`, nvim-tree style `h`/`l`),
   type-to-filter with `/`, and file operations: `a` add, `r` rename, `d` delete (to Trash).
   Respects `.gitignore`, watches the filesystem, and follows the shell's `cd` automatically.
+- **The tree/terminal seam** — `y` inserts the selected path at the prompt, quoted and
+  relative; `cmd-click` a `path:line:col` in output to open it in `$EDITOR` at that line
+  (nvim, VS Code, emacs, Sublime, Helix dialects built in); rows are coloured by git status;
+  `cmd-p` fuzzy-finds any file under the root; `cmd-shift-r` reveals the shell's directory;
+  right-click a row to re-root, copy, or reveal in Finder; drag rows or drop files onto a pane.
 - **Scrollback search** — `cmd-f`, live and case-insensitive, `⏎`/`⇧⏎` to walk matches.
 - **Prompt jumping** — `cmd-↑`/`cmd-↓` hop between previous prompts in scrollback.
 - **Command awareness** — the shell integration's OSC 133 markers are read straight off the
@@ -100,6 +105,9 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 | `cmd-f` | search scrollback (`⏎` older, `⇧⏎` newer, `esc` close) |
 | `cmd-↑` / `cmd-↓` | jump to previous / next prompt |
 | `cmd-r` | command history (`⏎` insert, `⌘⏎` run) |
+| `cmd-p` | fuzzy file finder (`⏎` open, `⌘⏎` insert path, `⌥⏎` reveal) |
+| `cmd-shift-r` | reveal the shell's directory in the tree |
+| `cmd-click` | open a URL, or a `path:line` in `$EDITOR` |
 | `cmd-shift-c` | copy the last command's output |
 | `cmd-t` / `cmd-n` | new tab / new window |
 | `cmd-1..9` | jump to tab |
@@ -122,6 +130,8 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 | `j` `k` `gg` `G` `ctrl-d` `ctrl-u` | move |
 | `l` / `h` | expand & descend / collapse & ascend (nvim-tree semantics) |
 | `enter` / `o` | open dir, or file in `$EDITOR` |
+| `y` / `Y` | insert the path at the prompt (relative / absolute) |
+| `cmd-c` | copy the path |
 | `c` / `-` | re-root at selection / at parent (cd's the shell too) |
 | `/` | filter (`esc` clears) |
 | `a` / `r` / `d` | add (`dir/` with trailing slash) / rename / delete to Trash |

@@ -368,6 +368,21 @@ fn layout_grid(
         }
     }
 
+    // --- cmd-hover underline. ---
+    if let Some(span) = pane.hover
+        && span.row < screen_lines
+        && span.end > span.start
+    {
+        let y = origin.y + px((span.row + 1) as f32 * cell_height - 1.5);
+        layout.selection_quads.push(fill(
+            Bounds {
+                origin: point(origin.x + px(span.start as f32 * cell_width), y),
+                size: size(px((span.end - span.start) as f32 * cell_width), px(1.0)),
+            },
+            theme.foreground,
+        ));
+    }
+
     // --- Cursor. ---
     let cursor_row = cursor.point.line.0 + display_offset as i32;
     let cursor_on_screen = cursor_row >= 0 && (cursor_row as usize) < screen_lines;

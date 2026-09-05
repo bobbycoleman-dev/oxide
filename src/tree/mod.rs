@@ -5,16 +5,19 @@ pub mod watch;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::Duration;
 
 use futures::StreamExt;
+use gpui::AppContext as _;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, Context, EventEmitter, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Render, ScrollStrategy, SharedString, Styled,
-    UniformListScrollHandle, Window, div, px, uniform_list,
+    MouseButton, ParentElement, Render, ScrollStrategy, SharedString, StatefulInteractiveElement,
+    Styled, UniformListScrollHandle, Window, div, px, uniform_list,
 };
 
 use crate::config::{Config, Theme};
+use crate::git::{self, GitFileStatus};
 use crate::keymap::actions::*;
 use crate::terminal::colors::blend;
 use model::{Node, RowKind, VisibleRow, rebuild_visible, remove_subtree};
@@ -22,9 +25,51 @@ use watch::TreeWatcher;
 
 pub enum TreeEvent {
     OpenFile(PathBuf),
+    /// The user re-rooted the tree; the shell should follow.
     ChangedRoot(PathBuf),
+    /// The root changed for any reason (including following the shell);
+    /// informational, for anything that resolves paths against it.
+    RootChanged(PathBuf),
+    /// Type the quoted path at the prompt, relative to the pane's cwd when
+    /// it's beneath it unless `absolute`.
+    InsertPath { path: PathBuf, absolute: bool },
+    /// `cd` the shell to a directory without re-rooting the tree.
+    CdShell(PathBuf),
     FocusTerminal,
 }
+
+/// A row being dragged out of the tree; dropping it on a terminal pane
+/// inserts the quoted path.
+#[derive(Clone)]
+pub struct TreeDrag {
+    pub path: PathBuf,
+}
+
+/// The label that follows the pointer during a drag.
+struct DragLabel(SharedString);
+
+impl Render for DragLabel {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .bg(gpui::black())
+            .text_color(gpui::white())
+            .text_size(px(12.0))
+            .child(self.0.clone())
+    }
+}
+
+/// A right-click menu on a tree row.
+struct TreeContextMenu {
+    ix: usize,
+    position: gpui::Point<gpui::Pixels>,
+}
+
+/// How often the git decorations refresh on their own. Filesystem events
+/// and root changes refresh sooner.
+const GIT_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
 
 /// What the drawer's footer input line is collecting, when active.
 enum InputMode {
@@ -50,6 +95,14 @@ pub struct FileTree {
     filter: String,
     /// Select this path (by name) when its parent's next scan lands.
     pending_select: Option<PathBuf>,
+    /// Keep expanding towards this path as its ancestors' scans land.
+    pending_reveal: Option<PathBuf>,
+    /// Git state per absolute path, directories rolled up. Replaced
+    /// wholesale on every refresh so a render never sees a half-built map.
+    git: Rc<HashMap<PathBuf, GitFileStatus>>,
+    git_refresh_scheduled: bool,
+    git_refresh_running: bool,
+    context_menu: Option<TreeContextMenu>,
 }
 
 impl EventEmitter<TreeEvent> for FileTree {}
@@ -78,6 +131,11 @@ impl FileTree {
             input: None,
             filter: String::new(),
             pending_select: None,
+            pending_reveal: None,
+            git: Rc::new(HashMap::new()),
+            git_refresh_scheduled: false,
+            git_refresh_running: false,
+            context_menu: None,
         };
 
         if let Some((watcher, mut rx)) = watch::create() {
@@ -94,6 +152,9 @@ impl FileTree {
                                     tree.scan_dir(dir, cx);
                                 }
                             }
+                            // Anything changing on disk may change git state;
+                            // one refresh after the burst settles.
+                            tree.schedule_git_refresh(Duration::from_millis(800), cx);
                         })
                         .is_ok();
                     if !alive {
@@ -106,7 +167,168 @@ impl FileTree {
 
         this.set_root_node(root);
         this.scan_dir(this.root.clone(), cx);
+        this.refresh_git(cx);
+        // A slow heartbeat catches changes the watcher doesn't see (commits,
+        // stashes, checkouts under .git, which isn't watched).
+        cx.spawn(async move |tree, cx| {
+            loop {
+                let timer = match tree.update(cx, |_, cx| cx.background_executor().timer(GIT_REFRESH_INTERVAL)) {
+                    Ok(timer) => timer,
+                    Err(_) => break,
+                };
+                timer.await;
+                if tree.update(cx, |tree, cx| tree.refresh_git(cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
         this
+    }
+
+    // --- Git decorations ---
+
+    fn schedule_git_refresh(&mut self, delay: Duration, cx: &mut Context<Self>) {
+        if self.git_refresh_scheduled {
+            return;
+        }
+        self.git_refresh_scheduled = true;
+        let timer = cx.background_executor().timer(delay);
+        cx.spawn(async move |tree, cx| {
+            timer.await;
+            tree.update(cx, |tree, cx| {
+                tree.git_refresh_scheduled = false;
+                tree.refresh_git(cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Re-read `git status` for the root on the background pool. Outside a
+    /// repo, or when decorations are off, the map is simply empty.
+    fn refresh_git(&mut self, cx: &mut Context<Self>) {
+        if !self.config.tree.git_status {
+            if !self.git.is_empty() {
+                self.git = Rc::new(HashMap::new());
+                cx.notify();
+            }
+            return;
+        }
+        if self.git_refresh_running {
+            return;
+        }
+        self.git_refresh_running = true;
+        let root = self.root.clone();
+        let bg = cx.background_executor().clone();
+        cx.spawn(async move |tree, cx| {
+            let result = bg.spawn(async move { git::file_statuses(&root) }).await;
+            tree.update(cx, |tree, cx| {
+                tree.git_refresh_running = false;
+                let map = result.unwrap_or_default();
+                if *tree.git != map {
+                    tree.git = Rc::new(map);
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The git colour for a row, from the ANSI palette so themes carry it.
+    fn git_color(&self, path: &Path) -> Option<gpui::Hsla> {
+        let theme = &self.theme;
+        Some(match self.git.get(path)? {
+            GitFileStatus::Modified => theme.ansi[3],
+            GitFileStatus::Added => theme.ansi[2],
+            GitFileStatus::Renamed => theme.ansi[6],
+            GitFileStatus::Untracked => blend(theme.ansi[2], theme.background, 0.4),
+            GitFileStatus::Deleted => theme.ansi[1],
+            GitFileStatus::Conflicted => theme.ansi[9],
+        })
+    }
+
+    // --- Reveal ---
+
+    /// Expand and scroll to `path`, re-rooting first if it lies outside the
+    /// tree. Directories that haven't been scanned yet are expanded as their
+    /// scans land, so this may take a few round trips.
+    pub fn reveal(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if !path.exists() {
+            return;
+        }
+        if !path.starts_with(&self.root) {
+            let new_root = if path.is_dir() { path.clone() } else { path.parent().map(Path::to_path_buf).unwrap_or(path.clone()) };
+            self.set_root(new_root, cx);
+        }
+        self.filter.clear();
+        // Walk root → path, expanding each directory on the way.
+        let mut cursor = self.root.clone();
+        let Ok(rest) = path.strip_prefix(&self.root) else { return };
+        for component in rest.components() {
+            cursor = cursor.join(component);
+            if cursor == path && !path.is_dir() {
+                break;
+            }
+            match self.nodes.get(&cursor) {
+                Some(node) if node.children.is_some() => {
+                    if let Some(node) = self.nodes.get_mut(&cursor) {
+                        node.expanded = true;
+                    }
+                }
+                Some(_) => {
+                    self.pending_reveal = Some(path);
+                    self.expand_dir(cursor, cx);
+                    return;
+                }
+                None => {
+                    // Its parent hasn't been scanned yet: expanding that
+                    // parent (already on the walk) will bring it in.
+                    self.pending_reveal = Some(path);
+                    self.rebuild(cx);
+                    return;
+                }
+            }
+        }
+        self.pending_reveal = None;
+        self.rebuild(cx);
+        if let Some(ix) = self.index_of(&path) {
+            self.select(ix, cx);
+        }
+    }
+
+    // --- The tree as an input device ---
+
+    fn on_yank_path(&mut self, _: &TreeYankPath, _w: &mut Window, cx: &mut Context<Self>) {
+        if let Some(row) = self.selected_row().filter(|r| r.kind == RowKind::Entry) {
+            cx.emit(TreeEvent::InsertPath { path: row.path.clone(), absolute: false });
+        }
+    }
+
+    fn on_yank_absolute(&mut self, _: &TreeYankAbsolute, _w: &mut Window, cx: &mut Context<Self>) {
+        if let Some(row) = self.selected_row().filter(|r| r.kind == RowKind::Entry) {
+            cx.emit(TreeEvent::InsertPath { path: row.path.clone(), absolute: true });
+        }
+    }
+
+    fn on_copy_path(&mut self, _: &TreeCopyPath, _w: &mut Window, cx: &mut Context<Self>) {
+        if let Some(row) = self.selected_row().filter(|r| r.kind == RowKind::Entry) {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(row.path.to_string_lossy().to_string()));
+        }
+    }
+
+    fn on_cd_here(&mut self, _: &TreeCdHere, _w: &mut Window, cx: &mut Context<Self>) {
+        if let Some(row) = self.selected_row().filter(|r| r.kind == RowKind::Entry) {
+            let dir = if row.is_dir { row.path.clone() } else { row.path.parent().map(Path::to_path_buf).unwrap_or(row.path.clone()) };
+            cx.emit(TreeEvent::CdShell(dir));
+        }
+    }
+
+    fn on_reveal_in_finder(&mut self, _: &TreeRevealFinder, _w: &mut Window, _cx: &mut Context<Self>) {
+        if let Some(row) = self.selected_row().filter(|r| r.kind == RowKind::Entry) {
+            reveal_in_finder(&row.path);
+        }
     }
 
     pub fn set_config(&mut self, config: Rc<Config>, theme: Rc<Theme>, cx: &mut Context<Self>) {
@@ -195,6 +417,11 @@ impl FileTree {
             && let Some(ix) = self.index_of(&path)
         {
             self.select(ix, cx);
+        }
+        if let Some(target) = self.pending_reveal.take()
+            && target.starts_with(&dir)
+        {
+            self.reveal(target, cx);
         }
     }
 
@@ -330,7 +557,10 @@ impl FileTree {
             }
         }
         self.scan_dir(root, cx);
+        self.git = Rc::new(HashMap::new());
+        self.refresh_git(cx);
         self.rebuild(cx);
+        cx.emit(TreeEvent::RootChanged(self.root.clone()));
     }
 
     // --- Actions ---
@@ -388,6 +618,9 @@ impl FileTree {
         }
     }
 
+    /// `enter` / `o`: a file opens in `$EDITOR`; a directory toggles open.
+    /// (With `follow_cwd` a shell `cd` re-roots the tree, so cd-ing is left
+    /// to `c`, the context menu, and the `tree::cd` action.)
     fn on_open(&mut self, _: &TreeOpen, _w: &mut Window, cx: &mut Context<Self>) {
         self.open_row(cx);
     }
@@ -700,6 +933,12 @@ impl FileTree {
                 _ => dim,
             };
             let icon_color = if row.is_dir { theme.ansi[4] } else { dim };
+            let text_color = match (&row.kind, self.git_color(&row.path)) {
+                (RowKind::Entry, Some(color)) => color,
+                _ => text_color,
+            };
+            let drag_path = row.path.clone();
+            let drag_name: SharedString = label.clone();
             rows.push(
                 div()
                     .id(ix)
@@ -731,6 +970,20 @@ impl FileTree {
                             }
                         }),
                     )
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |tree, event: &gpui::MouseDownEvent, window, cx| {
+                            window.focus(&tree.focus_handle);
+                            tree.select(ix, cx);
+                            tree.context_menu = Some(TreeContextMenu { ix, position: event.position });
+                            cx.notify();
+                        }),
+                    )
+                    .when(row.kind == RowKind::Entry, |d| {
+                        d.on_drag(TreeDrag { path: drag_path.clone() }, move |_, _, _window, cx| {
+                            cx.new(|_| DragLabel(drag_name.clone()))
+                        })
+                    })
                     .child(div().w(px(12.0)).flex_none().text_color(dim).child(chevron))
                     .when(icons, |d| {
                         d.child(div().flex_none().text_color(icon_color).child(icon))
@@ -746,6 +999,144 @@ impl FileTree {
             );
         }
         rows
+    }
+}
+
+/// Show a path in Finder, selected.
+fn reveal_in_finder(path: &Path) {
+    let _ = std::process::Command::new("/usr/bin/open").arg("-R").arg(path).spawn();
+}
+
+impl FileTree {
+    fn render_context_menu(&self, window: &Window, cx: &Context<Self>) -> gpui::Div {
+        let Some(menu) = &self.context_menu else { return div() };
+        let Some(row) = self.visible.get(menu.ix).filter(|r| r.kind == RowKind::Entry).cloned() else {
+            return div();
+        };
+        let theme = &self.theme;
+        let panel_bg = blend(theme.background, gpui::black(), 0.2);
+        let border = blend(theme.foreground, theme.background, 0.8);
+        let mut hover_bg = theme.selection_bg;
+        hover_bg.a = 0.6;
+
+        // Keep the menu on screen when the click lands near an edge.
+        let viewport = window.viewport_size();
+        let (menu_w, menu_h) = (200.0, 150.0);
+        let x = f32::from(menu.position.x).min(f32::from(viewport.width) - menu_w - 8.0);
+        let y = f32::from(menu.position.y).min(f32::from(viewport.height) - menu_h - 8.0);
+
+        let item = |id: &'static str, label: &'static str| {
+            div()
+                .id(id)
+                .px_3()
+                .py_1()
+                .rounded_sm()
+                .cursor_pointer()
+                .hover(move |s| s.bg(hover_bg))
+                .child(label)
+        };
+        let path = row.path.clone();
+        let is_dir = row.is_dir;
+
+        div()
+            .absolute()
+            .inset_0()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|tree, _: &gpui::MouseDownEvent, _w, cx| {
+                    tree.context_menu = None;
+                    cx.notify();
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|tree, _: &gpui::MouseDownEvent, _w, cx| {
+                    tree.context_menu = None;
+                    cx.notify();
+                }),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(x))
+                    .top(px(y))
+                    .w(px(menu_w))
+                    .p_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(border)
+                    .bg(panel_bg)
+                    .shadow_lg()
+                    .flex()
+                    .flex_col()
+                    .text_size(px(13.0))
+                    .text_color(theme.foreground)
+                    .on_mouse_down(MouseButton::Left, |_: &gpui::MouseDownEvent, _w, cx| cx.stop_propagation())
+                    // A directory's first item re-roots the tree, which (with
+                    // follow_cwd) also cd's the shell — a separate "cd here"
+                    // would be indistinguishable. `tree::cd` exists for
+                    // anyone who turns follow_cwd off and wants it bound.
+                    .when(!is_dir, |d| {
+                        d.child(item("tree-menu-open", "Open in $EDITOR").on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener({
+                                let path = path.clone();
+                                move |tree, _: &gpui::MouseDownEvent, _w, cx| {
+                                    tree.context_menu = None;
+                                    cx.emit(TreeEvent::OpenFile(path.clone()));
+                                    cx.notify();
+                                }
+                            }),
+                        ))
+                    })
+                    .when(is_dir, |d| {
+                        d.child(item("tree-menu-root", "Set as tree root").on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener({
+                                let path = path.clone();
+                                move |tree, _: &gpui::MouseDownEvent, _w, cx| {
+                                    tree.context_menu = None;
+                                    tree.set_root(path.clone(), cx);
+                                    cx.emit(TreeEvent::ChangedRoot(path.clone()));
+                                }
+                            }),
+                        ))
+                    })
+                    .child(item("tree-menu-insert", "Insert path at prompt").on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener({
+                            let path = path.clone();
+                            move |tree, _: &gpui::MouseDownEvent, _w, cx| {
+                                tree.context_menu = None;
+                                cx.emit(TreeEvent::InsertPath { path: path.clone(), absolute: false });
+                                cx.notify();
+                            }
+                        }),
+                    ))
+                    .child(item("tree-menu-copy", "Copy path").on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener({
+                            let path = path.clone();
+                            move |tree, _: &gpui::MouseDownEvent, _w, cx| {
+                                tree.context_menu = None;
+                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(path.to_string_lossy().to_string()));
+                                cx.notify();
+                            }
+                        }),
+                    ))
+                    .child(div().h(px(1.0)).my_1().bg(border))
+                    .child(item("tree-menu-finder", "Reveal in Finder").on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener({
+                            let path = path.clone();
+                            move |tree, _: &gpui::MouseDownEvent, _w, cx| {
+                                tree.context_menu = None;
+                                reveal_in_finder(&path);
+                                cx.notify();
+                            }
+                        }),
+                    )),
+            )
     }
 }
 
@@ -816,7 +1207,7 @@ mod tests {
 }
 
 impl Render for FileTree {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme.clone();
         let header: SharedString = self
             .root
@@ -831,11 +1222,17 @@ impl Render for FileTree {
             .key_context(if self.input.is_some() { "FileTreeInput" } else { "FileTree" })
             .track_focus(&self.focus_handle)
             .size_full()
+            .relative()
             .flex()
             .flex_col()
             .bg(drawer_bg)
             .text_size(px(13.0))
             .on_key_down(cx.listener(Self::on_key_down))
+            .on_action(cx.listener(Self::on_yank_path))
+            .on_action(cx.listener(Self::on_yank_absolute))
+            .on_action(cx.listener(Self::on_copy_path))
+            .on_action(cx.listener(Self::on_cd_here))
+            .on_action(cx.listener(Self::on_reveal_in_finder))
             .on_action(cx.listener(Self::on_filter))
             .on_action(cx.listener(Self::on_add))
             .on_action(cx.listener(Self::on_rename))
@@ -884,5 +1281,6 @@ impl Render for FileTree {
                         .child(text),
                 )
             })
+            .when(self.context_menu.is_some(), |d| d.child(self.render_context_menu(window, cx)))
     }
 }

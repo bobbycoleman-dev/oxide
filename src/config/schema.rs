@@ -19,6 +19,18 @@ pub struct Config {
     pub keymap: KeymapConfig,
     pub notifications: NotificationsConfig,
     pub commands: CommandsConfig,
+    pub editor: EditorConfig,
+}
+
+/// How cmd-clicking a `path:line` opens the editor. Built-in mappings cover
+/// vim/nvim, VS Code and friends, emacs, sublime, and helix; anything else
+/// gets the file without a line, unless `open_at_line` says otherwise.
+#[derive(Debug, Clone, Deserialize, Default, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct EditorConfig {
+    /// A shell command with `{path}`, `{line}`, and `{col}` substituted,
+    /// e.g. `"myeditor --line {line} {path}"`. Overrides the mapping.
+    pub open_at_line: Option<String>,
 }
 
 /// Desktop notifications when a long or failed command finishes in a pane
@@ -346,6 +358,9 @@ pub struct TreeConfig {
     pub indent: f32,
     pub icons: bool,
     pub follow_cwd: bool,
+    /// Colour rows by git state (modified, added, untracked, deleted,
+    /// conflicted), rolled up onto collapsed directories.
+    pub git_status: bool,
 }
 
 impl Default for TreeConfig {
@@ -357,6 +372,7 @@ impl Default for TreeConfig {
             indent: 16.0,
             icons: true,
             follow_cwd: true,
+            git_status: true,
         }
     }
 }

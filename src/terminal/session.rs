@@ -248,12 +248,14 @@ mod tests {
             return; // cache dir unavailable in this environment
         }
         let size = TermSize { columns: 100, screen_lines: 24, cell_width: 8.0, cell_height: 16.0 };
+        let mut env = integration.env;
+        env.insert("HISTFILE".into(), "/dev/null".into());
         let options = SessionOptions {
             program: "/bin/zsh".into(),
             args: vec![],
             working_directory: Some(std::env::temp_dir()),
             scrollback: 100,
-            env: integration.env,
+            env,
         };
         let (session, mut rx) = TerminalSession::spawn(options, size).expect("spawn zsh");
         session.write_input(b"false\r".to_vec());
@@ -298,7 +300,7 @@ mod tests {
             args: vec![],
             working_directory: None,
             scrollback: 100,
-            env: HashMap::new(),
+            env: HashMap::from([("HISTFILE".to_string(), "/dev/null".to_string())]),
         };
         let (session, mut rx) = TerminalSession::spawn(options, size).expect("spawn sh");
         session.write_input(b"echo marker_free\r".to_vec());
@@ -320,7 +322,7 @@ mod tests {
             args: vec![],
             working_directory: None,
             scrollback: 100,
-            env: HashMap::new(),
+            env: HashMap::from([("HISTFILE".to_string(), "/dev/null".to_string())]),
         };
         let (session, _rx) = TerminalSession::spawn(options, size).expect("spawn pty");
         session.write_input(b"echo oxide_roundtrip_$((20+22))\r".to_vec());

@@ -191,7 +191,8 @@
                 <tr><td><kbd>cmd-shift-c</kbd></td><td>copy the last command's output</td><td><code>terminal::copy_last_output</code></td></tr>
                 <tr><td>click a gutter tick</td><td>scroll to that command</td><td></td></tr>
                 <tr><td><kbd>cmd-+</kbd> <kbd>cmd--</kbd> <kbd>cmd-0</kbd></td><td>font size up / down / reset</td><td><code>terminal::font_increase / …decrease / …reset</code></td></tr>
-                <tr><td><kbd>cmd-click</kbd></td><td>open the URL under the pointer</td><td></td></tr>
+                <tr><td><kbd>cmd-click</kbd></td><td>open the URL, or the <code>path:line</code> in your editor, under the pointer</td><td></td></tr>
+                <tr><td><kbd>cmd-p</kbd></td><td>fuzzy file finder — <kbd>⏎</kbd> open, <kbd>⌘⏎</kbd> insert path, <kbd>⌥⏎</kbd> reveal</td><td><code>app::file_finder</code></td></tr>
                 <tr><td><kbd>shift</kbd> + drag</td><td>select text even while a program grabs the mouse</td><td></td></tr>
               </tbody>
             </table>
@@ -237,6 +238,7 @@
                 <tr><td><kbd>cmd-b</kbd></td><td>show / hide the drawer</td><td><code>drawer::toggle</code></td></tr>
                 <tr><td><kbd>ctrl-w t</kbd> <span class="sep">/</span> <kbd>cmd-shift-e</kbd></td><td>focus the file tree</td><td><code>drawer::focus_tree</code></td></tr>
                 <tr><td><kbd>ctrl-w p</kbd></td><td>focus the workspaces panel</td><td><code>drawer::focus_workspaces</code></td></tr>
+                <tr><td><kbd>cmd-shift-r</kbd></td><td>reveal the shell's directory in the tree</td><td><code>drawer::reveal</code></td></tr>
                 <tr><td><kbd>tab</kbd></td><td>switch between the two panels</td><td><code>drawer::focus_workspaces / drawer::focus_tree</code></td></tr>
               </tbody>
             </table>
@@ -252,6 +254,12 @@
                 <tr><td><kbd>l</kbd> <span class="sep">/</span> <kbd>h</kbd></td><td>expand &amp; descend / collapse &amp; ascend</td><td><code>tree::expand / tree::collapse</code></td></tr>
                 <tr><td><kbd>p</kbd></td><td>select the parent directory</td><td><code>tree::parent</code></td></tr>
                 <tr><td><kbd>enter</kbd> <span class="sep">/</span> <kbd>o</kbd></td><td>open a directory, or a file in <code>$EDITOR</code></td><td><code>tree::open</code></td></tr>
+                <tr><td><kbd>y</kbd> <span class="sep">/</span> <kbd>Y</kbd></td><td>insert the path at the prompt, relative / absolute</td><td><code>tree::yank_path / tree::yank_path_absolute</code></td></tr>
+                <tr><td><kbd>cmd-c</kbd></td><td>copy the path</td><td><code>tree::copy_path</code></td></tr>
+                <tr><td><kbd>cmd-shift-o</kbd></td><td>reveal in Finder</td><td><code>tree::reveal_in_finder</code></td></tr>
+                <tr><td>right-click</td><td>open, set as root, insert path, copy path, reveal in Finder</td><td></td></tr>
+                <tr><td>—</td><td><code>cd</code> the shell to the selection without re-rooting (only differs with <code>follow_cwd = false</code>)</td><td><code>tree::cd</code></td></tr>
+                <tr><td>drag a row onto a pane</td><td>insert the path at the prompt</td><td></td></tr>
                 <tr><td><kbd>c</kbd> <span class="sep">/</span> <kbd>-</kbd></td><td>re-root at the selection / one level up</td><td><code>tree::set_root / tree::root_up</code></td></tr>
                 <tr><td><kbd>/</kbd></td><td>filter</td><td><code>tree::filter</code></td></tr>
                 <tr><td><kbd>a</kbd> <kbd>r</kbd> <kbd>d</kbd></td><td>add / rename / delete to Trash</td><td><code>tree::add / tree::rename / tree::delete</code></td></tr>
@@ -274,14 +282,15 @@
             </table>
           </div>
 
-          <h3 id="overlays">In the command palette, history, and theme picker</h3>
+          <h3 id="overlays">In the palette, history, file finder, and theme picker</h3>
           <div class="table-wrap">
             <table class="keys">
               <tbody>
                 <tr><td><kbd>↓</kbd> <kbd>↑</kbd> <span class="sep">/</span> <kbd>ctrl-n</kbd> <kbd>ctrl-p</kbd></td><td>move (the theme picker previews as you go)</td><td><code>overlay::next / overlay::prev</code></td></tr>
                 <tr><td><kbd>j</kbd> <kbd>k</kbd></td><td>move — theme picker only; the palette is typing</td><td><code>overlay::next / overlay::prev</code></td></tr>
                 <tr><td><kbd>enter</kbd></td><td>run the command / apply the theme / insert the history entry</td><td><code>overlay::confirm</code></td></tr>
-                <tr><td><kbd>cmd-enter</kbd></td><td>in history: run the entry immediately</td><td><code>overlay::confirm_alt</code></td></tr>
+                <tr><td><kbd>cmd-enter</kbd></td><td>in history: run the entry; in the file finder: insert the path</td><td><code>overlay::confirm_alt</code></td></tr>
+                <tr><td><kbd>alt-enter</kbd></td><td>in the file finder: reveal in the tree</td><td><code>overlay::confirm_reveal</code></td></tr>
                 <tr><td><kbd>esc</kbd></td><td>close, restoring focus (and the previous theme)</td><td><code>overlay::cancel</code></td></tr>
               </tbody>
             </table>

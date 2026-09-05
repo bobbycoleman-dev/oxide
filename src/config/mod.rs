@@ -138,6 +138,10 @@ respect_gitignore = true
 indent            = 16
 icons             = true      # nerd-font icons in the drawer
 follow_cwd        = true      # re-root the tree when the shell cd's
+git_status        = true      # colour rows by git state (modified, added, untracked…)
+
+# [editor]
+# open_at_line = "myeditor --line {line} {path}"   # for editors Oxide doesn't know
 
 # bell = "none"               # none | sound | visual
 # copy_on_select = false      # mouse selection copies to clipboard on release

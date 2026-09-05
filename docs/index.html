@@ -1152,10 +1152,22 @@
               <p>
                 Modeless vim navigation (<code>j</code>/<code>k</code>/<code>gg</code>/<code>G</code>,
                 nvim-tree style <code>h</code>/<code>l</code>), type-to-filter
-                with <code>/</code>, and file operations: <code>a</code> add,
-                <code>r</code> rename, <code>d</code> delete to Trash. Respects
-                <code>.gitignore</code>, watches the filesystem, and follows the
-                shell's <code>cd</code> automatically.
+                with <code>/</code>, file operations (<code>a</code> add,
+                <code>r</code> rename, <code>d</code> delete to Trash), and rows
+                coloured by git status. Respects <code>.gitignore</code>,
+                watches the filesystem, and follows the shell's
+                <code>cd</code> automatically.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Tree ⇄ terminal</h3>
+              <p>
+                <code>y</code> types the selected path at the prompt, quoted
+                and relative; drag a row onto a pane for the same.
+                <code>cmd-click</code> a <code>path:line</code> in output to
+                open it in <code>$EDITOR</code> at that line.
+                <code>cmd-p</code> fuzzy-finds any file under the root, and
+                <code>cmd-shift-r</code> reveals where the shell is.
               </p>
             </div>
             <div class="card">
@@ -1242,19 +1254,12 @@
               </p>
             </div>
             <div class="card">
-              <h3>Updates itself</h3>
-              <p>
-                Installed copies check for new releases on launch and every six
-                hours, download in the background, and swap themselves in on one
-                click. Every build is Developer ID signed, notarized, and
-                stapled.
-              </p>
-            </div>
-            <div class="card">
               <h3>The details</h3>
               <p>
-                Window size and position persistence, <code>cmd-click</code> to
-                open URLs, copy-on-select, font size at runtime
+                Installed copies check for releases, download in the
+                background, and swap themselves in on one click — every build
+                Developer ID signed and notarized. Plus window size and position
+                persistence, copy-on-select, font size at runtime
                 (<code>cmd +/-/0</code>), a configurable bell, and a blinking
                 cursor that pauses while you type.
               </p>
@@ -1297,8 +1302,11 @@
                     <td>resize the pane / equalise</td>
                   </tr>
                   <tr>
-                    <td><kbd>cmd-shift-p</kbd></td>
-                    <td>command palette</td>
+                    <td>
+                      <kbd>cmd-shift-p</kbd><span class="kbd-sep">/</span
+                      ><kbd>cmd-p</kbd>
+                    </td>
+                    <td>command palette / file finder</td>
                   </tr>
                   <tr>
                     <td><kbd>cmd-b</kbd></td>

@@ -93,6 +93,8 @@ pub static DEFAULTS: &[DefaultBinding] = &[
     b("cmd-k cmd-t", "app::select_theme", Root),
     b("cmd-shift-p", "app::palette", Root),
     b("cmd-k cmd-p", "app::palette", Root),
+    b("cmd-p", "app::file_finder", Root),
+    b("cmd-shift-r", "drawer::reveal", Root),
     b("cmd-,", "app::settings", Root),
     // Overlay — any modal list. Arrows and emacs-style ctrl-n/p move; the
     // palette has a text input, so bare letters must stay free for typing.
@@ -102,6 +104,7 @@ pub static DEFAULTS: &[DefaultBinding] = &[
     b("ctrl-p", "overlay::prev", Overlay),
     b("enter", "overlay::confirm", Overlay),
     b("cmd-enter", "overlay::confirm_alt", Overlay),
+    b("alt-enter", "overlay::confirm_reveal", Overlay),
     b("escape", "overlay::cancel", Overlay),
     // OverlayList — modal lists with no text input (the theme picker), where
     // vim keys are free.
@@ -131,6 +134,11 @@ pub static DEFAULTS: &[DefaultBinding] = &[
     b("a", "tree::add", FileTree),
     b("r", "tree::rename", FileTree),
     b("d", "tree::delete", FileTree),
+    // The tree as an input device: hand the selection to the shell.
+    b("y", "tree::yank_path", FileTree),
+    b("shift-y", "tree::yank_path_absolute", FileTree),
+    b("cmd-c", "tree::copy_path", FileTree),
+    b("cmd-shift-o", "tree::reveal_in_finder", FileTree),
     // escape is a dismiss chain: clear filter/input first, else focus terminal.
     b("escape", "tree::escape", FileTree),
     // tab hops between the drawer's two panels.

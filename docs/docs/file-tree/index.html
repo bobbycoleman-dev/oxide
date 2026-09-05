@@ -168,6 +168,18 @@
                   <td>open — a directory expands, a file opens in your editor</td>
                 </tr>
                 <tr>
+                  <td><kbd>y</kbd> <span class="sep">/</span> <kbd>Y</kbd></td>
+                  <td>insert the selection's path at the prompt — relative to the shell's directory, or absolute</td>
+                </tr>
+                <tr>
+                  <td><kbd>cmd-c</kbd></td>
+                  <td>copy the path</td>
+                </tr>
+                <tr>
+                  <td><kbd>cmd-shift-o</kbd></td>
+                  <td>reveal in Finder</td>
+                </tr>
+                <tr>
                   <td><kbd>I</kbd></td>
                   <td>toggle hidden files for this session</td>
                 </tr>
@@ -197,8 +209,62 @@
             nothing lands in your shell history — you just get the editor. Only
             the shell knows what <code>$EDITOR</code> is, which is why this goes
             through the shell at all. Without
-            <a class="link" href="/docs/prompt/">shell integration</a>, the
-            command is typed at the prompt visibly instead.
+            <a class="link" href="/docs/prompt/">shell integration</a> there's
+            no silent channel to the shell, so Oxide reveals the file in the
+            tree instead and says why in a banner.
+          </p>
+          <p>
+            The other direction works too: <kbd>cmd-click</kbd> a
+            <code>path:line:col</code> in terminal output — a compiler error, a
+            <code>grep -n</code> hit, a stack frame — and the file opens at
+            that line. See
+            <a class="link" href="/docs/terminal/#file-links">file links</a>.
+          </p>
+
+          <h2 id="into-the-shell">The tree as an input device</h2>
+          <p>
+            The tree isn't only a viewer. <kbd>y</kbd> types the selected path
+            at the prompt, single-quoted so a space in a name stays one
+            argument, and relative to the shell's directory when the file is
+            beneath it (<code>src/main.rs</code>, not the full path).
+            <kbd>Y</kbd> always inserts the absolute path. Nothing is submitted:
+            you decide what command wraps it. Dragging a row onto a pane does
+            the same, and so does dropping files from Finder.
+          </p>
+          <p>
+            Right-click any row for the same things as a menu: open a file,
+            set a directory as the tree root, insert the path, copy it, or
+            reveal it in Finder.
+          </p>
+
+          <h2 id="git">Git state</h2>
+          <p>
+            Inside a repository, rows are coloured by their git status:
+            modified in yellow, added in green, untracked in dim green,
+            renamed in cyan, deleted in red, conflicted in bright red. A
+            collapsed directory takes the most urgent state of anything
+            beneath it, so a folded <code>src/</code> still shows something
+            changed inside. Colours come from the theme's ANSI palette.
+          </p>
+          <p>
+            The status refreshes when the tree's watcher sees a change, when
+            the root moves, and on a slow heartbeat for things the watcher
+            can't see (commits and checkouts). Repositories with more than
+            twenty thousand changed paths get no decorations rather than a
+            stall. <code>tree.git_status = false</code> turns it off.
+          </p>
+
+          <h2 id="reveal">Finding your place</h2>
+          <p>
+            <kbd>cmd-shift-r</kbd> expands and scrolls the tree to the focused
+            shell's directory, re-rooting first if it lies outside the tree.
+            <kbd>cmd-p</kbd> opens a fuzzy file finder over everything under
+            the root (respecting the same gitignore and hidden-file rules as
+            the drawer): <kbd>enter</kbd> opens the file in your editor,
+            <kbd>cmd-enter</kbd> inserts its path at the prompt, and
+            <kbd>opt-enter</kbd> reveals it in the tree. Matches in the file
+            name rank above matches in its directories, shallow paths rank
+            above deep ones, and recently opened files float up.
           </p>
 
           <h2 id="filtering">Filtering</h2>

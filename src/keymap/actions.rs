@@ -14,6 +14,7 @@ oxide_actions! {
     OpenSettings    => "app::settings",          "Open Settings",           "Application", ["config", "preferences"], Root;
     SelectTheme     => "app::select_theme",      "Select Theme",            "Application", ["colors", "preset"], Root;
     CommandPalette  => "app::palette",           "Command Palette",         "Application", ["commands"], Root;
+    FileFinder      => "app::file_finder",       "Find File",               "Application", ["fuzzy", "open", "cmd-p"], Root;
     Hide            => "app::hide",              "Hide Oxide",              "Application", [], Root;
     HideOthers      => "app::hide_others",       "Hide Others",             "Application", [], Root;
     OpenHelp        => "app::help",              "Open Help",               "Application", ["docs"], Root;
@@ -81,6 +82,7 @@ oxide_actions! {
     FocusTerminal   => "drawer::focus_terminal",   "Focus Terminal",          "Drawer", [], Root;
     FocusToggle     => "drawer::focus_toggle",     "Toggle Focus: Drawer / Terminal", "Drawer", [], Root;
     FocusWorkspaces => "drawer::focus_workspaces", "Focus Workspaces Panel",  "Drawer", [], Root;
+    RevealInTree    => "drawer::reveal",           "Reveal Current Directory in Tree", "Drawer", ["locate", "find in tree"], Root;
 
     // --- Workspaces ---
     NewWorkspace    => "workspace::new",            "New Workspace",              "Workspace", [], Root;
@@ -113,11 +115,17 @@ oxide_actions! {
     TreeRename       => "tree::rename",         "Tree: Rename",              "File Tree", [], FileTree;
     TreeDelete       => "tree::delete",         "Tree: Delete to Trash",     "File Tree", ["remove"], FileTree;
     TreeEscape       => "tree::escape",         "Tree: Dismiss",             "File Tree", [], FileTree;
+    TreeYankPath     => "tree::yank_path",      "Tree: Insert Path at Prompt", "File Tree", ["paste", "relative"], FileTree;
+    TreeYankAbsolute => "tree::yank_path_absolute", "Tree: Insert Absolute Path at Prompt", "File Tree", ["paste"], FileTree;
+    TreeCopyPath     => "tree::copy_path",      "Tree: Copy Path",           "File Tree", ["clipboard"], FileTree;
+    TreeCdHere       => "tree::cd",             "Tree: cd the Shell Here",   "File Tree", ["change directory"], FileTree;
+    TreeRevealFinder => "tree::reveal_in_finder", "Tree: Reveal in Finder",  "File Tree", ["open in finder"], FileTree;
 
     // --- Overlay navigation (theme picker, palette) ---
     PickerNext    => "overlay::next",    "Overlay: Next Item",     "Overlay", [], Overlay;
     PickerPrev    => "overlay::prev",    "Overlay: Previous Item", "Overlay", [], Overlay;
     PickerConfirm => "overlay::confirm", "Overlay: Confirm",       "Overlay", [], Overlay;
     PickerConfirmAlt => "overlay::confirm_alt", "Overlay: Confirm (alternate)", "Overlay", ["run"], Overlay;
+    PickerConfirmReveal => "overlay::confirm_reveal", "Overlay: Reveal in Tree", "Overlay", [], Overlay;
     PickerCancel  => "overlay::cancel",  "Overlay: Cancel",        "Overlay", [], Overlay;
 }

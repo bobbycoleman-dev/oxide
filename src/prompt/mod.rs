@@ -387,10 +387,14 @@ pub fn generate_init_bash(prompt: &PromptConfig, style_prompt: bool, emit_cmdlin
     let style_prompt_flag = if style_prompt { 1 } else { 0 };
     // $BASH_COMMAND is only the first simple command of a line; the history
     // entry (added before execution) is the whole line, the bash-preexec
-    // trick. Strip the leading number and any control characters.
+    // trick. But history can lie — HISTCONTROL drops duplicates, and shared
+    // history files let other shells' lines in — so the entry is only
+    // trusted when it contains the command bash says it's about to run.
+    // Strip the leading number and any control characters.
     let command_start = if emit_cmdline {
         r#"local __c; __c=$(HISTTIMEFORMAT= builtin history 1 2>/dev/null)
     __c="${__c#"${__c%%[![:space:]]*}"}"; __c="${__c#*[[:space:]]}"; __c="${__c#"${__c%%[![:space:]]*}"}"
+    [[ "$__c" == *"$BASH_COMMAND"* ]] || __c="$BASH_COMMAND"
     printf '\033]133;C;cmdline=%s\033\\' "${__c//[[:cntrl:]]/ }""#
     } else {
         r#"printf '\033]133;C\033\\'"#
@@ -628,7 +632,7 @@ mod tests {
             args: vec![],
             working_directory: std::env::current_dir().ok(),
             scrollback: 100,
-            env: integration.env,
+            env: { let mut e = integration.env; e.insert("HISTFILE".into(), "/dev/null".into()); e },
         };
         let (session, _rx) = TerminalSession::spawn(options, size).expect("spawn zsh");
 
@@ -719,7 +723,7 @@ mod cd_tests {
             args,
             working_directory: Some("/Users/bobby/Developer/oxide".into()),
             scrollback: 100,
-            env: integration.env.clone(),
+            env: { let mut e = integration.env.clone(); e.insert("HISTFILE".into(), "/dev/null".into()); e },
         };
         let (session, _rx) = TerminalSession::spawn(options, size).expect("spawn bash");
         std::thread::sleep(Duration::from_millis(1500)); // let rc files load
@@ -833,7 +837,7 @@ mod run_tests {
             args,
             working_directory: Some(dir.clone()),
             scrollback: 100,
-            env: integration.env.clone(),
+            env: { let mut e = integration.env.clone(); e.insert("HISTFILE".into(), "/dev/null".into()); e },
         };
         let (session, _rx) = TerminalSession::spawn(options, size).expect("spawn shell");
         std::thread::sleep(Duration::from_millis(1500)); // let rc files load

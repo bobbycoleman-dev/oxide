@@ -272,6 +272,34 @@
             nothing from your prompt.
           </p>
 
+          <h2 id="file-links">File links</h2>
+          <p>
+            Hold <kbd>cmd</kbd> and the token under the pointer underlines if
+            it's something Oxide can open; click to open it.
+            <code>src/main.rs:42:8</code> from <code>cargo</code>,
+            <code>path:42:</code> from <code>grep -n</code>, or
+            <code>at foo.rs:88</code> in a stack trace all open the file in
+            <code>$EDITOR</code> at that line. A directory points the tree
+            there instead.
+          </p>
+          <p>
+            Relative paths are tried against the pane's directory, then the
+            repository root (tools print repo-relative paths from
+            subdirectories), then the tree's root; absolute and
+            <code>~</code> paths are taken as they are. Nothing searches the
+            tree for a bare file name — opening the wrong <code>mod.rs</code>
+            is worse than opening nothing.
+          </p>
+          <p>
+            The line-number flag isn't universal, so the shell picks the form
+            from <code>$EDITOR</code>'s name: <code>+42</code> for vim and
+            nvim, <code>--goto path:42:8</code> for VS Code, Cursor, and Zed,
+            <code>+42:8</code> for emacs, <code>path:42:8</code> for Sublime
+            and Helix. Anything else gets the file without a line, unless
+            <a class="link" href="/docs/configuration/#editor">[editor]</a>
+            says how.
+          </p>
+
           <h2 id="urls">URLs</h2>
           <p>
             <kbd>cmd-click</kbd> opens a URL in your browser. An explicit OSC 8

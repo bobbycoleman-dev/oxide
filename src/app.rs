@@ -18,6 +18,7 @@ use crate::keymap::actions::*;
 use crate::keymap::registry::{self, ActionContext, ActionMeta};
 use crate::keymap::resolve::pretty_keys;
 use crate::keymap::{self, ResolvedKeymap};
+use crate::git::{GitStatus, read_git_status};
 use crate::notifications;
 use crate::palette::{self, PaletteItem};
 use crate::terminal::colors::blend;
@@ -101,6 +102,10 @@ pub struct Oxide {
     ticking: bool,
     /// Notification route keys → the pane a click should focus.
     notification_routes: HashMap<notifications::RouteKey, PaneId>,
+    finder_index: Option<FinderIndex>,
+    finder_indexing: bool,
+    /// Files opened through the finder or cmd-click, newest first.
+    recent_files: VecDeque<PathBuf>,
     status_bar_override: Option<bool>,
     update: UpdateState,
     _config_watcher: Option<notify_debouncer_full::Debouncer<notify::RecommendedWatcher, notify_debouncer_full::FileIdMap>>,
@@ -113,6 +118,43 @@ enum Overlay {
     Palette(PaletteState),
     ThemePicker(ThemePicker),
     History(HistoryState),
+    FileFinder(FinderState),
+}
+
+/// Every file under the tree root, as root-relative strings, walked once
+/// on the background pool and kept until the root changes or it goes stale.
+struct FinderIndex {
+    root: PathBuf,
+    entries: Rc<Vec<String>>,
+    truncated: bool,
+    built: Instant,
+}
+
+/// The index is rebuilt when opened this long after it was walked.
+const FINDER_INDEX_TTL: Duration = Duration::from_secs(30);
+/// Entries beyond this are dropped, with a note in the overlay.
+const FINDER_INDEX_CAP: usize = 100_000;
+
+struct FinderMatch {
+    entry: usize,
+    highlights: Vec<usize>,
+    score: i32,
+}
+
+struct FinderState {
+    query: String,
+    matches: Vec<FinderMatch>,
+    selected: usize,
+    scroll: usize,
+    return_focus: FocusTarget,
+}
+
+/// What confirming a file-finder row does.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FinderAction {
+    Open,
+    Insert,
+    Reveal,
 }
 
 /// One row of command history, gathered across every pane.
@@ -200,66 +242,6 @@ enum UpdateState {
     Ready { version: String, dmg: PathBuf },
 }
 
-#[derive(Default, Clone, PartialEq)]
-struct GitStatus {
-    branch: Option<String>,
-    dirty: bool,
-    ahead: u32,
-    behind: u32,
-}
-
-/// Whether invoking `git` is safe. On a Mac without the Command Line Tools,
-/// /usr/bin/git is a shim that pops Apple's "Install Developer Tools?" GUI —
-/// our 3-second status poll must never be the thing that triggers it.
-fn git_usable() -> bool {
-    static USABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *USABLE.get_or_init(|| {
-        let Ok(out) = std::process::Command::new("/bin/sh")
-            .args(["-c", "command -v git"])
-            .output()
-        else {
-            return false;
-        };
-        if !out.status.success() {
-            return false;
-        }
-        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if cfg!(target_os = "macos") && path == "/usr/bin/git" {
-            return std::process::Command::new("/usr/bin/xcode-select")
-                .arg("-p")
-                .output()
-                .is_ok_and(|o| o.status.success());
-        }
-        true
-    })
-}
-
-/// Blocking git queries — run on the background pool only.
-fn read_git_status(cwd: &PathBuf) -> GitStatus {
-    if !git_usable() {
-        return GitStatus::default();
-    }
-    let git = |args: &[&str]| -> Option<String> {
-        let out = std::process::Command::new("git").arg("-C").arg(cwd).args(args).output().ok()?;
-        out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
-    };
-    let Some(branch) = git(&["symbolic-ref", "--short", "HEAD"])
-        .or_else(|| git(&["rev-parse", "--short", "HEAD"]))
-        .filter(|b| !b.is_empty())
-    else {
-        return GitStatus::default();
-    };
-    let dirty = git(&["status", "--porcelain", "--untracked-files=no"])
-        .map(|s| !s.is_empty())
-        .unwrap_or(false);
-    let (ahead, behind) = git(&["rev-list", "--left-right", "--count", "HEAD...@{upstream}"])
-        .and_then(|s| {
-            let (a, b) = s.split_once('\t')?;
-            Some((a.parse().ok()?, b.parse().ok()?))
-        })
-        .unwrap_or((0, 0));
-    GitStatus { branch: Some(branch), dirty, ahead, behind }
-}
 
 pub fn home_dir() -> Option<PathBuf> {
     directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf())
@@ -302,11 +284,43 @@ fn single_quote(s: &str) -> String {
 /// error, so it goes to /bin/sh instead. That costs a non-exported $EDITOR —
 /// worth it only where the direct form cannot run at all.
 fn edit_file_command(path: &PathBuf, shell: &str) -> String {
+    editor_command(path, None, shell, None)
+}
+
+/// The Bourne snippet that opens `path_expr` (an already-quoted path, or a
+/// `"$1"`-style reference) in `$EDITOR`, jumping to a line when the editor
+/// is one whose flag we know. Only the shell knows what `$EDITOR` is, so the
+/// mapping happens there, on the program name.
+fn editor_snippet(path_expr: &str, at: Option<(u32, Option<u32>)>, override_cmd: Option<&str>) -> String {
+    let Some((line, col)) = at else {
+        return format!("if [ -n \"${{EDITOR:-}}\" ]; then $EDITOR {path_expr}; else open -t {path_expr}; fi");
+    };
+    if let Some(template) = override_cmd {
+        return template
+            .replace("{path}", path_expr)
+            .replace("{line}", &line.to_string())
+            .replace("{col}", &col.unwrap_or(1).to_string());
+    }
+    let colspec = col.map(|c| format!(":{c}")).unwrap_or_default();
+    let vim = match col {
+        Some(c) => format!("\"+call cursor({line},{c})\" {path_expr}"),
+        None => format!("+{line} {path_expr}"),
+    };
+    format!(
+        "if [ -n \"${{EDITOR:-}}\" ]; then case \"${{EDITOR##*/}}\" in \
+         vim*|nvim*|vi|view) $EDITOR {vim};; \
+         code*|cursor*|zed*|codium*) $EDITOR --goto {path_expr}:{line}{colspec};; \
+         emacs*) $EDITOR +{line}{colspec} {path_expr};; \
+         subl*|hx*|micro*) $EDITOR {path_expr}:{line}{colspec};; \
+         *) $EDITOR {path_expr};; esac; else open -t {path_expr}; fi"
+    )
+}
+
+/// Open a file in the user's editor, optionally at a line and column.
+fn editor_command(path: &PathBuf, at: Option<(u32, Option<u32>)>, shell: &str, override_cmd: Option<&str>) -> String {
     let quoted = shell_quote(path);
     if crate::terminal::session::is_posix_shell(shell) {
-        return format!(
-            "if [ -n \"${{EDITOR:-}}\" ]; then $EDITOR {quoted}; else open -t {quoted}; fi"
-        );
+        return editor_snippet(&quoted, at, override_cmd);
     }
     // A path no shell can quote goes through a file instead, so the line typed
     // at the prompt holds no path text at all. Slower and less legible, so it
@@ -314,18 +328,17 @@ fn edit_file_command(path: &PathBuf, shell: &str) -> String {
     if path_needs_indirection(path)
         && let Some(name) = crate::prompt::integration::write_edit_target(path)
     {
+        let body = editor_snippet("\"$p\"", at, override_cmd).replace('\'', "'\\''");
         return format!(
-            "/bin/sh -c 'f=\"$HOME/.cache/oxide/edit/{name}\"; p=$(cat \"$f\"); rm -f \"$f\"; \
-             if [ -n \"${{EDITOR:-}}\" ]; then $EDITOR \"$p\"; else open -t \"$p\"; fi'"
+            "/bin/sh -c 'f=\"$HOME/.cache/oxide/edit/{name}\"; p=$(cat \"$f\"); rm -f \"$f\"; {body}'"
         );
     }
     // Otherwise the path goes to /bin/sh as an argument rather than
     // interpolated into the script, so the script itself contains no single
     // quotes and the outer token stays a plain single-quoted string — which
     // fish, csh, and nushell all agree on.
-    format!(
-        "/bin/sh -c 'if [ -n \"${{EDITOR:-}}\" ]; then $EDITOR \"$1\"; else open -t \"$1\"; fi' oxide {quoted}"
-    )
+    let body = editor_snippet("\"$1\"", at, override_cmd).replace('\'', "'\\''");
+    format!("/bin/sh -c '{body}' oxide {quoted}")
 }
 
 /// Characters that no single quoting style survives across every shell at
@@ -432,6 +445,9 @@ impl Oxide {
             fail_flash: HashMap::new(),
             ticking: false,
             notification_routes: HashMap::new(),
+            finder_index: None,
+            finder_indexing: false,
+            recent_files: VecDeque::new(),
             status_bar_override: None,
             update: UpdateState::Idle,
             _config_watcher: config_watcher,
@@ -609,6 +625,8 @@ impl Oxide {
         self.next_pane_id += 1;
         let (config, theme) = (self.config.clone(), self.theme.clone());
         let pane = cx.new(|cx| TerminalPane::new(config, theme, cwd, cx));
+        let tree_root = self.tree.read(cx).root.clone();
+        pane.update(cx, |t, _| t.tree_root = Some(tree_root));
         let subscription = cx.subscribe_in(&pane, window, Self::on_terminal_event);
         self.panes.insert(id, pane);
         self.pane_subscriptions.insert(id, subscription);
@@ -1076,13 +1094,25 @@ impl Oxide {
     ) {
         match event {
             TreeEvent::OpenFile(path) => {
-                let command = edit_file_command(path, &self.shell_program());
-                self.active_pane().update(cx, |t, _| t.run_command(&command));
-                self.focus_terminal(Some(window), cx);
+                let path = path.clone();
+                self.open_in_editor(&path, None, window, cx);
             }
             TreeEvent::ChangedRoot(path) => {
                 let path = path.clone();
                 self.active_pane().update(cx, |t, _| t.request_cd(&path));
+            }
+            TreeEvent::RootChanged(root) => {
+                let root = root.clone();
+                self.for_each_pane(cx, |t, _| t.tree_root = Some(root.clone()));
+            }
+            TreeEvent::InsertPath { path, absolute } => {
+                let (path, absolute) = (path.clone(), *absolute);
+                self.active_pane().update(cx, |t, _| t.insert_path(&path, absolute));
+                self.focus_terminal(Some(window), cx);
+            }
+            TreeEvent::CdShell(dir) => {
+                let dir = dir.clone();
+                self.active_pane().update(cx, |t, _| t.request_cd(&dir));
             }
             TreeEvent::FocusTerminal => self.focus_terminal(Some(window), cx),
         }
@@ -1161,6 +1191,16 @@ impl Oxide {
             TerminalEvent::Notify { title, body } => {
                 let route = self.pane_id_of(emitter).map(|id| self.route_for(id));
                 notifications::post(title.as_deref().unwrap_or("Oxide"), body, route);
+            }
+            TerminalEvent::OpenPath { path, line, col } => {
+                let (path, at) = (path.clone(), line.map(|l| (l, *col)));
+                self.open_in_editor(&path, at, window, cx);
+            }
+            TerminalEvent::RevealDir(dir) => {
+                let dir = dir.clone();
+                self.drawer_visible = true;
+                self.tree.update(cx, |tree, cx| tree.set_root(dir, cx));
+                cx.notify();
             }
             TerminalEvent::CwdChanged(cwd) => {
                 // Background panes change directory too; only the focused one
@@ -1317,6 +1357,7 @@ impl Oxide {
             Overlay::Palette(p) => p.return_focus,
             Overlay::ThemePicker(t) => t.return_focus,
             Overlay::History(h) => h.return_focus,
+            Overlay::FileFinder(f) => f.return_focus,
         };
         self.restore_focus(target, window, cx);
         cx.notify();
@@ -1327,6 +1368,7 @@ impl Oxide {
             Some(Overlay::ThemePicker(_)) => self.picker_move(delta, cx),
             Some(Overlay::Palette(_)) => self.palette_move(delta, cx),
             Some(Overlay::History(_)) => self.history_move(delta, cx),
+            Some(Overlay::FileFinder(_)) => self.finder_move(delta, cx),
             None => {}
         }
     }
@@ -1336,6 +1378,7 @@ impl Oxide {
             Some(Overlay::ThemePicker(_)) => self.picker_confirm(window, cx),
             Some(Overlay::Palette(_)) => self.palette_confirm(window, cx),
             Some(Overlay::History(_)) => self.history_confirm(false, window, cx),
+            Some(Overlay::FileFinder(_)) => self.finder_confirm(FinderAction::Open, window, cx),
             None => {}
         }
     }
@@ -1345,6 +1388,15 @@ impl Oxide {
     fn overlay_confirm_alt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match &self.overlay {
             Some(Overlay::History(_)) => self.history_confirm(true, window, cx),
+            Some(Overlay::FileFinder(_)) => self.finder_confirm(FinderAction::Insert, window, cx),
+            _ => self.overlay_confirm(window, cx),
+        }
+    }
+
+    /// alt-enter: reveal in the tree, where that means something.
+    fn overlay_confirm_reveal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match &self.overlay {
+            Some(Overlay::FileFinder(_)) => self.finder_confirm(FinderAction::Reveal, window, cx),
             _ => self.overlay_confirm(window, cx),
         }
     }
@@ -1352,7 +1404,7 @@ impl Oxide {
     fn overlay_cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match &self.overlay {
             Some(Overlay::ThemePicker(_)) => self.picker_cancel(window, cx),
-            Some(Overlay::Palette(_) | Overlay::History(_)) => self.close_overlay(window, cx),
+            Some(Overlay::Palette(_) | Overlay::History(_) | Overlay::FileFinder(_)) => self.close_overlay(window, cx),
             None => {}
         }
     }
@@ -1362,6 +1414,7 @@ impl Oxide {
         match &mut self.overlay {
             Some(Overlay::Palette(p)) => Some(&mut p.query),
             Some(Overlay::History(h)) => Some(&mut h.query),
+            Some(Overlay::FileFinder(f)) => Some(&mut f.query),
             _ => None,
         }
     }
@@ -1516,7 +1569,7 @@ impl Oxide {
                 self.picker_cancel(window, cx);
                 self.open_palette(window, cx);
             }
-            Some(Overlay::History(_)) => {
+            Some(Overlay::History(_) | Overlay::FileFinder(_)) => {
                 self.close_overlay(window, cx);
                 self.open_palette(window, cx);
             }
@@ -1627,10 +1680,291 @@ impl Oxide {
         match &self.overlay {
             Some(Overlay::Palette(_)) => self.palette_refresh(),
             Some(Overlay::History(_)) => self.history_refresh(cx),
+            Some(Overlay::FileFinder(_)) => self.finder_refresh(),
             _ => {}
         }
         cx.stop_propagation();
         cx.notify();
+    }
+
+    // --- File finder (cmd-p) ---
+
+    fn toggle_finder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match &self.overlay {
+            Some(Overlay::FileFinder(_)) => self.close_overlay(window, cx),
+            Some(Overlay::ThemePicker(_)) => {
+                self.picker_cancel(window, cx);
+                self.open_finder(window, cx);
+            }
+            Some(_) => {
+                self.close_overlay(window, cx);
+                self.open_finder(window, cx);
+            }
+            None => self.open_finder(window, cx),
+        }
+    }
+
+    fn open_finder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let return_focus = self.current_focus_target(window, cx);
+        self.overlay = Some(Overlay::FileFinder(FinderState {
+            query: String::new(),
+            matches: Vec::new(),
+            selected: 0,
+            scroll: 0,
+            return_focus,
+        }));
+        self.ensure_finder_index(cx);
+        self.finder_refresh();
+        window.focus(&self.picker_focus);
+        cx.notify();
+    }
+
+    /// Walk the tree root on the background pool unless a fresh index for
+    /// it already exists. Uses the tree's own gitignore/hidden settings so
+    /// results match what the drawer shows.
+    fn ensure_finder_index(&mut self, cx: &mut Context<Self>) {
+        let root = self.tree.read(cx).root.clone();
+        let fresh = self
+            .finder_index
+            .as_ref()
+            .is_some_and(|ix| ix.root == root && ix.built.elapsed() < FINDER_INDEX_TTL);
+        if fresh || self.finder_indexing {
+            return;
+        }
+        self.finder_indexing = true;
+        let respect_gitignore = self.config.tree.respect_gitignore;
+        let show_hidden = self.config.tree.show_hidden;
+        let bg = cx.background_executor().clone();
+        cx.spawn(async move |this, cx| {
+            let walk_root = root.clone();
+            let (entries, truncated) = bg
+                .spawn(async move { walk_files(&walk_root, respect_gitignore, show_hidden) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.finder_indexing = false;
+                this.finder_index = Some(FinderIndex { root, entries: Rc::new(entries), truncated, built: Instant::now() });
+                this.finder_refresh();
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn finder_refresh(&mut self) {
+        let recent: Vec<PathBuf> = self.recent_files.iter().cloned().collect();
+        let Some(index) = &self.finder_index else {
+            if let Some(Overlay::FileFinder(f)) = &mut self.overlay {
+                f.matches.clear();
+            }
+            return;
+        };
+        let root = index.root.clone();
+        let entries = index.entries.clone();
+        let Some(Overlay::FileFinder(f)) = &mut self.overlay else { return };
+        let query = f.query.trim().to_string();
+        let mut matches: Vec<FinderMatch> = entries
+            .iter()
+            .enumerate()
+            .filter_map(|(ix, rel)| {
+                let m = palette::fuzzy_match(&query, rel)?;
+                let mut score = m.score;
+                if !query.is_empty() {
+                    // Matches inside the file name beat matches in the
+                    // directories above it; shallow paths beat deep ones.
+                    let base_start = rel.rfind('/').map(|i| i + 1).unwrap_or(0);
+                    if m.positions.iter().all(|&p| p >= base_start) {
+                        score += 8;
+                    }
+                    score -= rel.matches('/').count() as i32;
+                }
+                if let Some(pos) = recent.iter().position(|r| r.strip_prefix(&root).map(|p| p.to_string_lossy() == *rel).unwrap_or(false)) {
+                    score += 20 - pos.min(10) as i32;
+                }
+                Some(FinderMatch { entry: ix, highlights: m.positions, score })
+            })
+            .collect();
+        matches.sort_by(|a, b| b.score.cmp(&a.score).then(a.entry.cmp(&b.entry)));
+        matches.truncate(500);
+        f.matches = matches;
+        f.selected = 0;
+        f.scroll = 0;
+    }
+
+    fn finder_move(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let Some(Overlay::FileFinder(f)) = &mut self.overlay else { return };
+        let n = f.matches.len();
+        if n == 0 {
+            return;
+        }
+        f.selected = (f.selected as isize + delta).rem_euclid(n as isize) as usize;
+        if f.selected < f.scroll {
+            f.scroll = f.selected;
+        } else if f.selected >= f.scroll + PALETTE_ROWS {
+            f.scroll = f.selected + 1 - PALETTE_ROWS;
+        }
+        cx.notify();
+    }
+
+    fn finder_confirm(&mut self, action: FinderAction, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(Overlay::FileFinder(f)) = &self.overlay else { return };
+        let Some(index) = &self.finder_index else { return };
+        let Some(m) = f.matches.get(f.selected) else { return };
+        let path = index.root.join(&index.entries[m.entry]);
+        self.close_overlay(window, cx);
+        match action {
+            FinderAction::Open => self.open_in_editor(&path, None, window, cx),
+            FinderAction::Insert => {
+                self.active_pane().update(cx, |t, _| t.insert_path(&path, false));
+                self.focus_terminal(Some(window), cx);
+            }
+            FinderAction::Reveal => {
+                self.drawer_visible = true;
+                self.tree.update(cx, |tree, cx| tree.reveal(path, cx));
+                self.focus_tree(Some(window), cx);
+            }
+        }
+    }
+
+    fn render_finder_body(&self, f: &FinderState, cx: &Context<Self>) -> gpui::Div {
+        let theme = &self.theme;
+        let accent = theme.ansi[4];
+        let dim = blend(theme.foreground, theme.background, 0.45);
+        let border = blend(theme.foreground, theme.background, 0.85);
+        let root_name = self
+            .finder_index
+            .as_ref()
+            .and_then(|ix| ix.root.file_name().map(|n| n.to_string_lossy().to_string()))
+            .unwrap_or_default();
+
+        let input = div()
+            .flex_none()
+            .px_3()
+            .py_2()
+            .border_b_1()
+            .border_color(border)
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(div().text_color(accent).child(format!("{root_name}/")))
+            .child(if f.query.is_empty() {
+                div().flex_1().text_color(dim).child("▏find a file…")
+            } else {
+                div().flex_1().overflow_hidden().child(format!("{}▏", f.query))
+            });
+
+        let mut list = div().flex().flex_col().p_1().gap(px(1.0));
+        if self.finder_indexing && self.finder_index.is_none() {
+            list = list.child(div().mx_2().my_1().px_3().py_1().text_color(dim).child("indexing…"));
+        } else if f.matches.is_empty() {
+            list = list.child(
+                div()
+                    .mx_2()
+                    .my_1()
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(theme.ansi[1])
+                    .text_color(dim)
+                    .child("no matching file"),
+            );
+        }
+        if let Some(index) = &self.finder_index {
+            let end = (f.scroll + PALETTE_ROWS).min(f.matches.len());
+            for (ix, m) in f.matches.iter().enumerate().take(end).skip(f.scroll) {
+                let rel = &index.entries[m.entry];
+                let is_selected = ix == f.selected;
+                list = list.child(
+                    div()
+                        .id(("finder-item", ix))
+                        .px_3()
+                        .py_1()
+                        .rounded_md()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .when(is_selected, |d| d.bg(theme.selection_bg))
+                        .on_mouse_move(cx.listener(move |this, _: &gpui::MouseMoveEvent, _w, cx| {
+                            if let Some(Overlay::FileFinder(f)) = &mut this.overlay
+                                && f.selected != ix
+                            {
+                                f.selected = ix;
+                                cx.notify();
+                            }
+                        }))
+                        .on_mouse_down(
+                            gpui::MouseButton::Left,
+                            cx.listener(move |this, ev: &gpui::MouseDownEvent, window, cx| {
+                                if let Some(Overlay::FileFinder(f)) = &mut this.overlay {
+                                    f.selected = ix;
+                                }
+                                let action = if ev.modifiers.platform {
+                                    FinderAction::Insert
+                                } else if ev.modifiers.alt {
+                                    FinderAction::Reveal
+                                } else {
+                                    FinderAction::Open
+                                };
+                                this.finder_confirm(action, window, cx);
+                            }),
+                        )
+                        .child(div().flex_1().overflow_hidden().child(highlighted_text(rel, &m.highlights, accent))),
+                );
+            }
+            if f.matches.len() > PALETTE_ROWS {
+                list = list.child(
+                    div()
+                        .px_3()
+                        .py_0p5()
+                        .text_size(px(11.0))
+                        .text_color(dim)
+                        .child(format!("{} of {}", f.selected + 1, f.matches.len())),
+                );
+            }
+        }
+
+        let note = match &self.finder_index {
+            Some(ix) if ix.truncated => format!(" · index truncated at {} files", FINDER_INDEX_CAP),
+            _ => String::new(),
+        };
+        let footer = div()
+            .flex_none()
+            .px_3()
+            .py_1()
+            .border_t_1()
+            .border_color(border)
+            .text_size(px(11.0))
+            .text_color(dim)
+            .child(format!("↑↓ move · ⏎ open · ⌘⏎ insert path · ⌥⏎ reveal in tree · esc close{note}"));
+
+        div().flex().flex_col().child(input).child(list).child(footer)
+    }
+
+    /// Open a file in `$EDITOR` through the shell, at a line when given.
+    /// Without shell integration there's no silent channel to the shell, so
+    /// the tree reveals the file instead and says why.
+    fn open_in_editor(&mut self, path: &Path, at: Option<(u32, Option<u32>)>, window: &mut Window, cx: &mut Context<Self>) {
+        self.recent_files.retain(|p| p != path);
+        self.recent_files.push_front(path.to_path_buf());
+        self.recent_files.truncate(30);
+        let shell = self.shell_program();
+        let name = crate::terminal::session::shell_name(&shell);
+        let widgets = name.starts_with("zsh") || name.starts_with("bash");
+        if !(self.config.shell.integration && widgets) {
+            self.drawer_visible = true;
+            self.tree.update(cx, |tree, cx| tree.reveal(path.to_path_buf(), cx));
+            self.show_transient_banner(
+                "shell integration is off, so Oxide can't ask the shell for $EDITOR — revealed in the tree instead".into(),
+                cx,
+            );
+            return;
+        }
+        let command = editor_command(&path.to_path_buf(), at, &shell, self.config.editor.open_at_line.as_deref());
+        self.active_pane().update(cx, |t, _| t.run_command(&command));
+        self.focus_terminal(Some(window), cx);
     }
 
     // --- Command history (cmd-r) ---
@@ -1642,7 +1976,7 @@ impl Oxide {
                 self.picker_cancel(window, cx);
                 self.open_history(window, cx);
             }
-            Some(Overlay::Palette(_)) => {
+            Some(Overlay::Palette(_) | Overlay::FileFinder(_)) => {
                 self.close_overlay(window, cx);
                 self.open_history(window, cx);
             }
@@ -1982,6 +2316,9 @@ impl Oxide {
             .on_action(cx.listener(|this, _: &PickerConfirmAlt, window, cx| {
                 this.overlay_confirm_alt(window, cx);
             }))
+            .on_action(cx.listener(|this, _: &PickerConfirmReveal, window, cx| {
+                this.overlay_confirm_reveal(window, cx);
+            }))
             .on_mouse_down(
                 gpui::MouseButton::Left,
                 |_: &gpui::MouseDownEvent, _w, cx| cx.stop_propagation(),
@@ -2025,6 +2362,11 @@ impl Oxide {
                 .track_focus(&self.picker_focus)
                 .on_key_down(cx.listener(Self::on_overlay_key_down))
                 .child(self.render_history_body(h, cx)),
+            Overlay::FileFinder(f) => panel
+                .w(px(640.0))
+                .track_focus(&self.picker_focus)
+                .on_key_down(cx.listener(Self::on_overlay_key_down))
+                .child(self.render_finder_body(f, cx)),
         };
 
         div()
@@ -2950,6 +3292,38 @@ impl Oxide {
     }
 }
 
+/// Every file under `root` as root-relative strings, shallow first, with
+/// the same gitignore and hidden-file rules as the drawer. Capped; the
+/// second value says whether the cap was hit.
+fn walk_files(root: &Path, respect_gitignore: bool, show_hidden: bool) -> (Vec<String>, bool) {
+    let walk = ignore::WalkBuilder::new(root)
+        .hidden(!show_hidden)
+        .parents(respect_gitignore)
+        .git_ignore(respect_gitignore)
+        .git_global(respect_gitignore)
+        .git_exclude(respect_gitignore)
+        .follow_links(false)
+        .build();
+    let mut out = Vec::new();
+    let mut truncated = false;
+    for entry in walk.flatten() {
+        if !entry.file_type().is_some_and(|t| t.is_file()) {
+            continue;
+        }
+        let Ok(rel) = entry.path().strip_prefix(root) else { continue };
+        if rel.file_name().is_some_and(|n| n == ".DS_Store") {
+            continue;
+        }
+        if out.len() >= FINDER_INDEX_CAP {
+            truncated = true;
+            break;
+        }
+        out.push(rel.to_string_lossy().to_string());
+    }
+    out.sort_by(|a, b| a.matches('/').count().cmp(&b.matches('/').count()).then_with(|| a.cmp(b)));
+    (out, truncated)
+}
+
 /// A palette row's title with the matched characters picked out.
 fn highlighted_title(item: &PaletteItem, accent: gpui::Hsla) -> gpui::StyledText {
     highlighted_text(item.title, &item.highlights, accent)
@@ -3257,6 +3631,15 @@ impl Render for Oxide {
             .on_action(cx.listener(|this, _: &CommandHistory, window, cx| {
                 this.toggle_history(window, cx);
             }))
+            .on_action(cx.listener(|this, _: &FileFinder, window, cx| {
+                this.toggle_finder(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &RevealInTree, window, cx| {
+                let Some(cwd) = this.active_pane().read(cx).cwd.clone() else { return };
+                this.drawer_visible = true;
+                this.tree.update(cx, |tree, cx| tree.reveal(cwd, cx));
+                this.focus_tree(Some(window), cx);
+            }))
             // Resize steps are in cells, converted to a share of the split at
             // apply time; a few columns per press feels right for a keyboard.
             .on_action(cx.listener(|this, _: &PaneWider, _w, cx| {
@@ -3554,6 +3937,77 @@ mod edit_command_tests {
                 );
             }
         }
+    }
+
+    /// The line-number mapping is decided by the shell on `$EDITOR`'s name.
+    /// Run the generated command with fake editors that record their
+    /// arguments, in a POSIX shell directly and via the /bin/sh delegation
+    /// non-POSIX shells get.
+    #[test]
+    fn line_numbers_reach_the_editor_in_its_own_dialect() {
+        let dir = std::env::temp_dir().join("oxide-editor-line-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let record = dir.join("args.txt");
+        for name in ["nvim", "code", "emacs", "hx", "ed"] {
+            let script = dir.join(name);
+            std::fs::write(&script, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\n", record.display())).unwrap();
+            Command::new("/bin/chmod").arg("+x").arg(&script).status().unwrap();
+        }
+        let target = dir.join("a file.rs");
+        let expected = |editor: &str, at: Option<(u32, Option<u32>)>| -> Vec<String> {
+            let p = target.to_string_lossy().to_string();
+            match (editor, at) {
+                ("nvim", Some((42, Some(8)))) => vec!["+call cursor(42,8)".into(), p],
+                ("nvim", Some((42, None))) => vec!["+42".into(), p],
+                ("code", Some((42, Some(8)))) => vec!["--goto".into(), format!("{p}:42:8")],
+                ("emacs", Some((42, Some(8)))) => vec!["+42:8".into(), p],
+                ("hx", Some((42, None))) => vec![format!("{p}:42")],
+                ("ed", Some((42, Some(8)))) => vec![p],
+                (_, None) => vec![p],
+                _ => unreachable!(),
+            }
+        };
+        let cases: Vec<(&str, Option<(u32, Option<u32>)>)> = vec![
+            ("nvim", Some((42, Some(8)))),
+            ("nvim", Some((42, None))),
+            ("code", Some((42, Some(8)))),
+            ("emacs", Some((42, Some(8)))),
+            ("hx", Some((42, None))),
+            ("ed", Some((42, Some(8)))),
+            ("nvim", None),
+        ];
+        for shell in ["/bin/sh", "/bin/zsh", "/bin/bash", "/opt/homebrew/bin/fish", "/bin/tcsh"] {
+            if !Path::new(shell).exists() {
+                continue;
+            }
+            for (editor, at) in &cases {
+                let _ = std::fs::remove_file(&record);
+                let command = editor_command(&target, *at, shell, None);
+                let out = Command::new(shell)
+                    .arg("-c")
+                    .arg(&command)
+                    .env("EDITOR", dir.join(editor))
+                    .output()
+                    .unwrap();
+                assert!(out.status.success(), "{shell} {editor} {at:?}: {command}\n{}", String::from_utf8_lossy(&out.stderr));
+                let got: Vec<String> = std::fs::read_to_string(&record)
+                    .unwrap_or_else(|e| panic!("{shell} {editor} {at:?}: editor never ran ({e}): {command}"))
+                    .lines()
+                    .map(str::to_string)
+                    .collect();
+                assert_eq!(got, expected(editor, *at), "{shell} {editor} {at:?}: {command}");
+            }
+        }
+    }
+
+    #[test]
+    fn open_at_line_override_substitutes_placeholders() {
+        let snippet = editor_snippet("'p q'", Some((3, None)), Some("my --line {line} --col {col} {path}"));
+        assert_eq!(snippet, "my --line 3 --col 1 'p q'");
+        let snippet = editor_snippet("'p'", Some((3, Some(7))), Some("my {path}:{line}:{col}"));
+        assert_eq!(snippet, "my 'p':3:7");
+        // No line: the override doesn't apply, the plain open does.
+        assert!(editor_snippet("'p'", None, Some("my {path}")).contains("$EDITOR 'p'"));
     }
 
     /// The routing decision itself, independent of what's installed.
