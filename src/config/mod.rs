@@ -60,13 +60,33 @@ pub fn reload() -> Result<Config, String> {
 }
 
 fn validate(config: &Config) -> Option<String> {
-    if let Some(preset) = &config.colors.preset
-        && !theme::PRESET_NAMES.contains(&preset.as_str())
+    let colors = &config.colors;
+    for (key, preset) in [
+        ("preset", &colors.preset),
+        ("preset_dark", &colors.preset_dark),
+        ("preset_light", &colors.preset_light),
+    ] {
+        if let Some(preset) = preset
+            && !theme::PRESET_NAMES.contains(&preset.as_str())
+        {
+            return Some(format!(
+                "unknown color {key} \"{preset}\" — available: {}",
+                theme::PRESET_NAMES.join(", ")
+            ));
+        }
+    }
+    for host in &config.ssh.hosts {
+        if theme::parse_hex(&host.accent).is_none() {
+            return Some(format!("ssh.hosts: bad accent \"{}\" for \"{}\" — use #rrggbb", host.accent, host.pattern));
+        }
+    }
+    if !(0.05..=1.0).contains(&config.window.inactive_pane_opacity)
+        || !(0.05..=1.0).contains(&config.window.inactive_window_opacity)
     {
-        return Some(format!(
-            "unknown color preset \"{preset}\" — available: {}",
-            theme::PRESET_NAMES.join(", ")
-        ));
+        return Some("window.inactive_pane_opacity / inactive_window_opacity must be between 0.05 and 1.0".into());
+    }
+    if !(0.0..=1.0).contains(&config.cursor.thickness) {
+        return Some("cursor.thickness must be between 0 and 1 (a fraction of a cell)".into());
     }
     None
 }
@@ -109,6 +129,8 @@ const DEFAULT_CONFIG_FILE: &str = r##"# Oxide configuration.
 
 [font]
 family      = "JetBrainsMono Nerd Font Mono"
+                              # or a list: the rest are fallbacks for CJK/emoji,
+                              # e.g. ["JetBrainsMono Nerd Font Mono", "Apple Color Emoji"]
 size        = 14.0
 line_height = 1.25
 weight      = "normal"        # normal | medium | bold
@@ -120,6 +142,15 @@ opacity  = 1.0                # 0.0 - 1.0; < 1.0 makes the background translucen
 blur     = false              # blur what's behind a translucent window
 titlebar = "hidden"           # native | hidden
 new_tab_directory = "pwd"     # pwd | home — where cmd-t starts
+inactive_pane_opacity   = 1.0 # dim the panes you aren't in (0.5–0.9 typical)
+inactive_window_opacity = 1.0 # dim the whole window when another app is active
+
+[cursor]
+style          = "block"      # block | bar | underline (programs can override via DECSCUSR)
+blink          = true
+blink_interval = 530          # ms per half-cycle
+unfocused      = "hollow"     # hollow | solid | hidden — the cursor in an unfocused pane
+thickness      = 0.15         # bar width / underline height, as a fraction of a cell
 
 [shell]
 # program = "/bin/zsh"        # default: $SHELL
@@ -166,15 +197,24 @@ max_entries  = 500
 # "cmd-shift-p" = "app::palette"
 # "cmd-d"       = ""          # unbind a default
 
+# [[ssh.hosts]]                # colour a pane's border while ssh'd into a matching host
+# match  = "*.prod.example.com"
+# accent = "#f38ba8"
+
 [colors]
 # Presets: catppuccin-mocha | catppuccin-latte | gruvbox-dark | tokyonight
 #          | dracula | nord | solarized-dark | oxide
 preset = "catppuccin-mocha"
+# Follow the macOS appearance instead, switching between two presets:
+# follow_system = true
+# preset_dark   = "catppuccin-mocha"
+# preset_light  = "catppuccin-latte"
 # Any color can override the preset individually:
 # background   = "#11111b"
 # foreground   = "#cdd6f4"
 # cursor       = "#f5e0dc"
 # selection_bg = "#414458"
+# selection_fg = "#cdd6f4"    # text inside a selection; unset keeps each cell's colour
 # black / red / green / yellow / blue / magenta / cyan / white
 # bright_black / bright_red / ... / bright_white
 

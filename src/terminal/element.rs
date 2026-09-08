@@ -6,7 +6,7 @@ use alacritty_terminal::term::TermMode;
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, CursorShape};
 use gpui::{
-    App, Bounds, BorderStyle, Element, ElementId, Entity, Font, FontStyle, FontWeight,
+    App, Bounds, BorderStyle, Element, ElementId, Entity, Font, FontFallbacks, FontStyle, FontWeight,
     GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, PaintQuad, Pixels, Point,
     ShapedLine, SharedString, StrikethroughStyle, Style, TextRun, UnderlineStyle, Window, fill,
     point, px, quad, relative, size,
@@ -16,7 +16,7 @@ use super::TerminalPane;
 use super::colors::{blend, resolve};
 use super::session::TermSize;
 use crate::config::Theme;
-use crate::config::schema::FontWeightName;
+use crate::config::schema::{FontWeightName, UnfocusedCursor};
 
 /// One cell copied out of the grid while the term lock is held.
 struct CellSnap {
@@ -31,6 +31,8 @@ struct CursorLayout {
     bounds: Bounds<Pixels>,
     shape: CursorShape,
     color: Hsla,
+    /// Bar width / underline height in pixels, from `cursor.thickness`.
+    thickness: Pixels,
     /// For block cursors: the glyph underneath, re-shaped in the background color.
     glyph: Option<ShapedLine>,
 }
@@ -145,13 +147,13 @@ impl Element for TerminalElement {
                 }
                 CursorShape::Beam => {
                     let mut b = cursor.bounds;
-                    b.size.width = px(2.0);
+                    b.size.width = cursor.thickness;
                     window.paint_quad(fill(b, cursor.color));
                 }
                 CursorShape::Underline => {
                     let mut b = cursor.bounds;
-                    b.origin.y = b.origin.y + b.size.height - px(2.0);
-                    b.size.height = px(2.0);
+                    b.origin.y = b.origin.y + b.size.height - cursor.thickness;
+                    b.size.height = cursor.thickness;
                     window.paint_quad(fill(b, cursor.color));
                 }
                 CursorShape::Hidden => {}
@@ -175,14 +177,16 @@ fn base_font(pane: &TerminalPane, bold: bool, italic: bool) -> Font {
         (FontWeightName::Medium, false) => FontWeight::MEDIUM,
         (FontWeightName::Bold, false) => FontWeight::BOLD,
     };
+    let family = &pane.config().font.family;
     Font {
-        family: SharedString::from(pane.config().font.family.clone()),
+        family: SharedString::from(family.primary().to_string()),
         features: if pane.config().font.ligatures {
             Default::default()
         } else {
             gpui::FontFeatures::disable_ligatures()
         },
-        fallbacks: None,
+        fallbacks: (!family.fallbacks().is_empty())
+            .then(|| FontFallbacks::from_fonts(family.fallbacks().to_vec())),
         weight,
         style: if italic { FontStyle::Italic } else { FontStyle::Normal },
     }
@@ -362,7 +366,8 @@ fn layout_grid(
         }
 
         // Text runs: coalesce consecutive cells sharing style.
-        let shaped = shape_row(pane, row, &theme, font_size, &text_system);
+        let selected_line = alacritty_terminal::index::Line(row_idx as i32 - display_offset as i32);
+        let shaped = shape_row(pane, row, &theme, font_size, &text_system, selection.as_ref(), selected_line);
         if let Some(shaped) = shaped {
             layout.lines.push((row_idx, shaped));
         }
@@ -386,7 +391,14 @@ fn layout_grid(
     // --- Cursor. ---
     let cursor_row = cursor.point.line.0 + display_offset as i32;
     let cursor_on_screen = cursor_row >= 0 && (cursor_row as usize) < screen_lines;
-    if mode.contains(TermMode::SHOW_CURSOR) && cursor_on_screen && pane.child_exited.is_none() {
+    let vi_mode = mode.contains(TermMode::VI);
+    let cursor_config = &pane.config().cursor;
+    let unfocused_hidden = !focused && cursor_config.unfocused == UnfocusedCursor::Hidden;
+    if (mode.contains(TermMode::SHOW_CURSOR) || vi_mode)
+        && cursor_on_screen
+        && pane.child_exited.is_none()
+        && !unfocused_hidden
+    {
         let row_idx = cursor_row as usize;
         let col = cursor.point.column.0;
         let cell = rows.get(row_idx).and_then(|r| {
@@ -405,11 +417,21 @@ fn layout_grid(
         });
         let wide = cell.map_or(false, |(snap, _)| snap.flags.contains(Flags::WIDE_CHAR));
         let width_cells = if wide { 2.0 } else { 1.0 };
-        let shape = if focused { cursor.shape } else { CursorShape::HollowBlock };
-        let shape = match cursor_style.blinking && focused && shape == CursorShape::Block {
+        // The vi cursor is always a block, never blinks, and stays visible
+        // unfocused, so the copy-mode position is never in doubt.
+        let shape = if vi_mode {
+            CursorShape::Block
+        } else if focused || cursor_config.unfocused == UnfocusedCursor::Solid {
+            cursor.shape
+        } else {
+            CursorShape::HollowBlock
+        };
+        let shape = match cursor_style.blinking && focused && !vi_mode && shape != CursorShape::Hidden {
             true if !pane.blink_show => CursorShape::Hidden,
             _ => shape,
         };
+        let thickness = px((cursor_config.thickness * cell_width).max(1.0).round());
+        let cursor_color = if vi_mode { theme.ansi[3] } else { theme.cursor };
         let cursor_bounds = Bounds {
             origin: point(
                 origin.x + px(col as f32 * cell_width),
@@ -439,7 +461,8 @@ fn layout_grid(
         layout.cursor = Some(CursorLayout {
             bounds: cursor_bounds,
             shape,
-            color: theme.cursor,
+            color: cursor_color,
+            thickness,
             glyph,
         });
     }
@@ -471,6 +494,8 @@ fn shape_row(
     theme: &Theme,
     font_size: Pixels,
     text_system: &std::sync::Arc<gpui::WindowTextSystem>,
+    selection: Option<&SelectionRange>,
+    line: alacritty_terminal::index::Line,
 ) -> Option<ShapedLine> {
     // Trim trailing default-styled blanks so we don't shape padding.
     let last = row.iter().rposition(|cell| {
@@ -486,10 +511,17 @@ fn shape_row(
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     f32::from(font_size).to_bits().hash(&mut hasher);
 
+    // Only a configured selection_fg recolours selected text; otherwise the
+    // selection is just the background quad and the cache key is untouched.
+    let selection_fg = theme.selection_fg.zip(selection);
+    let mut col = 0usize;
     for cell in &row[..=last] {
         if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
             continue;
         }
+        let width = if cell.flags.contains(Flags::WIDE_CHAR) { 2 } else { 1 };
+        let cell_col = col;
+        col += width;
         let mut fg = resolve(cell.fg, theme);
         let mut bg = resolve(cell.bg, theme);
         // Brighten bold indexed colors 0-7 to 8-15.
@@ -511,6 +543,11 @@ fn shape_row(
         }
         if cell.flags.contains(Flags::DIM) {
             fg = blend(fg, bg, 0.4);
+        }
+        if let Some((sel_fg, range)) = selection_fg
+            && selection_contains(range, GridPoint::new(line, alacritty_terminal::index::Column(cell_col)))
+        {
+            fg = sel_fg;
         }
 
         let bold = cell.flags.contains(Flags::BOLD);

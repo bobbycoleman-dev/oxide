@@ -110,12 +110,28 @@
                   <td><kbd>ctrl-w q</kbd> <span class="sep">/</span> <kbd>cmd-w</kbd></td>
                   <td>close the focused pane, and the tab with its last pane</td>
                 </tr>
+                <tr>
+                  <td><kbd>cmd-shift-t</kbd></td>
+                  <td>reopen the last closed tab — its splits, directories, and name, with fresh shells; the last ten are kept</td>
+                </tr>
+                <tr>
+                  <td><kbd>ctrl-w ,</kbd> <span class="sep">/</span> double-click</td>
+                  <td>rename the tab</td>
+                </tr>
+                <tr>
+                  <td>drag a tab</td>
+                  <td>reorder — drop it on the tab whose place it should take</td>
+                </tr>
               </tbody>
             </table>
           </div>
           <p>
-            A tab is titled after its active pane's directory —
-            <code>~</code> for home, the basename otherwise. Click a tab to
+            A tab is titled after what its active pane is doing: the program in
+            the foreground when one is running (<code>vim</code>,
+            <code>cargo</code>, <code>ssh prod-web</code>), else the directory
+            — <code>~</code> for home, the basename otherwise. A name you set
+            wins over both, and is saved with a pinned workspace; rename to an
+            empty string to go back to the automatic title. Click a tab to
             select it, the <code>×</code> to close it, or the
             <code>+</code> at the end of the bar for a new one.
           </p>
@@ -229,6 +245,54 @@
               <a class="link" href="/docs/troubleshooting/#limitations">known limitations</a>.
             </p>
           </div>
+
+          <h3 id="zoom">Zoom</h3>
+          <p>
+            <kbd>ctrl-w z</kbd> shows the focused pane at the full size of the
+            tab and hides its siblings; press it again to put the layout back.
+            The hidden panes keep running at their old size — a background
+            <code>htop</code> doesn't reflow because you zoomed something else
+            — and only the zoomed one is resized. <kbd>ctrl-w h j k l</kbd>
+            still move between panes while zoomed, in tree order, staying
+            zoomed on the new one, as tmux does. Splitting unzooms; closing the
+            zoomed pane restores the rest. The status bar shows
+            <code>⤢ zoom · 3 panes</code> so a zoomed pane can't be mistaken
+            for a one-pane tab. Zoom is never saved with a workspace.
+          </p>
+
+          <h3 id="broadcast">Broadcast input</h3>
+          <p>
+            <kbd>ctrl-w b</kbd> sends everything you type — and paste — to
+            every pane in the tab at once, for the "run the same thing on four
+            boxes" case. Mouse events stay local, and it never crosses tabs or
+            workspaces. It's meant to be impossible to forget: every pane's
+            border goes red and the status bar shows a
+            <strong>⇶ BROADCAST</strong> pill until you press
+            <kbd>ctrl-w b</kbd> again. It switches itself off when the tab is
+            down to one pane.
+          </p>
+
+          <h3 id="only-swap">Only, and swap</h3>
+          <p>
+            <kbd>ctrl-w o</kbd> closes every other pane in the tab, asking first
+            when more than one would go (<kbd>y</kbd> or <kbd>⏎</kbd> confirms).
+            <kbd>ctrl-w x</kbd> exchanges the focused pane with its neighbour in
+            the enclosing split — the next sibling, or the previous one when
+            it's last — so a pane that landed on the wrong side can be put right
+            without rebuilding the layout. Both keep every pane's share of the
+            space.
+          </p>
+
+          <h3 id="dimming">Dimming inactive panes</h3>
+          <p>
+            <code>window.inactive_pane_opacity</code> (1.0 by default; 0.7 or
+            so is typical) fades every pane except the active one, so the
+            focused split is obvious at a glance. It's a translucent overlay,
+            not a recolour: clicking a dimmed pane still focuses it, and a tab
+            with a single pane is never dimmed.
+            <code>window.inactive_window_opacity</code> does the same for the
+            whole window when another app is frontmost.
+          </p>
 
           <h2 id="windows">Windows</h2>
           <div class="table-wrap">

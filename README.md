@@ -33,8 +33,18 @@ with a file-tree drawer you drive like vim and a status bar that knows where you
   (nvim, VS Code, emacs, Sublime, Helix dialects built in); rows are coloured by git status;
   `cmd-p` fuzzy-finds any file under the root; `cmd-shift-r` reveals the shell's directory;
   right-click a row to re-root, copy, or reveal in Finder; drag rows or drop files onto a pane.
-- **Scrollback search** — `cmd-f`, live and case-insensitive, `⏎`/`⇧⏎` to walk matches.
+- **Scrollback search** — `cmd-f`, live, `⏎`/`⇧⏎` to walk matches; regex, case-sensitive,
+  and whole-word toggles as clickable chips (`cmd-alt-r` / `c` / `w`), and a malformed
+  regex says so instead of matching nothing.
+- **Copy mode** — `ctrl-w [` (or `cmd-shift-v`) turns the scrollback into a vim buffer:
+  `hjkl`, `w b e`, `0 ^ $`, `gg G`, `ctrl-d/u`, counts like `5j`, `/` and `?` search with
+  `n`/`N`, `v` / `V` / `ctrl-v` visual selection, `y` to yank and leave. Nothing typed
+  reaches the shell until you `esc`.
 - **Prompt jumping** — `cmd-↑`/`cmd-↓` hop between previous prompts in scrollback.
+- **SSH awareness** — Oxide watches the foreground process: an `ssh` shows
+  `ssh: host` in the status bar, and `[[ssh.hosts]]` patterns give a host an accent colour
+  on the pane border so a production box is visibly red. The process name also titles
+  the tab (`vim`, `cargo`, `ssh prod-web`).
 - **Command awareness** — the shell integration's OSC 133 markers are read straight off the
   PTY, so Oxide knows what's running, how long it took, and whether it failed: elapsed time
   in the status bar, activity dots on tabs, a red flash on a background pane that failed, a
@@ -50,22 +60,32 @@ with a file-tree drawer you drive like vim and a status bar that knows where you
   markers. Or set `prompt.enabled = false` and keep your starship/p10k prompt as-is.
 - **Themes** — `catppuccin-mocha`, `catppuccin-latte`, `gruvbox-dark`, `tokyonight`,
   `dracula`, `nord`, `solarized-dark`, and `oxide` (rust-toned, naturally). Any color
-  individually overridable. Config reloads live.
+  individually overridable, including `selection_fg`. `follow_system = true` switches
+  between a dark and a light preset with the macOS appearance. Config reloads live.
 - **Split panes** — split in any direction and nest freely; navigation moves by what's
   on screen, and `exit` or `ctrl-w q` closes a pane and reclaims its space. Drag a
-  divider or use `ctrl-w < > - + =` to resize.
+  divider or use `ctrl-w < > - + =` to resize. tmux reflexes: `ctrl-w z` zooms a pane
+  to the full tab, `ctrl-w b` broadcasts typing to every pane in the tab (with a red
+  border and a loud status-bar pill), `ctrl-w o` closes the others, `ctrl-w x` swaps with
+  the neighbour. `window.inactive_pane_opacity` dims the panes you aren't in.
 - **Command palette** — `cmd-shift-p` lists every action with its binding, fuzzy-searchable.
 - **Configurable keys** — a `[keymap]` table in config.toml rebinds anything; typos get a
   banner with a suggestion, and a bare key that would steal from your shell is refused.
 - **Tabs** — a Zed-style in-app tab bar, so tabs work everywhere (including under
   tiling window managers). `cmd-t` opens one in the current directory or `~/`
-  (`window.new_tab_directory`); `cmd-1..9` jump straight to a tab.
+  (`window.new_tab_directory`); `cmd-1..9` jump straight to a tab. Double-click or
+  `ctrl-w ,` to rename one (names survive with pinned workspaces), drag tabs to reorder,
+  `cmd-shift-t` reopens the last closed one.
 - **Workspaces** — named sets of tabs and splits, tmux-session style, managed from the
   drawer below the file tree (`a` add, `r` rename, `d` delete, `p` pin). Temporary by
   default; pinned ones survive restarts, restoring layout, tabs, splits, and each
   pane's directory with fresh shells.
 - **The details** — window size/position persistence, `cmd-click` to open URLs, copy-on-select option, font size at runtime
-  (`cmd +/-/0`), configurable bell, blinking cursor that pauses while you type.
+  (`cmd +/-/0`), configurable bell, a `[cursor]` section (block / bar / underline, blink
+  rate, unfocused look — and vim's per-mode DECSCUSR shapes are honoured), a font
+  fallback list for CJK and emoji, a "2,340 lines above" pill while scrolled up, `cmd-k`
+  to clear scrollback, and optional dimming of the whole window when another app is
+  frontmost.
 
 ## Requirements
 
@@ -102,7 +122,9 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 | `ctrl-w h` / `ctrl-w l` / `ctrl-w w` | focus tree / terminal / toggle |
 | `cmd-b` | toggle the drawer |
 | `ctrl-w t` / `cmd-shift-e` | focus the file tree from anywhere |
-| `cmd-f` | search scrollback (`⏎` older, `⇧⏎` newer, `esc` close) |
+| `cmd-f` | search scrollback (`⏎` older, `⇧⏎` newer, `esc` close; `cmd-alt-r` / `c` / `w` toggle regex / case / whole word) |
+| `ctrl-w [` / `cmd-shift-v` | copy mode — vim keys in the scrollback, `y` yanks, `esc` leaves |
+| `cmd-k` | clear scrollback |
 | `cmd-↑` / `cmd-↓` | jump to previous / next prompt |
 | `cmd-r` | command history (`⏎` insert, `⌘⏎` run) |
 | `cmd-p` | fuzzy file finder (`⏎` open, `⌘⏎` insert path, `⌥⏎` reveal) |
@@ -110,6 +132,7 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 | `cmd-click` | open a URL, or a `path:line` in `$EDITOR` |
 | `cmd-shift-c` | copy the last command's output |
 | `cmd-t` / `cmd-n` | new tab / new window |
+| `ctrl-w ,` / `cmd-shift-t` | rename tab (double-click works too) / reopen the last closed tab |
 | `cmd-1..9` | jump to tab |
 | `⌃tab` / `⇧⌘[` `⇧⌘]` | previous / next tab |
 | `ctrl-w p` | focus the workspaces panel (`tab` toggles tree ↔ workspaces) |
@@ -119,7 +142,9 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 | `cmd-opt-←↓↑→` | move between panes |
 | `ctrl-w q` / `cmd-w` | close pane (closes the window when it's the last one) |
 | `ctrl-w <` `>` `-` `+` | resize the pane by a few cells (`ctrl-w =` equalises) |
-| `cmd-shift-p` | command palette |
+| `ctrl-w z` / `ctrl-w b` | zoom the pane to the full tab / broadcast input to every pane in the tab |
+| `ctrl-w o` / `ctrl-w x` | close the other panes / swap the pane with its neighbour |
+| `cmd-shift-p` / `cmd-alt-t` | command palette / theme picker |
 | `cmd-c` / `cmd-v` | copy / paste (bracketed) |
 | `cmd +` / `-` / `0` | font size |
 
@@ -137,6 +162,19 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 | `a` / `r` / `d` | add (`dir/` with trailing slash) / rename / delete to Trash |
 | `I` / `R` | toggle hidden / refresh |
 | `esc` | dismiss input → clear filter → back to terminal |
+
+**In copy mode** (`ctrl-w [`; keys never reach the shell):
+
+| Keys | Action |
+|---|---|
+| `h` `j` `k` `l`, arrows | move the cursor (counts work: `5j`) |
+| `w` `b` `e` / `W` `B` `E` | word motions (punctuation-aware / whitespace) |
+| `0` `^` `$` / `gg` `G` / `H` `M` `L` | line / buffer / screen positions |
+| `ctrl-d` `ctrl-u` / `ctrl-f` `ctrl-b` | half page / full page |
+| `/` `?` then `n` `N` | search forward / backward, repeat — same bar and toggles as `cmd-f` |
+| `v` `V` `ctrl-v` | character / line / block selection |
+| `y` / `yy` / `⏎` | yank the selection (or the line) and leave |
+| `esc` / `q` | clear the selection, then leave |
 
 **In the workspaces panel:**
 
@@ -160,9 +198,19 @@ size   = 14.0
 
 [colors]
 preset = "oxide"              # or override any color individually
+follow_system = true          # ...or switch between preset_dark / preset_light with macOS
+preset_light  = "catppuccin-latte"
+
+[cursor]
+style = "bar"                 # block | bar | underline
 
 [window]
 new_tab_directory = "pwd"     # pwd | home
+inactive_pane_opacity = 0.8   # dim the panes you aren't in
+
+[[ssh.hosts]]
+match  = "*.prod.example.com" # red border while ssh'd into prod
+accent = "#f38ba8"
 
 [tree]
 follow_cwd = true             # tree re-roots when the shell cd's

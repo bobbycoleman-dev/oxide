@@ -82,7 +82,7 @@
 
           <h2 id="picker">The theme picker</h2>
           <p>
-            <kbd>cmd-k</kbd> <kbd>cmd-t</kbd> (or
+            <kbd>cmd-alt-t</kbd> (or
             <strong>Oxide → Select Theme…</strong>) opens a modal list.
             <kbd>j</kbd>/<kbd>k</kbd> — or the arrows, or
             <kbd>ctrl-n</kbd>/<kbd>ctrl-p</kbd> — move through it, repainting the
@@ -100,9 +100,31 @@
               Confirming replaces the entire <code>[colors]</code> block —
               individual color overrides are dropped, because they'd quietly
               defeat the theme you just picked. If you keep hand-tuned colors,
-              edit <code>preset</code> in the file directly instead.
+              edit <code>preset</code> in the file directly instead. With
+              <code>follow_system</code> on, the picker instead sets only
+              <code>preset_dark</code> or <code>preset_light</code> — whichever
+              the Mac is showing right now — and leaves the rest of the block
+              alone.
             </p>
           </div>
+
+          <h2 id="follow-system">Following the system appearance</h2>
+          <p>
+            Two presets, and macOS decides which one is up: the moment the
+            appearance flips, so does Oxide, in every pane and the chrome
+            around them.
+          </p>
+          <pre><span class="c">[colors]</span>
+follow_system = <span class="k">true</span>
+preset_dark   = <span class="s">"catppuccin-mocha"</span>
+preset_light  = <span class="s">"catppuccin-latte"</span></pre>
+          <p>
+            Either variant falls back to <code>preset</code> when unset; with
+            nothing but <code>follow_system = true</code>, dark gets the default
+            palette and light gets <code>catppuccin-latte</code>. Per-color
+            overrides are shared: a <code>cursor</code> you set applies on top
+            of whichever preset is active, so pick ones that read on both.
+          </p>
 
           <h2 id="presets">The presets</h2>
           <div class="swatches">
@@ -236,8 +258,9 @@ selection_bg = <span class="s">"#4a3428"</span></pre>
               <thead><tr><th>Keys</th><th>Used for</th></tr></thead>
               <tbody>
                 <tr><td>background, foreground</td><td>The default cell colors, the drawer, and the status bar, which derive their shades from these.</td></tr>
-                <tr><td>cursor</td><td>The block cursor.</td></tr>
+                <tr><td>cursor</td><td>The cursor, whatever its shape (see <a class="link" href="/docs/configuration/#cursor">[cursor]</a>). Copy mode's cursor is ANSI yellow.</td></tr>
                 <tr><td>selection_bg</td><td>Selected text, and the selected row in the drawer.</td></tr>
+                <tr><td>selection_fg</td><td>Text inside a selection. Unset by default, which keeps each cell's own colour; set it when <code>selection_bg</code> clashes with coloured output.</td></tr>
                 <tr><td>black … white</td><td>ANSI 0–7.</td></tr>
                 <tr><td>bright_black … bright_white</td><td>ANSI 8–15.</td></tr>
               </tbody>

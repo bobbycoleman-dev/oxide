@@ -34,6 +34,15 @@ pub static DEFAULTS: &[DefaultBinding] = &[
     b("ctrl-w shift-s", "pane::split_up", Root),
     b("ctrl-w q", "pane::close", Root),
     b("ctrl-w w", "drawer::focus_toggle", Root),
+    // tmux muscle memory: zoom, broadcast, only, exchange, copy mode.
+    b("ctrl-w z", "pane::zoom", Root),
+    b("ctrl-w b", "pane::broadcast", Root),
+    b("ctrl-w o", "pane::only", Root),
+    b("ctrl-w x", "pane::swap", Root),
+    b("ctrl-w [", "terminal::copy_mode", Root),
+    b("cmd-shift-v", "terminal::copy_mode", Root),
+    b("ctrl-w ,", "tab::rename", Root),
+    b("cmd-shift-t", "tab::reopen", Root),
     // Resizing, vim/tmux-style. Shifted punctuation arrives as the shifted
     // character on macOS, so `<` is bound as itself rather than `shift-,`.
     b("ctrl-w <", "pane::narrower", Root),
@@ -59,6 +68,12 @@ pub static DEFAULTS: &[DefaultBinding] = &[
     b("cmd--", "terminal::font_decrease", Root),
     b("cmd-0", "terminal::font_reset", Root),
     b("cmd-f", "terminal::search", Root),
+    b("cmd-alt-r", "terminal::search_regex", Root),
+    b("cmd-alt-c", "terminal::search_case", Root),
+    b("cmd-alt-w", "terminal::search_word", Root),
+    // cmd-k clears like Terminal.app. It can't also start a chord: GPUI
+    // holds a prefix key for a second before dispatching it alone.
+    b("cmd-k", "terminal::clear_scrollback", Root),
     b("cmd-up", "terminal::prompt_up", Root),
     b("cmd-down", "terminal::prompt_down", Root),
     b("cmd-r", "terminal::history", Root),
@@ -90,9 +105,8 @@ pub static DEFAULTS: &[DefaultBinding] = &[
     b("ctrl-cmd-f", "window::toggle_fullscreen", Root),
     b("cmd-h", "app::hide", Root),
     b("alt-cmd-h", "app::hide_others", Root),
-    b("cmd-k cmd-t", "app::select_theme", Root),
+    b("cmd-alt-t", "app::select_theme", Root),
     b("cmd-shift-p", "app::palette", Root),
-    b("cmd-k cmd-p", "app::palette", Root),
     b("cmd-p", "app::file_finder", Root),
     b("cmd-shift-r", "drawer::reveal", Root),
     b("cmd-,", "app::settings", Root),

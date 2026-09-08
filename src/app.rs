@@ -12,7 +12,8 @@ use gpui::{
     StatefulInteractiveElement, Styled, Subscription, Window, div, px,
 };
 
-use crate::config::schema::{StatusBarPosition, TitlebarMode};
+use crate::config::schema::{ColorsConfig, StatusBarPosition, TitlebarMode};
+use crate::config::theme::parse_hex;
 use crate::config::{self, Config, Theme};
 use crate::keymap::actions::*;
 use crate::keymap::registry::{self, ActionContext, ActionMeta};
@@ -36,13 +37,45 @@ struct TabState {
     active: PaneId,
     /// Output arrived while this tab was in the background.
     unread: bool,
+    /// A pane shown at full tab size, hiding its siblings. Transient: not
+    /// saved with the workspace.
+    zoomed: Option<PaneId>,
+    /// Keystrokes and pastes go to every pane in the tab.
+    broadcast: bool,
+    /// A user-set name, overriding the automatic title.
+    title: Option<String>,
 }
 
 impl TabState {
     fn new(layout: Node<PaneId>, active: PaneId) -> Self {
-        Self { layout, active, unread: false }
+        Self { layout, active, unread: false, zoomed: None, broadcast: false, title: None }
     }
 }
+
+/// A tab being dragged along the bar, by its index.
+#[derive(Clone)]
+struct TabDrag {
+    ix: usize,
+}
+
+/// The label that follows the pointer while a tab is dragged.
+struct TabDragLabel(gpui::SharedString);
+
+impl Render for TabDragLabel {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .bg(gpui::black())
+            .text_color(gpui::white())
+            .text_size(px(12.0))
+            .child(self.0.clone())
+    }
+}
+
+/// How many closed tabs cmd-shift-t can bring back.
+const CLOSED_TAB_RING: usize = 10;
 
 /// A named collection of tabs — the tmux-session analogue. Temporary by
 /// default; `persist` opts it into surviving restarts (layout + directories,
@@ -108,6 +141,12 @@ pub struct Oxide {
     recent_files: VecDeque<PathBuf>,
     status_bar_override: Option<bool>,
     update: UpdateState,
+    /// Recently closed tabs, newest first, for cmd-shift-t.
+    closed_tabs: VecDeque<SavedTab>,
+    /// The macOS appearance is dark. Drives `colors.follow_system`.
+    dark_appearance: bool,
+    /// Another app is frontmost, for `window.inactive_window_opacity`.
+    window_active: bool,
     _config_watcher: Option<notify_debouncer_full::Debouncer<notify::RecommendedWatcher, notify_debouncer_full::FileIdMap>>,
     _subscriptions: Vec<Subscription>,
 }
@@ -119,6 +158,31 @@ enum Overlay {
     ThemePicker(ThemePicker),
     History(HistoryState),
     FileFinder(FinderState),
+    TabRename(TabRenameState),
+    Confirm(ConfirmState),
+}
+
+struct TabRenameState {
+    buffer: String,
+    /// Index of the tab in the active workspace.
+    tab: usize,
+    return_focus: FocusTarget,
+}
+
+/// A yes/no question before something destructive.
+struct ConfirmState {
+    message: String,
+    action: ConfirmAction,
+    return_focus: FocusTarget,
+}
+
+#[derive(Clone, Copy)]
+enum ConfirmAction {
+    CloseOtherPanes,
+}
+
+fn appearance_is_dark(appearance: gpui::WindowAppearance) -> bool {
+    matches!(appearance, gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark)
 }
 
 /// Every file under the tree root, as root-relative strings, walked once
@@ -364,7 +428,8 @@ impl Oxide {
         cx: &mut Context<Self>,
     ) -> Self {
         let config = Rc::new(config);
-        let theme = Rc::new(Theme::from_config(&config.colors));
+        let dark_appearance = appearance_is_dark(window.appearance());
+        let theme = Rc::new(Theme::resolve(&config.colors, dark_appearance));
         // `oxide <dir>` (or the CLI shim) starts rooted at that directory;
         // otherwise start at home. Finder-launched apps inherit "/" as their
         // working directory, which is a useless place to open a terminal.
@@ -379,6 +444,18 @@ impl Oxide {
 
         let mut subscriptions = Vec::new();
         subscriptions.push(cx.subscribe_in(&tree, window, Self::on_tree_event));
+        // Light/dark auto-switching and window-level dimming both need to
+        // know when the OS changes its mind.
+        subscriptions.push(cx.observe_window_appearance(window, |this, window, cx| {
+            this.on_appearance_changed(window, cx);
+        }));
+        subscriptions.push(cx.observe_window_activation(window, |this, window, cx| {
+            let active = window.is_window_active();
+            if this.window_active != active {
+                this.window_active = active;
+                cx.notify();
+            }
+        }));
 
         // Live config reload.
         let mut config_watcher = None;
@@ -450,6 +527,9 @@ impl Oxide {
             recent_files: VecDeque::new(),
             status_bar_override: None,
             update: UpdateState::Idle,
+            closed_tabs: VecDeque::new(),
+            dark_appearance,
+            window_active: window.is_window_active(),
             _config_watcher: config_watcher,
             _subscriptions: subscriptions,
         };
@@ -658,6 +738,16 @@ impl Oxide {
     /// Nearest pane in `direction`, chosen geometrically so navigation follows
     /// what is on screen rather than the shape of the split tree.
     fn pane_in_direction(&self, direction: Direction, cx: &Context<Self>) -> Option<PaneId> {
+        // Zoomed: the siblings aren't on screen, so walk the tree order
+        // instead — like tmux, which moves and stays zoomed.
+        if self.tab().zoomed.is_some() {
+            let leaves = self.tab().layout.leaves();
+            let ix = leaves.iter().position(|id| *id == self.active_id())?;
+            return match direction {
+                Direction::Left | Direction::Up => ix.checked_sub(1).map(|i| leaves[i]),
+                Direction::Right | Direction::Down => leaves.get(ix + 1).copied(),
+            };
+        }
         let current = self.pane_bounds(self.active_id(), cx)?;
         let (cx0, cy0) = (
             f32::from(current.origin.x) + f32::from(current.size.width) / 2.0,
@@ -710,7 +800,11 @@ impl Oxide {
 
     fn focus_pane(&mut self, id: PaneId, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(pane) = self.panes.get(&id).cloned() {
-            self.tab_mut().active = id;
+            let tab = self.tab_mut();
+            tab.active = id;
+            if tab.zoomed.is_some() && tab.layout.leaves().contains(&id) {
+                tab.zoomed = Some(id);
+            }
             window.focus(&pane.focus_handle(cx));
             self.sync_tree_to_active(cx);
             cx.notify();
@@ -748,9 +842,115 @@ impl Oxide {
             .unwrap_or_else(|| PathBuf::from("/"));
         let id = self.create_pane(cwd, window, cx);
         let target = self.active_id();
-        self.tab_mut().layout.split(&target, direction, id);
+        let tab = self.tab_mut();
+        tab.layout.split(&target, direction, id);
+        // A split while zoomed is a request to see both.
+        tab.zoomed = None;
+        if tab.broadcast && let Some(pane) = self.panes.get(&id) {
+            pane.update(cx, |t, _| t.broadcast = true);
+        }
         self.focus_pane(id, window, cx);
         self.save_workspaces(cx);
+    }
+
+    // --- Zoom, broadcast, and the other tmux reflexes ---
+
+    /// Show the active pane at full tab size, or restore the layout.
+    fn toggle_zoom(&mut self, cx: &mut Context<Self>) {
+        let tab = self.tab_mut();
+        if tab.zoomed.is_some() {
+            tab.zoomed = None;
+        } else if tab.layout.len() > 1 {
+            tab.zoomed = Some(tab.active);
+        } else {
+            self.show_transient_banner("zoom needs more than one pane in the tab".into(), cx);
+            return;
+        }
+        cx.notify();
+    }
+
+    fn toggle_broadcast(&mut self, cx: &mut Context<Self>) {
+        if self.tab().layout.len() < 2 {
+            self.show_transient_banner("broadcast needs more than one pane in the tab".into(), cx);
+            return;
+        }
+        let on = !self.tab().broadcast;
+        let (wix, tix) = (self.active_ws, self.ws().active_tab);
+        self.workspaces[wix].tabs[tix].broadcast = on;
+        self.sync_tab_broadcast(wix, tix, cx);
+        cx.notify();
+    }
+
+    /// Push the tab's broadcast flag down to its panes, switching it off
+    /// first if the tab is down to one pane — nothing to broadcast to.
+    fn sync_tab_broadcast(&mut self, wix: usize, tix: usize, cx: &mut Context<Self>) {
+        let Some(tab) = self.workspaces.get_mut(wix).and_then(|w| w.tabs.get_mut(tix)) else { return };
+        if tab.layout.len() < 2 {
+            tab.broadcast = false;
+        }
+        let on = tab.broadcast;
+        for id in tab.layout.leaves() {
+            if let Some(pane) = self.panes.get(&id) {
+                pane.update(cx, |t, _| t.broadcast = on);
+            }
+        }
+    }
+
+    /// Input from one pane, echoed to the others in its tab.
+    fn broadcast_input(&mut self, from: PaneId, bytes: &[u8], cx: &mut Context<Self>) {
+        let Some((wix, tix)) = self.locate_pane(from) else { return };
+        let tab = &self.workspaces[wix].tabs[tix];
+        if !tab.broadcast {
+            return;
+        }
+        for id in tab.layout.leaves() {
+            if id != from && let Some(pane) = self.panes.get(&id) {
+                pane.update(cx, |t, _| t.write_raw(bytes.to_vec()));
+            }
+        }
+    }
+
+    /// ctrl-w o: close every other pane in the tab, asking first when
+    /// more than one would go.
+    fn close_other_panes_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let others = self.tab().layout.len().saturating_sub(1);
+        match others {
+            0 => {}
+            1 => self.close_other_panes(window, cx),
+            n => self.open_confirm(
+                format!("Close the other {n} panes in this tab?"),
+                ConfirmAction::CloseOtherPanes,
+                window,
+                cx,
+            ),
+        }
+    }
+
+    fn close_other_panes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let keep = self.active_id();
+        let others: Vec<PaneId> = self.tab().layout.leaves().into_iter().filter(|id| *id != keep).collect();
+        if others.is_empty() {
+            return;
+        }
+        for id in others {
+            self.tab_mut().layout.remove(&id);
+            self.drop_pane(id);
+        }
+        let tab = self.tab_mut();
+        tab.zoomed = None;
+        let (wix, tix) = (self.active_ws, self.ws().active_tab);
+        self.sync_tab_broadcast(wix, tix, cx);
+        self.focus_pane(keep, window, cx);
+        self.save_workspaces(cx);
+    }
+
+    /// ctrl-w x: exchange the active pane with its neighbour in the split.
+    fn swap_active_pane(&mut self, cx: &mut Context<Self>) {
+        let id = self.active_id();
+        if self.tab_mut().layout.swap_with_neighbour(&id) {
+            self.save_workspaces(cx);
+            cx.notify();
+        }
     }
 
     /// Close a pane wherever it lives, cascading upward: the last pane closes
@@ -769,7 +969,11 @@ impl Oxide {
                 let remaining = tab.layout.leaves();
                 tab.active = remaining[ix.min(remaining.len() - 1)];
             }
+            if tab.zoomed == Some(id) || tab.layout.len() < 2 {
+                tab.zoomed = None;
+            }
             self.drop_pane(id);
+            self.sync_tab_broadcast(wix, tix, cx);
             if wix == self.active_ws && tix == self.ws().active_tab {
                 let next = self.active_id();
                 self.focus_pane(next, window, cx);
@@ -798,6 +1002,7 @@ impl Oxide {
     fn close_tab_at(&mut self, wix: usize, tix: usize, window: &mut Window, cx: &mut Context<Self>) {
         let was_active_tab = wix == self.active_ws && tix == self.workspaces[wix].active_tab;
         let tab = self.workspaces[wix].tabs.remove(tix);
+        self.remember_closed_tab(&tab, cx);
         for pid in tab.layout.leaves() {
             self.drop_pane(pid);
         }
@@ -830,6 +1035,9 @@ impl Oxide {
                 active_tab: 0,
             };
             let old = std::mem::replace(&mut self.workspaces[0], fresh);
+            for tab in &old.tabs {
+                self.remember_closed_tab(tab, cx);
+            }
             for pid in old.tabs.iter().flat_map(|t| t.layout.leaves()) {
                 self.drop_pane(pid);
             }
@@ -838,6 +1046,9 @@ impl Oxide {
             self.focus_pane(id, window, cx);
         } else {
             let old = self.workspaces.remove(wix);
+            for tab in &old.tabs {
+                self.remember_closed_tab(tab, cx);
+            }
             for pid in old.tabs.iter().flat_map(|t| t.layout.leaves()) {
                 self.drop_pane(pid);
             }
@@ -870,22 +1081,45 @@ impl Oxide {
                     return div().into_any_element();
                 };
                 let focused = pane.focus_handle(cx).is_focused(window);
+                let tab = self.tab();
+                let many = tab.layout.len() > 1;
                 // Only mark the active pane when there is a choice to make.
-                let show_ring = focused && (self.tab().layout.len() > 1 || self.drawer_visible);
+                let show_ring = focused && (many || self.drawer_visible);
                 let flashing = self.fail_flash.get(id).is_some_and(|until| Instant::now() < *until);
+                // A pane ssh'd into a host with a configured accent wears it
+                // on its border, focused or not: "am I on prod?" at a glance.
+                let ssh_accent = pane
+                    .read(cx)
+                    .ssh_host()
+                    .and_then(|host| self.config.ssh.accent_for(host))
+                    .and_then(parse_hex);
                 let ring = if flashing {
                     self.theme.ansi[1]
+                } else if tab.broadcast {
+                    // Impossible to miss, on every pane that will receive input.
+                    if focused { self.theme.ansi[1] } else { blend(self.theme.ansi[1], self.theme.background, 0.4) }
+                } else if let Some(color) = ssh_accent {
+                    if focused { color } else { blend(color, self.theme.background, 0.35) }
                 } else if show_ring {
                     accent
                 } else {
                     gpui::transparent_black()
                 };
+                // Dim the panes you aren't in. An overlay, not a recolour:
+                // one element, and it takes no mouse events, so a click
+                // still lands on the pane and focuses it.
+                let dim = self.config.window.inactive_pane_opacity.clamp(0.05, 1.0);
+                let dimmed = many && tab.zoomed.is_none() && *id != tab.active && dim < 1.0;
+                let mut shade = self.theme.background;
+                shade.a = 1.0 - dim;
                 div()
                     .size_full()
+                    .relative()
                     .overflow_hidden()
                     .border_1()
                     .border_color(ring)
                     .child(pane.clone())
+                    .when(dimmed, |d| d.child(div().absolute().inset_0().bg(shade)))
                     .into_any_element()
             }
             Node::Split { axis, children, ratios } => {
@@ -1022,11 +1256,10 @@ impl Oxide {
                     || new_config.prompt != self.config.prompt;
                 let keymap_changed = new_config.keymap != self.config.keymap;
                 self.config = Rc::new(new_config);
-                self.theme = Rc::new(Theme::from_config(&self.config.colors));
+                self.theme = Rc::new(Theme::resolve(&self.config.colors, self.dark_appearance));
                 let config = self.config.clone();
                 let theme = self.theme.clone();
-                self.active_pane()
-                    .update(cx, |t, cx| t.set_config(config.clone(), theme.clone(), cx));
+                self.for_each_pane(cx, |t, cx| t.set_config(config.clone(), theme.clone(), cx));
                 self.tree.update(cx, |t, cx| t.set_config(config, theme, cx));
                 let keymap_banner = if keymap_changed { self.rebind_keys(cx) } else { None };
                 if let Some(message) = keymap_banner {
@@ -1051,6 +1284,22 @@ impl Oxide {
             }
         }
         cx.notify();
+    }
+
+    /// The system switched between light and dark. With `follow_system`
+    /// on, re-resolve the theme the same way a config reload would. A theme
+    /// preview in progress is left alone; it reverts or commits on its own.
+    fn on_appearance_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let dark = appearance_is_dark(window.appearance());
+        if dark == self.dark_appearance {
+            return;
+        }
+        self.dark_appearance = dark;
+        if !self.config.colors.follow_system || matches!(self.overlay, Some(Overlay::ThemePicker(_))) {
+            return;
+        }
+        let theme = Rc::new(Theme::resolve(&self.config.colors, dark));
+        self.apply_theme(theme, cx);
     }
 
     /// Re-resolve the keymap and swap it in live. GPUI's keymap is
@@ -1202,6 +1451,16 @@ impl Oxide {
                 self.tree.update(cx, |tree, cx| tree.set_root(dir, cx));
                 cx.notify();
             }
+            TerminalEvent::Input(bytes) => {
+                if let Some(id) = self.pane_id_of(emitter) {
+                    self.broadcast_input(id, bytes, cx);
+                }
+            }
+            TerminalEvent::Notice(message) => {
+                self.show_transient_banner(message.clone(), cx);
+            }
+            // Tab titles and the ssh chip follow the foreground process.
+            TerminalEvent::ForegroundChanged => cx.notify(),
             TerminalEvent::CwdChanged(cwd) => {
                 // Background panes change directory too; only the focused one
                 // should move the tree or the status bar.
@@ -1358,6 +1617,8 @@ impl Oxide {
             Overlay::ThemePicker(t) => t.return_focus,
             Overlay::History(h) => h.return_focus,
             Overlay::FileFinder(f) => f.return_focus,
+            Overlay::TabRename(r) => r.return_focus,
+            Overlay::Confirm(c) => c.return_focus,
         };
         self.restore_focus(target, window, cx);
         cx.notify();
@@ -1369,7 +1630,7 @@ impl Oxide {
             Some(Overlay::Palette(_)) => self.palette_move(delta, cx),
             Some(Overlay::History(_)) => self.history_move(delta, cx),
             Some(Overlay::FileFinder(_)) => self.finder_move(delta, cx),
-            None => {}
+            Some(Overlay::TabRename(_) | Overlay::Confirm(_)) | None => {}
         }
     }
 
@@ -1379,6 +1640,8 @@ impl Oxide {
             Some(Overlay::Palette(_)) => self.palette_confirm(window, cx),
             Some(Overlay::History(_)) => self.history_confirm(false, window, cx),
             Some(Overlay::FileFinder(_)) => self.finder_confirm(FinderAction::Open, window, cx),
+            Some(Overlay::TabRename(_)) => self.tab_rename_confirm(window, cx),
+            Some(Overlay::Confirm(_)) => self.confirm_run(window, cx),
             None => {}
         }
     }
@@ -1404,7 +1667,9 @@ impl Oxide {
     fn overlay_cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match &self.overlay {
             Some(Overlay::ThemePicker(_)) => self.picker_cancel(window, cx),
-            Some(Overlay::Palette(_) | Overlay::History(_) | Overlay::FileFinder(_)) => self.close_overlay(window, cx),
+            Some(
+                Overlay::Palette(_) | Overlay::History(_) | Overlay::FileFinder(_) | Overlay::TabRename(_) | Overlay::Confirm(_),
+            ) => self.close_overlay(window, cx),
             None => {}
         }
     }
@@ -1415,14 +1680,105 @@ impl Oxide {
             Some(Overlay::Palette(p)) => Some(&mut p.query),
             Some(Overlay::History(h)) => Some(&mut h.query),
             Some(Overlay::FileFinder(f)) => Some(&mut f.query),
+            Some(Overlay::TabRename(r)) => Some(&mut r.buffer),
             _ => None,
         }
+    }
+
+    // --- Tab rename and confirmations ---
+
+    fn open_tab_rename(&mut self, tab: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if tab >= self.ws().tabs.len() {
+            return;
+        }
+        let return_focus = self.current_focus_target(window, cx);
+        let buffer = self.ws().tabs[tab].title.clone().unwrap_or_default();
+        self.overlay = Some(Overlay::TabRename(TabRenameState { buffer, tab, return_focus }));
+        window.focus(&self.picker_focus);
+        cx.notify();
+    }
+
+    /// Set the title; an empty name goes back to the automatic one.
+    fn tab_rename_confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(Overlay::TabRename(r)) = &self.overlay else { return };
+        let (tab, name) = (r.tab, r.buffer.trim().to_string());
+        if let Some(t) = self.ws_mut().tabs.get_mut(tab) {
+            t.title = (!name.is_empty()).then_some(name);
+        }
+        self.close_overlay(window, cx);
+        self.save_workspaces(cx);
+    }
+
+    fn open_confirm(&mut self, message: String, action: ConfirmAction, window: &mut Window, cx: &mut Context<Self>) {
+        let return_focus = self.current_focus_target(window, cx);
+        self.overlay = Some(Overlay::Confirm(ConfirmState { message, action, return_focus }));
+        window.focus(&self.picker_focus);
+        cx.notify();
+    }
+
+    fn confirm_run(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(Overlay::Confirm(c)) = &self.overlay else { return };
+        let action = c.action;
+        self.close_overlay(window, cx);
+        match action {
+            ConfirmAction::CloseOtherPanes => self.close_other_panes(window, cx),
+        }
+    }
+
+    fn render_tab_rename_body(&self, r: &TabRenameState) -> gpui::Div {
+        let theme = &self.theme;
+        let accent = theme.ansi[4];
+        let dim = blend(theme.foreground, theme.background, 0.45);
+        let border = blend(theme.foreground, theme.background, 0.85);
+        let input = div()
+            .flex_none()
+            .px_3()
+            .py_2()
+            .border_b_1()
+            .border_color(border)
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(div().text_color(accent).child("rename tab"))
+            .child(if r.buffer.is_empty() {
+                div().flex_1().text_color(dim).child("▏automatic title…")
+            } else {
+                div().flex_1().overflow_hidden().child(format!("{}▏", r.buffer))
+            });
+        let footer = div()
+            .flex_none()
+            .px_3()
+            .py_1()
+            .text_size(px(11.0))
+            .text_color(dim)
+            .child("⏎ save · empty name restores the automatic title · esc cancel");
+        div().flex().flex_col().child(input).child(footer)
+    }
+
+    fn render_confirm_body(&self, c: &ConfirmState) -> gpui::Div {
+        let theme = &self.theme;
+        let dim = blend(theme.foreground, theme.background, 0.45);
+        let border = blend(theme.foreground, theme.background, 0.85);
+        div()
+            .flex()
+            .flex_col()
+            .child(div().flex_none().px_3().py_2().border_b_1().border_color(border).child(c.message.clone()))
+            .child(
+                div()
+                    .flex_none()
+                    .px_3()
+                    .py_1()
+                    .text_size(px(11.0))
+                    .text_color(dim)
+                    .child("y / ⏎ confirm · n / esc cancel"),
+            )
     }
 
     // --- Theme picker ---
 
     fn current_preset(&self) -> String {
-        self.config.colors.preset.clone().unwrap_or_else(|| "catppuccin-mocha".into())
+        self.theme.preset.to_string()
     }
 
     fn open_theme_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1479,14 +1835,24 @@ impl Oxide {
         let name = config::theme::PRESET_NAMES[picker.selected].to_string();
         // Update in-memory config first so the file-watcher reload no-ops.
         // Committing a preset replaces the whole [colors] block — explicit
-        // overrides would silently defeat the theme switch otherwise.
+        // overrides would silently defeat the theme switch otherwise. With
+        // follow_system on, the pick is for the current appearance only:
+        // set that variant and keep the rest of the block.
         let mut config = (*self.config).clone();
-        config.colors = crate::config::schema::ColorsConfig {
-            preset: Some(name.clone()),
-            ..Default::default()
+        let variant = if config.colors.follow_system {
+            if self.dark_appearance {
+                config.colors.preset_dark = Some(name.clone());
+                Some("preset_dark")
+            } else {
+                config.colors.preset_light = Some(name.clone());
+                Some("preset_light")
+            }
+        } else {
+            config.colors = ColorsConfig { preset: Some(name.clone()), ..Default::default() };
+            None
         };
         self.config = Rc::new(config);
-        if let Err(e) = persist_preset(&name) {
+        if let Err(e) = persist_preset(&name, variant) {
             self.banner = Some(e);
             self.banner_generation += 1;
         }
@@ -1569,7 +1935,7 @@ impl Oxide {
                 self.picker_cancel(window, cx);
                 self.open_palette(window, cx);
             }
-            Some(Overlay::History(_) | Overlay::FileFinder(_)) => {
+            Some(_) => {
                 self.close_overlay(window, cx);
                 self.open_palette(window, cx);
             }
@@ -1661,11 +2027,20 @@ impl Oxide {
     fn on_overlay_key_down(
         &mut self,
         event: &gpui::KeyDownEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let ks = &event.keystroke;
         let plain = !ks.modifiers.platform && !ks.modifiers.control && !ks.modifiers.function;
+        if let Some(Overlay::Confirm(_)) = &self.overlay {
+            match ks.key.as_str() {
+                "y" => self.confirm_run(window, cx),
+                "n" => self.close_overlay(window, cx),
+                _ => {}
+            }
+            cx.stop_propagation();
+            return;
+        }
         let Some(query) = self.overlay_query_mut() else { return };
         match ks.key.as_str() {
             "backspace" => {
@@ -1976,7 +2351,7 @@ impl Oxide {
                 self.picker_cancel(window, cx);
                 self.open_history(window, cx);
             }
-            Some(Overlay::Palette(_) | Overlay::FileFinder(_)) => {
+            Some(_) => {
                 self.close_overlay(window, cx);
                 self.open_history(window, cx);
             }
@@ -2367,6 +2742,16 @@ impl Oxide {
                 .track_focus(&self.picker_focus)
                 .on_key_down(cx.listener(Self::on_overlay_key_down))
                 .child(self.render_finder_body(f, cx)),
+            Overlay::TabRename(r) => panel
+                .w(px(420.0))
+                .track_focus(&self.picker_focus)
+                .on_key_down(cx.listener(Self::on_overlay_key_down))
+                .child(self.render_tab_rename_body(r)),
+            Overlay::Confirm(c) => panel
+                .w(px(420.0))
+                .track_focus(&self.picker_focus)
+                .on_key_down(cx.listener(Self::on_overlay_key_down))
+                .child(self.render_confirm_body(c)),
         };
 
         div()
@@ -2544,9 +2929,20 @@ impl Oxide {
 
     // --- Tabs ---
 
+    /// A user-set name wins; then the foreground program (`vim`, `cargo`,
+    /// `ssh prod-web`) when one is running; else the directory.
     fn tab_title(&self, tab: &TabState, cx: &Context<Self>) -> String {
+        if let Some(title) = &tab.title {
+            return title.clone();
+        }
         let Some(pane) = self.panes.get(&tab.active) else { return "shell".into() };
-        let cwd = pane.read(cx).cwd.clone();
+        let pane = pane.read(cx);
+        if let Some(fg) = &pane.foreground
+            && !fg.is_shell()
+        {
+            return fg.label();
+        }
+        let cwd = pane.cwd.clone();
         match cwd {
             Some(p) => {
                 if home_dir().is_some_and(|h| h == p) {
@@ -2588,6 +2984,76 @@ impl Oxide {
         self.ws_mut().active_tab = ix;
         let id = self.active_id();
         self.focus_pane(id, window, cx);
+        self.save_workspaces(cx);
+    }
+
+    /// Reorder: move the tab at `from` to `to`, keeping the active tab active.
+    fn move_tab(&mut self, from: usize, to: usize, cx: &mut Context<Self>) {
+        let ws = self.ws_mut();
+        let n = ws.tabs.len();
+        if from == to || from >= n || to >= n {
+            return;
+        }
+        let tab = ws.tabs.remove(from);
+        ws.tabs.insert(to, tab);
+        let active = ws.active_tab;
+        ws.active_tab = if active == from {
+            to
+        } else if from < active && to >= active {
+            active - 1
+        } else if from > active && to <= active {
+            active + 1
+        } else {
+            active
+        };
+        self.save_workspaces(cx);
+        cx.notify();
+    }
+
+    fn move_active_tab(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let from = self.ws().active_tab;
+        let n = self.ws().tabs.len() as isize;
+        let to = from as isize + delta;
+        if to >= 0 && to < n {
+            self.move_tab(from, to as usize, cx);
+        }
+    }
+
+    /// What a tab looks like on disk: directories in place of pane ids.
+    fn saved_tab(&self, t: &TabState, cx: &Context<Self>) -> SavedTab {
+        let layout = t.layout.map(&mut |id| {
+            self.panes
+                .get(id)
+                .and_then(|p| p.read(cx).cwd.clone())
+                .or_else(home_dir)
+                .unwrap_or_else(|| PathBuf::from("/"))
+        });
+        let active = t.layout.leaves().iter().position(|l| *l == t.active).unwrap_or(0);
+        SavedTab { layout, active, title: t.title.clone() }
+    }
+
+    /// Keep a closed tab's shape and directories so cmd-shift-t can bring
+    /// it back with fresh shells.
+    fn remember_closed_tab(&mut self, tab: &TabState, cx: &Context<Self>) {
+        let saved = self.saved_tab(tab, cx);
+        self.closed_tabs.push_front(saved);
+        self.closed_tabs.truncate(CLOSED_TAB_RING);
+    }
+
+    fn reopen_closed_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(saved) = self.closed_tabs.pop_front() else {
+            self.show_transient_banner("no closed tab to reopen".into(), cx);
+            return;
+        };
+        let layout = saved.layout.map(&mut |cwd| self.create_pane(cwd.clone(), window, cx));
+        let leaves = layout.leaves();
+        let active = leaves.get(saved.active).copied().unwrap_or(leaves[0]);
+        let mut tab = TabState::new(layout, active);
+        tab.title = saved.title;
+        let ws = self.ws_mut();
+        ws.tabs.push(tab);
+        ws.active_tab = ws.tabs.len() - 1;
+        self.focus_pane(active, window, cx);
         self.save_workspaces(cx);
     }
 
@@ -2647,6 +3113,7 @@ impl Oxide {
             } else {
                 None
             };
+            let drag_title: gpui::SharedString = title.clone().into();
             bar = bar.child(
                 div()
                     .id(("tab", ix))
@@ -2661,12 +3128,22 @@ impl Oxide {
                     .cursor_pointer()
                     .when(is_active, |d| d.bg(theme.background).text_color(theme.foreground))
                     .when(!is_active, |d| d.text_color(dim))
+                    // Double-click renames; a single click selects.
                     .on_mouse_down(
                         gpui::MouseButton::Left,
-                        cx.listener(move |this, _: &gpui::MouseDownEvent, window, cx| {
-                            this.select_tab(ix, window, cx);
+                        cx.listener(move |this, ev: &gpui::MouseDownEvent, window, cx| {
+                            if ev.click_count >= 2 {
+                                this.open_tab_rename(ix, window, cx);
+                            } else {
+                                this.select_tab(ix, window, cx);
+                            }
                         }),
                     )
+                    // Drag a tab onto another to reorder.
+                    .on_drag(TabDrag { ix }, move |_, _, _window, cx| cx.new(|_| TabDragLabel(drag_title.clone())))
+                    .on_drop(cx.listener(move |this, drag: &TabDrag, _window, cx| {
+                        this.move_tab(drag.ix, ix, cx);
+                    }))
                     .when_some(indicator, |d, color| {
                         d.child(div().flex_none().w(px(6.0)).h(px(6.0)).rounded_full().bg(color))
                     })
@@ -2764,26 +3241,7 @@ impl Oxide {
             .map(|w| SavedWorkspace {
                 name: w.name.clone(),
                 active_tab: w.active_tab,
-                tabs: w
-                    .tabs
-                    .iter()
-                    .map(|t| {
-                        let layout = t.layout.map(&mut |id| {
-                            self.panes
-                                .get(id)
-                                .and_then(|p| p.read(cx).cwd.clone())
-                                .or_else(home_dir)
-                                .unwrap_or_else(|| PathBuf::from("/"))
-                        });
-                        let active = t
-                            .layout
-                            .leaves()
-                            .iter()
-                            .position(|l| *l == t.active)
-                            .unwrap_or(0);
-                        SavedTab { layout, active }
-                    })
-                    .collect(),
+                tabs: w.tabs.iter().map(|t| self.saved_tab(t, cx)).collect(),
             })
             .collect();
         crate::workspaces::save(&saved);
@@ -2805,7 +3263,9 @@ impl Oxide {
                     let layout = st.layout.map(&mut |cwd| self.create_pane(cwd.clone(), window, cx));
                     let leaves = layout.leaves();
                     let active = leaves.get(st.active).copied().unwrap_or(leaves[0]);
-                    tabs.push(TabState::new(layout, active));
+                    let mut tab = TabState::new(layout, active);
+                    tab.title = st.title.clone();
+                    tabs.push(tab);
                 }
                 let active_tab = saved.active_tab.min(tabs.len() - 1);
                 self.workspaces.push(Workspace {
@@ -3255,6 +3715,71 @@ impl Oxide {
                     .child(div().text_color(theme.ansi[4]).child("\u{f07b}"))
                     .child(cwd_text),
             )
+            .when(self.tab().broadcast, |d| {
+                // Loud on purpose: `rm -rf build` into four panes is not a
+                // mistake anyone forgives a subtle dot for.
+                d.child(
+                    div()
+                        .flex_none()
+                        .px_2()
+                        .py_0p5()
+                        .rounded_sm()
+                        .bg(theme.ansi[1])
+                        .text_color(theme.background)
+                        .font_weight(gpui::FontWeight::BOLD)
+                        .child("⇶ BROADCAST"),
+                )
+            })
+            .when(self.tab().zoomed.is_some(), |d| {
+                // A zoomed pane looks exactly like a one-pane tab otherwise.
+                let mut chip_bg = theme.ansi[3];
+                chip_bg.a = 0.18;
+                d.child(
+                    div()
+                        .flex_none()
+                        .px_2()
+                        .py_0p5()
+                        .rounded_sm()
+                        .bg(chip_bg)
+                        .text_color(theme.ansi[3])
+                        .child(format!("⤢ zoom · {} panes", self.tab().layout.len())),
+                )
+            })
+            .when_some(self.active_pane().read(cx).vi_mode(), |d, kind| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .px_2()
+                        .py_0p5()
+                        .rounded_sm()
+                        .bg(theme.ansi[3])
+                        .text_color(theme.background)
+                        .font_weight(gpui::FontWeight::BOLD)
+                        .child(kind.label()),
+                )
+            })
+            .when_some(self.active_pane().read(cx).ssh_host().map(str::to_string), |d, host| {
+                // Where you are, when it isn't this machine. A configured
+                // host accent colours the chip too.
+                let color = self
+                    .config
+                    .ssh
+                    .accent_for(&host)
+                    .and_then(parse_hex)
+                    .unwrap_or(theme.ansi[5]);
+                let mut chip_bg = color;
+                chip_bg.a = 0.18;
+                d.child(
+                    div()
+                        .flex_none()
+                        .px_2()
+                        .py_0p5()
+                        .rounded_sm()
+                        .bg(chip_bg)
+                        .text_color(color)
+                        .child(format!("ssh: {host}")),
+                )
+            })
             .child({
                 // What the focused pane is doing: elapsed time while a
                 // command runs; the last failure once it's done. Success is
@@ -3367,15 +3892,29 @@ fn highlighted_text(text: &str, highlights: &[usize], accent: gpui::Hsla) -> gpu
 /// preserving the rest of the file's comments and formatting. Explicit color
 /// keys are dropped deliberately — they override presets, so leaving them
 /// would make the newly chosen theme a no-op.
-fn persist_preset(name: &str) -> Result<(), String> {
+///
+/// With `variant` (`preset_dark` / `preset_light`, when following the
+/// system appearance) only that key changes and the rest of the block —
+/// `follow_system`, the other variant, any overrides — is kept.
+fn persist_preset(name: &str, variant: Option<&str>) -> Result<(), String> {
     let path = config::config_path();
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     let mut doc = text
         .parse::<toml_edit::DocumentMut>()
         .map_err(|e| format!("couldn't edit config: {e}"))?;
-    let mut colors = toml_edit::Table::new();
-    colors["preset"] = toml_edit::value(name);
-    doc["colors"] = toml_edit::Item::Table(colors);
+    match variant {
+        Some(key) => {
+            if !doc.contains_table("colors") {
+                doc["colors"] = toml_edit::Item::Table(toml_edit::Table::new());
+            }
+            doc["colors"][key] = toml_edit::value(name);
+        }
+        None => {
+            let mut colors = toml_edit::Table::new();
+            colors["preset"] = toml_edit::value(name);
+            doc["colors"] = toml_edit::Item::Table(colors);
+        }
+    }
     std::fs::write(&path, doc.to_string()).map_err(|e| format!("couldn't write config: {e}"))
 }
 
@@ -3489,7 +4028,7 @@ impl Render for Oxide {
             .flex()
             .flex_col()
             .bg(root_bg)
-            .font_family(config.font.family.clone())
+            .font_family(config.font.family.primary().to_string())
             .text_size(px(13.0))
             .text_color(theme.foreground)
             .when(hidden_titlebar, |d| {
@@ -3657,6 +4196,21 @@ impl Render for Oxide {
             .on_action(cx.listener(|this, _: &PaneEqualize, _w, cx| {
                 this.equalize_splits(cx);
             }))
+            .on_action(cx.listener(|this, _: &PaneZoom, _w, cx| this.toggle_zoom(cx)))
+            .on_action(cx.listener(|this, _: &PaneBroadcast, _w, cx| this.toggle_broadcast(cx)))
+            .on_action(cx.listener(|this, _: &PaneOnly, window, cx| {
+                this.close_other_panes_prompt(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &PaneSwap, _w, cx| this.swap_active_pane(cx)))
+            .on_action(cx.listener(|this, _: &RenameTab, window, cx| {
+                let ix = this.ws().active_tab;
+                this.open_tab_rename(ix, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ReopenClosedTab, window, cx| {
+                this.reopen_closed_tab(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &MoveTabLeft, _w, cx| this.move_active_tab(-1, cx)))
+            .on_action(cx.listener(|this, _: &MoveTabRight, _w, cx| this.move_active_tab(1, cx)))
             .on_action(cx.listener(|this, _: &CheckForUpdates, _w, cx| {
                 this.check_for_updates(true, cx);
             }))
@@ -3719,7 +4273,14 @@ impl Render for Oxide {
                             .flex_col()
                             .child(self.render_tab_bar(window, cx))
                             .child({
-                                let layout = self.tab().layout.clone();
+                                // Zoomed: just that leaf, at full size. The
+                                // hidden panes aren't laid out, so their
+                                // PTYs keep their size until they're back.
+                                let tab = self.tab();
+                                let layout = match tab.zoomed {
+                                    Some(id) if tab.layout.leaves().contains(&id) => Node::leaf(id),
+                                    _ => tab.layout.clone(),
+                                };
                                 div()
                                     .flex_1()
                                     .min_h_0()
@@ -3771,6 +4332,14 @@ impl Render for Oxide {
             })
             .when(self.divider_drag.is_some(), |d| d.child(self.render_drag_overlay(cx)))
             .when(self.overlay.is_some(), |d| d.child(self.render_overlay(cx)))
+            // Another app is frontmost: the same shade as inactive panes,
+            // over the whole window. Takes no mouse events, so the first
+            // click still lands where it was aimed.
+            .when(!self.window_active && config.window.inactive_window_opacity < 1.0, |d| {
+                let mut shade = theme.background;
+                shade.a = 1.0 - config.window.inactive_window_opacity.clamp(0.05, 1.0);
+                d.child(div().absolute().inset_0().bg(shade))
+            })
     }
 }
 

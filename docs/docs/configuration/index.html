@@ -103,14 +103,17 @@
             <li>
               <strong>Live:</strong> <code>[font]</code>,
               <code>[colors]</code>, <code>[window]</code>,
-              <code>[tree]</code>, <code>[status_bar]</code>,
-              <code>[keymap]</code>, <code>[notifications]</code>,
-              <code>bell</code>, <code>copy_on_select</code>. Save the file
-              and the window repaints.
+              <code>[cursor]</code>, <code>[tree]</code>,
+              <code>[status_bar]</code>, <code>[keymap]</code>,
+              <code>[notifications]</code>, <code>[ssh]</code>,
+              <code>shell.scrollback</code>, <code>bell</code>,
+              <code>copy_on_select</code>. Save the file and the window
+              repaints.
             </li>
             <li>
-              <strong>New sessions only:</strong> <code>[shell]</code>,
-              <code>[prompt]</code>, and <code>commands.emit_cmdline</code> —
+              <strong>New sessions only:</strong> the rest of
+              <code>[shell]</code>, <code>[prompt]</code>, and
+              <code>commands.emit_cmdline</code> —
               they're baked into a shell's environment and init script when it
               starts. Open a new tab to pick them up.
             </li>
@@ -170,11 +173,15 @@
               <tbody>
                 <tr>
                   <td>family</td>
-                  <td>string</td>
+                  <td>string or array</td>
                   <td>"JetBrainsMono Nerd Font Mono"</td>
                   <td>
                     Any installed monospace family. The default is bundled into
-                    the binary, so it works with nothing installed.
+                    the binary, so it works with nothing installed. A list
+                    names fallbacks: the first entry is the terminal font, the
+                    rest are tried in order for glyphs it lacks —
+                    <code>["JetBrainsMono Nerd Font Mono", "Apple Color Emoji", "PingFang SC"]</code>
+                    avoids tofu for emoji and CJK.
                   </td>
                 </tr>
                 <tr>
@@ -252,6 +259,73 @@
                     opens at <code>~/</code>.
                   </td>
                 </tr>
+                <tr>
+                  <td>inactive_pane_opacity</td>
+                  <td>float</td>
+                  <td>1.0</td>
+                  <td>
+                    Fade every pane except the active one to this
+                    (0.05–1.0; 0.7 or so is typical). Only applies when the
+                    tab has more than one pane, and never while zoomed. See
+                    <a class="link" href="/docs/tabs-splits/#dimming">dimming</a>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>inactive_window_opacity</td>
+                  <td>float</td>
+                  <td>1.0</td>
+                  <td>Fade the whole window while another app is frontmost.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="cursor">[cursor]</h2>
+          <p>
+            The shape the shell starts with. Programs that set their own with
+            DECSCUSR (<code>\e[&lt;n&gt; q</code> — vim per mode, for one) win
+            until they reset it. Blinking pauses while you type.
+          </p>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead>
+                <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>style</td>
+                  <td>string</td>
+                  <td>"block"</td>
+                  <td><code>"block"</code>, <code>"bar"</code>, or <code>"underline"</code>.</td>
+                </tr>
+                <tr>
+                  <td>blink</td>
+                  <td>bool</td>
+                  <td>true</td>
+                  <td>Blink in the focused pane.</td>
+                </tr>
+                <tr>
+                  <td>blink_interval</td>
+                  <td>integer</td>
+                  <td>530</td>
+                  <td>Milliseconds per half-cycle (100–5000).</td>
+                </tr>
+                <tr>
+                  <td>unfocused</td>
+                  <td>string</td>
+                  <td>"hollow"</td>
+                  <td>
+                    The cursor in a pane that isn't focused:
+                    <code>"hollow"</code> (an outline), <code>"solid"</code>
+                    (the same shape, not blinking), or <code>"hidden"</code>.
+                  </td>
+                </tr>
+                <tr>
+                  <td>thickness</td>
+                  <td>float</td>
+                  <td>0.15</td>
+                  <td>Width of a bar and height of an underline, as a fraction of a cell.</td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -286,7 +360,7 @@
                   <td>scrollback</td>
                   <td>integer</td>
                   <td>10000</td>
-                  <td>Lines of history kept per pane.</td>
+                  <td>Lines of history kept per pane. Applies live, to every pane.</td>
                 </tr>
                 <tr>
                   <td>option_as_meta</td>
@@ -435,7 +509,12 @@
           </p>
           <pre><span class="c">[colors]</span>
 preset       = <span class="s">"oxide"</span>
-background   = <span class="s">"#0d0b0a"</span>   <span class="c"># override just this one</span></pre>
+background   = <span class="s">"#0d0b0a"</span>   <span class="c"># override just this one</span>
+
+<span class="c"># ...or let macOS pick between two:</span>
+follow_system = <span class="k">true</span>
+preset_dark   = <span class="s">"catppuccin-mocha"</span>
+preset_light  = <span class="s">"catppuccin-latte"</span></pre>
           <div class="table-wrap">
             <table class="opts">
               <thead>
@@ -451,8 +530,30 @@ background   = <span class="s">"#0d0b0a"</span>   <span class="c"># override jus
                   </td>
                 </tr>
                 <tr>
+                  <td>follow_system</td>
+                  <td>
+                    Switch with the macOS appearance: dark uses
+                    <code>preset_dark</code>, light uses
+                    <code>preset_light</code>, each falling back to
+                    <code>preset</code> (and with nothing else set, light falls
+                    back to <code>catppuccin-latte</code>). Overrides below
+                    apply on top of whichever is active. Off by default.
+                  </td>
+                </tr>
+                <tr>
+                  <td>preset_dark, preset_light</td>
+                  <td>The two variants <code>follow_system</code> chooses between.</td>
+                </tr>
+                <tr>
                   <td>background, foreground, cursor, selection_bg</td>
                   <td>The four UI colors.</td>
+                </tr>
+                <tr>
+                  <td>selection_fg</td>
+                  <td>
+                    Text inside a selection. Unset keeps each cell's own
+                    colour over <code>selection_bg</code>.
+                  </td>
                 </tr>
                 <tr>
                   <td>
@@ -469,12 +570,51 @@ background   = <span class="s">"#0d0b0a"</span>   <span class="c"># override jus
           </div>
           <div class="note">
             <p>
-              Picking a theme with <kbd>cmd-k</kbd> <kbd>cmd-t</kbd> rewrites the
+              Picking a theme with <kbd>cmd-alt-t</kbd> rewrites the
               whole <code>[colors]</code> block to just
               <code>preset = "…"</code>, dropping individual overrides — they'd
               defeat the theme you just chose. Keep hand-tuned colors out of the
-              picker's way, or re-add them after switching.
+              picker's way, or re-add them after switching. With
+              <code>follow_system</code> on, the picker only sets the variant
+              for the current appearance and keeps the rest.
             </p>
+          </div>
+
+          <h2 id="ssh">[ssh]</h2>
+          <p>
+            Accents for panes whose foreground process is <code>ssh</code>:
+            the pane's border and the status bar's <code>ssh: host</code> chip
+            take the colour while the connection lasts. An array of tables;
+            the first pattern that matches wins. See
+            <a class="link" href="/docs/terminal/#ssh">SSH awareness</a>.
+          </p>
+          <pre><span class="c">[[ssh.hosts]]</span>
+match  = <span class="s">"*.prod.example.com"</span>
+accent = <span class="s">"#f38ba8"</span></pre>
+          <div class="table-wrap">
+            <table class="opts">
+              <thead>
+                <tr><th>Key</th><th>Type</th><th>Default</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>hosts[].match</td>
+                  <td>string</td>
+                  <td><em>required</em></td>
+                  <td>
+                    A glob over the host as typed on the command line, after
+                    any <code>user@</code>: <code>*</code> matches any run,
+                    <code>?</code> one character; case-insensitive.
+                  </td>
+                </tr>
+                <tr>
+                  <td>hosts[].accent</td>
+                  <td>string</td>
+                  <td><em>required</em></td>
+                  <td>A hex colour.</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
           <h2 id="prompt">[prompt]</h2>
@@ -672,7 +812,7 @@ background   = <span class="s">"#0d0b0a"</span>   <span class="c"># override jus
                   </td>
                 </tr>
                 <tr>
-                  <td>root / terminal / file_tree / workspaces / overlay</td>
+                  <td>root / terminal / terminal_vi / file_tree / workspaces / overlay</td>
                   <td>table</td>
                   <td>{}</td>
                   <td>
@@ -681,7 +821,8 @@ background   = <span class="s">"#0d0b0a"</span>   <span class="c"># override jus
                     <code>[keymap]</code>. A bare key (no <code>cmd</code>,
                     <code>ctrl</code>, or <code>alt</code>) is rejected in
                     <code>root</code> and <code>terminal</code> — it would be
-                    stolen from your shell.
+                    stolen from your shell. <code>terminal_vi</code> is copy
+                    mode, where bare keys are fine.
                   </td>
                 </tr>
               </tbody>
@@ -697,6 +838,8 @@ background   = <span class="s">"#0d0b0a"</span>   <span class="c"># override jus
 
 <span class="c">[font]</span>
 family      = <span class="s">"JetBrainsMono Nerd Font Mono"</span>
+                              <span class="c"># or a list: the rest are fallbacks for CJK/emoji,
+                              # e.g. ["JetBrainsMono Nerd Font Mono", "Apple Color Emoji"]</span>
 size        = <span class="n">14.0</span>
 line_height = <span class="n">1.25</span>
 weight      = <span class="s">"normal"</span>        <span class="c"># normal | medium | bold</span>
@@ -708,6 +851,15 @@ opacity  = <span class="n">1.0</span>                <span class="c"># 0.0 - 1.0
 blur     = <span class="k">false</span>              <span class="c"># blur what's behind a translucent window</span>
 titlebar = <span class="s">"hidden"</span>           <span class="c"># native | hidden</span>
 new_tab_directory = <span class="s">"pwd"</span>     <span class="c"># pwd | home — where cmd-t starts</span>
+inactive_pane_opacity   = <span class="n">1.0</span> <span class="c"># dim the panes you aren't in (0.5–0.9 typical)</span>
+inactive_window_opacity = <span class="n">1.0</span> <span class="c"># dim the whole window when another app is active</span>
+
+<span class="c">[cursor]</span>
+style          = <span class="s">"block"</span>      <span class="c"># block | bar | underline (programs can override via DECSCUSR)</span>
+blink          = <span class="k">true</span>
+blink_interval = <span class="n">530</span>          <span class="c"># ms per half-cycle</span>
+unfocused      = <span class="s">"hollow"</span>     <span class="c"># hollow | solid | hidden — the cursor in an unfocused pane</span>
+thickness      = <span class="n">0.15</span>         <span class="c"># bar width / underline height, as a fraction of a cell</span>
 
 <span class="c">[shell]</span>
 <span class="c"># program = "/bin/zsh"        # default: $SHELL</span>
@@ -754,15 +906,24 @@ max_entries  = <span class="n">500</span>
 # "cmd-shift-p" = "app::palette"
 # "cmd-d"       = ""          # unbind a default</span>
 
+<span class="c"># [[ssh.hosts]]                # colour a pane's border while ssh'd into a matching host
+# match  = "*.prod.example.com"
+# accent = "#f38ba8"</span>
+
 <span class="c">[colors]</span>
 <span class="c"># Presets: catppuccin-mocha | catppuccin-latte | gruvbox-dark | tokyonight
 #          | dracula | nord | solarized-dark | oxide</span>
 preset = <span class="s">"catppuccin-mocha"</span>
+<span class="c"># Follow the macOS appearance instead, switching between two presets:
+# follow_system = true
+# preset_dark   = "catppuccin-mocha"
+# preset_light  = "catppuccin-latte"</span>
 <span class="c"># Any color can override the preset individually:
 # background   = "#11111b"
 # foreground   = "#cdd6f4"
 # cursor       = "#f5e0dc"
 # selection_bg = "#414458"
+# selection_fg = "#cdd6f4"    # text inside a selection; unset keeps each cell's colour
 # black / red / green / yellow / blue / magenta / cyan / white
 # bright_black / bright_red / ... / bright_white</span>
 

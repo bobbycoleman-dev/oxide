@@ -20,6 +20,114 @@ pub struct Config {
     pub notifications: NotificationsConfig,
     pub commands: CommandsConfig,
     pub editor: EditorConfig,
+    pub cursor: CursorConfig,
+    pub ssh: SshConfig,
+}
+
+/// The cursor's shape and blink. Programs that set their own shape with
+/// DECSCUSR (`\e[<n> q`, as vim does per mode) override `style` until they
+/// reset it.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct CursorConfig {
+    pub style: CursorStyleName,
+    pub blink: bool,
+    /// Milliseconds per half-cycle.
+    pub blink_interval: u64,
+    /// How the cursor looks in a pane that isn't focused.
+    pub unfocused: UnfocusedCursor,
+    /// Bar width / underline height, as a fraction of a cell.
+    pub thickness: f32,
+}
+
+impl Default for CursorConfig {
+    fn default() -> Self {
+        Self {
+            style: CursorStyleName::Block,
+            blink: true,
+            blink_interval: 530,
+            unfocused: UnfocusedCursor::Hollow,
+            thickness: 0.15,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CursorStyleName {
+    Block,
+    Bar,
+    Underline,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum UnfocusedCursor {
+    Hollow,
+    Solid,
+    Hidden,
+}
+
+/// Per-host accents for panes whose foreground process is `ssh`, so a
+/// production box is visibly different from a dev one.
+///
+/// ```toml
+/// [[ssh.hosts]]
+/// match  = "*.prod.example.com"
+/// accent = "#f38ba8"
+/// ```
+#[derive(Debug, Clone, Deserialize, Default, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct SshConfig {
+    pub hosts: Vec<SshHost>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SshHost {
+    /// A glob over the host as typed on the command line (after any
+    /// `user@`): `*` and `?` wildcards, case-insensitive.
+    #[serde(rename = "match")]
+    pub pattern: String,
+    pub accent: String,
+}
+
+impl SshConfig {
+    /// The accent for `host`, from the first pattern that matches.
+    pub fn accent_for(&self, host: &str) -> Option<&str> {
+        self.hosts
+            .iter()
+            .find(|h| glob_match(&h.pattern, host))
+            .map(|h| h.accent.as_str())
+    }
+}
+
+/// `*` matches any run (including none), `?` one character; ASCII
+/// case-insensitive, since hostnames are.
+pub fn glob_match(pattern: &str, text: &str) -> bool {
+    let p: Vec<char> = pattern.chars().map(|c| c.to_ascii_lowercase()).collect();
+    let t: Vec<char> = text.chars().map(|c| c.to_ascii_lowercase()).collect();
+    let (mut pi, mut ti) = (0, 0);
+    let mut star: Option<(usize, usize)> = None;
+    while ti < t.len() {
+        if pi < p.len() && (p[pi] == '?' || p[pi] == t[ti]) {
+            pi += 1;
+            ti += 1;
+        } else if pi < p.len() && p[pi] == '*' {
+            star = Some((pi, ti));
+            pi += 1;
+        } else if let Some((sp, st)) = star {
+            pi = sp + 1;
+            ti = st + 1;
+            star = Some((sp, st + 1));
+        } else {
+            return false;
+        }
+    }
+    while pi < p.len() && p[pi] == '*' {
+        pi += 1;
+    }
+    pi == p.len()
 }
 
 /// How cmd-clicking a `path:line` opens the editor. Built-in mappings cover
@@ -80,7 +188,11 @@ pub struct CommandsConfig {
 
 impl Default for CommandsConfig {
     fn default() -> Self {
-        Self { track: true, emit_cmdline: true, max_entries: 500 }
+        Self {
+            track: true,
+            emit_cmdline: true,
+            max_entries: 500,
+        }
     }
 }
 
@@ -92,7 +204,9 @@ pub struct DurationText(pub std::time::Duration);
 impl DurationText {
     pub fn parse(text: &str) -> Result<Self, String> {
         let text = text.trim();
-        let split = text.find(|c: char| c.is_ascii_alphabetic()).unwrap_or(text.len());
+        let split = text
+            .find(|c: char| c.is_ascii_alphabetic())
+            .unwrap_or(text.len());
         let (number, unit) = text.split_at(split);
         let value: f64 = number
             .trim()
@@ -106,7 +220,11 @@ impl DurationText {
             "ms" => value / 1000.0,
             "m" | "min" | "mins" => value * 60.0,
             "h" | "hr" | "hrs" => value * 3600.0,
-            other => return Err(format!("bad duration unit \"{other}\" in \"{text}\" — use ms, s, m, or h")),
+            other => {
+                return Err(format!(
+                    "bad duration unit \"{other}\" in \"{text}\" — use ms, s, m, or h"
+                ));
+            }
         };
         Ok(Self(std::time::Duration::from_secs_f64(secs)))
     }
@@ -125,7 +243,9 @@ impl<'de> Deserialize<'de> for DurationText {
             Raw::Number(n) if n.is_finite() && n >= 0.0 => {
                 Ok(DurationText(std::time::Duration::from_secs_f64(n)))
             }
-            Raw::Number(_) => Err(serde::de::Error::custom("duration must be a non-negative number of seconds")),
+            Raw::Number(_) => Err(serde::de::Error::custom(
+                "duration must be a non-negative number of seconds",
+            )),
         }
     }
 }
@@ -151,18 +271,28 @@ pub struct KeymapConfig {
     pub replace_defaults: bool,
     pub root: BTreeMap<String, String>,
     pub terminal: BTreeMap<String, String>,
+    /// Copy mode: keys don't reach the shell here, so bare letters are fine.
+    pub terminal_vi: BTreeMap<String, String>,
     pub file_tree: BTreeMap<String, String>,
     pub workspaces: BTreeMap<String, String>,
     pub overlay: BTreeMap<String, String>,
 }
 
 impl KeymapConfig {
-    pub const CONTEXTS: &[&str] = &["root", "terminal", "file_tree", "workspaces", "overlay"];
+    pub const CONTEXTS: &[&str] = &[
+        "root",
+        "terminal",
+        "terminal_vi",
+        "file_tree",
+        "workspaces",
+        "overlay",
+    ];
 
     fn table_mut(&mut self, name: &str) -> Option<&mut BTreeMap<String, String>> {
         Some(match name {
             "root" => &mut self.root,
             "terminal" => &mut self.terminal,
+            "terminal_vi" => &mut self.terminal_vi,
             "file_tree" => &mut self.file_tree,
             "workspaces" => &mut self.workspaces,
             "overlay" => &mut self.overlay,
@@ -179,7 +309,9 @@ impl TryFrom<BTreeMap<String, toml::Value>> for KeymapConfig {
         for (key, value) in raw {
             match (key.as_str(), value) {
                 ("replace_defaults", toml::Value::Boolean(b)) => out.replace_defaults = b,
-                ("replace_defaults", _) => return Err("keymap.replace_defaults must be true or false".into()),
+                ("replace_defaults", _) => {
+                    return Err("keymap.replace_defaults must be true or false".into());
+                }
                 (name, toml::Value::Table(table)) => {
                     let Some(target) = out.table_mut(name) else {
                         return Err(format!(
@@ -204,7 +336,9 @@ impl TryFrom<BTreeMap<String, toml::Value>> for KeymapConfig {
                     out.root.insert(keys.to_string(), action);
                 }
                 (keys, _) => {
-                    return Err(format!("keymap.\"{keys}\" must be an action id string (use \"\" to unbind)"));
+                    return Err(format!(
+                        "keymap.\"{keys}\" must be an action id string (use \"\" to unbind)"
+                    ));
                 }
             }
         }
@@ -221,7 +355,10 @@ pub struct StatusBarConfig {
 
 impl Default for StatusBarConfig {
     fn default() -> Self {
-        Self { enabled: true, position: StatusBarPosition::Bottom }
+        Self {
+            enabled: true,
+            position: StatusBarPosition::Bottom,
+        }
     }
 }
 
@@ -235,7 +372,9 @@ pub enum StatusBarPosition {
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct FontConfig {
-    pub family: String,
+    /// One family, or a list: the first is the terminal font, the rest are
+    /// fallbacks for glyphs it lacks (CJK, emoji), tried in order.
+    pub family: FontFamily,
     pub size: f32,
     pub line_height: f32,
     pub weight: FontWeightName,
@@ -245,12 +384,64 @@ pub struct FontConfig {
 impl Default for FontConfig {
     fn default() -> Self {
         Self {
-            family: "JetBrainsMono Nerd Font Mono".into(),
+            family: FontFamily::default(),
             size: 14.0,
             line_height: 1.25,
             weight: FontWeightName::Normal,
             ligatures: false,
         }
+    }
+}
+
+/// `family = "X"` or `family = ["X", "Y", "Z"]`. Never empty: an empty list
+/// falls back to the bundled font.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FontFamily(Vec<String>);
+
+impl FontFamily {
+    pub const BUNDLED: &str = "JetBrainsMono Nerd Font Mono";
+
+    pub fn new(families: Vec<String>) -> Self {
+        let families: Vec<String> = families
+            .into_iter()
+            .filter(|f| !f.trim().is_empty())
+            .collect();
+        if families.is_empty() {
+            Self(vec![Self::BUNDLED.to_string()])
+        } else {
+            Self(families)
+        }
+    }
+
+    /// The font glyphs are shaped in.
+    pub fn primary(&self) -> &str {
+        &self.0[0]
+    }
+
+    /// Families consulted, in order, for glyphs the primary lacks.
+    pub fn fallbacks(&self) -> &[String] {
+        &self.0[1..]
+    }
+}
+
+impl Default for FontFamily {
+    fn default() -> Self {
+        Self(vec![Self::BUNDLED.to_string()])
+    }
+}
+
+impl<'de> Deserialize<'de> for FontFamily {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            One(String),
+            Many(Vec<String>),
+        }
+        Ok(match Raw::deserialize(deserializer)? {
+            Raw::One(s) => FontFamily::new(vec![s]),
+            Raw::Many(v) => FontFamily::new(v),
+        })
     }
 }
 
@@ -270,6 +461,11 @@ pub struct WindowConfig {
     pub blur: bool,
     pub titlebar: TitlebarMode,
     pub new_tab_directory: NewTabDirectory,
+    /// Panes other than the focused one are dimmed to this (1.0 = no
+    /// dimming). Only applies when the tab has more than one pane.
+    pub inactive_pane_opacity: f32,
+    /// The whole window is dimmed to this while another app is active.
+    pub inactive_window_opacity: f32,
 }
 
 impl Default for WindowConfig {
@@ -280,6 +476,8 @@ impl Default for WindowConfig {
             blur: false,
             titlebar: TitlebarMode::Hidden,
             new_tab_directory: NewTabDirectory::Pwd,
+            inactive_pane_opacity: 1.0,
+            inactive_window_opacity: 1.0,
         }
     }
 }
@@ -378,14 +576,23 @@ impl Default for TreeConfig {
 }
 
 /// A named preset supplies every color; explicit fields override individually.
+///
+/// With `follow_system = true`, `preset_dark` / `preset_light` are chosen by
+/// the macOS appearance (each falling back to `preset`), and the explicit
+/// overrides apply on top of whichever is active.
 #[derive(Debug, Clone, Deserialize, Default, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct ColorsConfig {
     pub preset: Option<String>,
+    pub preset_dark: Option<String>,
+    pub preset_light: Option<String>,
+    pub follow_system: bool,
     pub background: Option<String>,
     pub foreground: Option<String>,
     pub cursor: Option<String>,
     pub selection_bg: Option<String>,
+    /// Text colour inside a selection; unset keeps each cell's own colour.
+    pub selection_fg: Option<String>,
     pub black: Option<String>,
     pub red: Option<String>,
     pub green: Option<String>,
@@ -573,20 +780,99 @@ replace_defaults = true
 
     #[test]
     fn unknown_context_and_bad_values_are_errors() {
-        let err = toml::from_str::<Config>("[keymap.filetree]\n\"y\" = \"tree::refresh\"\n").unwrap_err();
+        let err =
+            toml::from_str::<Config>("[keymap.filetree]\n\"y\" = \"tree::refresh\"\n").unwrap_err();
         assert!(err.to_string().contains("unknown keymap context"), "{err}");
         let err = toml::from_str::<Config>("[keymap]\n\"cmd-j\" = 3\n").unwrap_err();
-        assert!(err.to_string().contains("must be an action id string"), "{err}");
+        assert!(
+            err.to_string().contains("must be an action id string"),
+            "{err}"
+        );
         let err = toml::from_str::<Config>("[keymap]\nreplace_defaults = \"yes\"\n").unwrap_err();
         assert!(err.to_string().contains("replace_defaults"), "{err}");
     }
 
     #[test]
     fn missing_keymap_is_empty() {
-        let config: Config = toml::from_str("[font]
+        let config: Config = toml::from_str(
+            "[font]
 size = 12
-").unwrap();
+",
+        )
+        .unwrap();
         assert_eq!(config.keymap, KeymapConfig::default());
+    }
+}
+
+#[cfg(test)]
+mod font_and_glob_tests {
+    use super::*;
+
+    #[test]
+    fn family_accepts_a_string_or_a_list() {
+        let c: Config = toml::from_str("[font]\nfamily = \"Menlo\"\n").unwrap();
+        assert_eq!(c.font.family.primary(), "Menlo");
+        assert!(c.font.family.fallbacks().is_empty());
+        let c: Config =
+            toml::from_str("[font]\nfamily = [\"Menlo\", \"Apple Color Emoji\", \"\"]\n").unwrap();
+        assert_eq!(c.font.family.primary(), "Menlo");
+        assert_eq!(
+            c.font.family.fallbacks(),
+            &["Apple Color Emoji".to_string()]
+        );
+        // An empty list can't leave the terminal without a font.
+        let c: Config = toml::from_str("[font]\nfamily = []\n").unwrap();
+        assert_eq!(c.font.family.primary(), FontFamily::BUNDLED);
+    }
+
+    #[test]
+    fn glob_matches_hosts() {
+        assert!(glob_match("*.prod.example.com", "web-01.prod.example.com"));
+        assert!(glob_match("*.PROD.example.com", "web-01.prod.Example.com"));
+        assert!(!glob_match(
+            "*.prod.example.com",
+            "web-01.staging.example.com"
+        ));
+        assert!(glob_match("prod-??", "prod-01"));
+        assert!(!glob_match("prod-??", "prod-001"));
+        assert!(glob_match("*", "anything"));
+        assert!(glob_match("exact", "exact"));
+        assert!(!glob_match("exact", "exactly"));
+        assert!(glob_match("a*b*c", "aXXbYYc"));
+        assert!(!glob_match("a*b*c", "aXXbYY"));
+    }
+
+    #[test]
+    fn ssh_hosts_and_cursor_parse() {
+        let text = r##"
+[cursor]
+style = "bar"
+blink = false
+unfocused = "hidden"
+
+[[ssh.hosts]]
+match  = "*.prod.example.com"
+accent = "#f38ba8"
+[[ssh.hosts]]
+match  = "*"
+accent = "#89b4fa"
+"##;
+        let c: Config = toml::from_str(text).unwrap();
+        assert_eq!(c.cursor.style, CursorStyleName::Bar);
+        assert!(!c.cursor.blink);
+        assert_eq!(c.cursor.unfocused, UnfocusedCursor::Hidden);
+        assert_eq!(c.cursor.blink_interval, 530);
+        assert_eq!(c.ssh.accent_for("db.prod.example.com"), Some("#f38ba8"));
+        assert_eq!(c.ssh.accent_for("dev"), Some("#89b4fa"));
+        assert!(
+            toml::from_str::<Config>("[[ssh.hosts]]\naccent = \"#fff\"\n").is_err(),
+            "match is required"
+        );
+        let c: Config =
+            toml::from_str("[colors]\nfollow_system = true\npreset_light = \"catppuccin-latte\"\n")
+                .unwrap();
+        assert!(c.colors.follow_system);
+        assert_eq!(c.colors.preset_light.as_deref(), Some("catppuccin-latte"));
     }
 }
 
@@ -597,12 +883,30 @@ mod duration_tests {
 
     #[test]
     fn parses_common_spellings() {
-        assert_eq!(DurationText::parse("30s").unwrap().0, Duration::from_secs(30));
-        assert_eq!(DurationText::parse("2m").unwrap().0, Duration::from_secs(120));
-        assert_eq!(DurationText::parse("1.5s").unwrap().0, Duration::from_millis(1500));
-        assert_eq!(DurationText::parse("250ms").unwrap().0, Duration::from_millis(250));
-        assert_eq!(DurationText::parse("1h").unwrap().0, Duration::from_secs(3600));
-        assert_eq!(DurationText::parse("45").unwrap().0, Duration::from_secs(45));
+        assert_eq!(
+            DurationText::parse("30s").unwrap().0,
+            Duration::from_secs(30)
+        );
+        assert_eq!(
+            DurationText::parse("2m").unwrap().0,
+            Duration::from_secs(120)
+        );
+        assert_eq!(
+            DurationText::parse("1.5s").unwrap().0,
+            Duration::from_millis(1500)
+        );
+        assert_eq!(
+            DurationText::parse("250ms").unwrap().0,
+            Duration::from_millis(250)
+        );
+        assert_eq!(
+            DurationText::parse("1h").unwrap().0,
+            Duration::from_secs(3600)
+        );
+        assert_eq!(
+            DurationText::parse("45").unwrap().0,
+            Duration::from_secs(45)
+        );
         assert!(DurationText::parse("soon").is_err());
         assert!(DurationText::parse("3 fortnights").is_err());
         assert!(DurationText::parse("-1s").is_err());
@@ -615,7 +919,8 @@ mod duration_tests {
         let c: Config = toml::from_str("[notifications]\nmin_duration = 10\n").unwrap();
         assert_eq!(c.notifications.min_duration.0, Duration::from_secs(10));
         assert!(toml::from_str::<Config>("[notifications]\nmin_duration = \"never\"\n").is_err());
-        let c: Config = toml::from_str("[commands]\nemit_cmdline = false\nmax_entries = 50\n").unwrap();
+        let c: Config =
+            toml::from_str("[commands]\nemit_cmdline = false\nmax_entries = 50\n").unwrap();
         assert!(!c.commands.emit_cmdline);
         assert_eq!(c.commands.max_entries, 50);
         assert!(c.commands.track);

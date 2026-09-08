@@ -185,6 +185,19 @@ impl TerminalSession {
     }
 }
 
+impl TerminalSession {
+    /// The foreground process on this PTY, and its ssh host when it's ssh.
+    pub fn foreground_process(&self) -> Option<super::process::ForegroundProcess> {
+        super::process::foreground(self.master_fd)
+    }
+
+    /// Swap the terminal's options (cursor style, scrollback) in place, for
+    /// a config reload. The PTY is untouched.
+    pub fn set_term_options(&self, config: TermConfig) {
+        self.term.lock().set_options(config);
+    }
+}
+
 impl Drop for TerminalSession {
     fn drop(&mut self) {
         // Teardown must never block the main thread: alacritty's Pty::drop

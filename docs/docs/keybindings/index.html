@@ -99,6 +99,9 @@
             modeless lists with no text input, so bare letters are free there.
             The command palette has a text input, so only arrows and
             <kbd>ctrl-n</kbd> / <kbd>ctrl-p</kbd> move its selection.
+            <a class="link" href="#copy-mode">Copy mode</a> is the one place in
+            the terminal where bare keys are legal: nothing typed there reaches
+            the shell, so it has its own context, <code>terminal_vi</code>.
           </p>
 
           <h2 id="configuring">Configuring</h2>
@@ -110,7 +113,7 @@
           </p>
           <pre><span class="c">[keymap]</span>
 <span class="s">"cmd-shift-p"</span>  = <span class="s">"app::palette"</span>
-<span class="s">"ctrl-w z"</span>     = <span class="s">"pane::equalize"</span>
+<span class="s">"ctrl-w e"</span>     = <span class="s">"pane::equalize"</span>
 <span class="s">"cmd-shift-]"</span>  = <span class="s">"tab::next"</span>
 
 <span class="c"># Unbind by assigning nothing.</span>
@@ -136,7 +139,8 @@
               <strong>Contexts.</strong> Pairs directly under
               <code>[keymap]</code> bind at the root and work everywhere.
               Subtables scope a binding: <code>[keymap.terminal]</code>,
-              <code>[keymap.file_tree]</code>,
+              <code>[keymap.terminal_vi]</code> (copy mode, where bare keys
+              are allowed), <code>[keymap.file_tree]</code>,
               <code>[keymap.workspaces]</code>, and
               <code>[keymap.overlay]</code> (the theme picker and command
               palette). A binding in a deeper context wins over the same key at
@@ -169,8 +173,8 @@
             <table class="keys">
               <tbody>
                 <tr><td><kbd>cmd-,</kbd></td><td>open the config file in <code>$EDITOR</code></td><td><code>app::settings</code></td></tr>
-                <tr><td><kbd>cmd-shift-p</kbd> <span class="sep">/</span> <kbd>cmd-k</kbd> <kbd>cmd-p</kbd></td><td>command palette</td><td><code>app::palette</code></td></tr>
-                <tr><td><kbd>cmd-k</kbd> <kbd>cmd-t</kbd></td><td>theme picker</td><td><code>app::select_theme</code></td></tr>
+                <tr><td><kbd>cmd-shift-p</kbd></td><td>command palette</td><td><code>app::palette</code></td></tr>
+                <tr><td><kbd>cmd-alt-t</kbd></td><td>theme picker</td><td><code>app::select_theme</code></td></tr>
                 <tr><td><kbd>cmd-q</kbd></td><td>quit</td><td><code>app::quit</code></td></tr>
                 <tr><td><kbd>cmd-h</kbd> <span class="sep">/</span> <kbd>alt-cmd-h</kbd></td><td>hide Oxide / hide others</td><td><code>app::hide / app::hide_others</code></td></tr>
                 <tr><td><kbd>cmd-m</kbd></td><td>minimize</td><td><code>window::minimize</code></td></tr>
@@ -186,6 +190,9 @@
                 <tr><td><kbd>cmd-c</kbd> <span class="sep">/</span> <kbd>cmd-v</kbd></td><td>copy / paste (bracketed)</td><td><code>terminal::copy / terminal::paste</code></td></tr>
                 <tr><td><kbd>cmd-a</kbd></td><td>select all</td><td><code>terminal::select_all</code></td></tr>
                 <tr><td><kbd>cmd-f</kbd></td><td>search scrollback — <kbd>⏎</kbd> older, <kbd>⇧⏎</kbd> newer, <kbd>esc</kbd> closes</td><td><code>terminal::search</code></td></tr>
+                <tr><td><kbd>cmd-alt-r</kbd> <kbd>cmd-alt-c</kbd> <kbd>cmd-alt-w</kbd></td><td>search toggles: regex / case-sensitive / whole word (also chips in the bar)</td><td><code>terminal::search_regex / …search_case / …search_word</code></td></tr>
+                <tr><td><kbd>ctrl-w [</kbd> <span class="sep">/</span> <kbd>cmd-shift-v</kbd></td><td><a class="link" href="#copy-mode">copy mode</a> — vim keys in the scrollback</td><td><code>terminal::copy_mode</code></td></tr>
+                <tr><td><kbd>cmd-k</kbd></td><td>clear scrollback</td><td><code>terminal::clear_scrollback</code></td></tr>
                 <tr><td><kbd>cmd-↑</kbd> <span class="sep">/</span> <kbd>cmd-↓</kbd></td><td>jump to previous / next prompt</td><td><code>terminal::prompt_up / terminal::prompt_down</code></td></tr>
                 <tr><td><kbd>cmd-r</kbd></td><td>command history — <kbd>⏎</kbd> inserts, <kbd>⌘⏎</kbd> runs</td><td><code>terminal::history</code></td></tr>
                 <tr><td><kbd>cmd-shift-c</kbd></td><td>copy the last command's output</td><td><code>terminal::copy_last_output</code></td></tr>
@@ -203,6 +210,9 @@
             <table class="keys">
               <tbody>
                 <tr><td><kbd>cmd-t</kbd></td><td>new tab</td><td><code>tab::new</code></td></tr>
+                <tr><td><kbd>cmd-shift-t</kbd></td><td>reopen the last closed tab (the last ten are remembered)</td><td><code>tab::reopen</code></td></tr>
+                <tr><td><kbd>ctrl-w ,</kbd> <span class="sep">/</span> double-click a tab</td><td>rename the tab; an empty name restores the automatic title</td><td><code>tab::rename</code></td></tr>
+                <tr><td>drag a tab</td><td>reorder — drop it on the tab whose place it should take</td><td><code>tab::move_left / tab::move_right</code> (unbound)</td></tr>
                 <tr><td><kbd>cmd-n</kbd></td><td>new window</td><td><code>window::new</code></td></tr>
                 <tr><td><kbd>cmd-1</kbd> … <kbd>cmd-9</kbd></td><td>select tab 1–9</td><td><code>tab::select_1 … tab::select_9</code></td></tr>
                 <tr><td><kbd>⌃tab</kbd> <span class="sep">/</span> <kbd>⌃⇧tab</kbd></td><td>next / previous tab</td><td><code>tab::next / tab::previous</code></td></tr>
@@ -225,6 +235,10 @@
                 <tr><td><kbd>ctrl-w &lt;</kbd> <span class="sep">/</span> <kbd>ctrl-w &gt;</kbd></td><td>shrink / grow the pane horizontally (4 columns)</td><td><code>pane::narrower / pane::wider</code></td></tr>
                 <tr><td><kbd>ctrl-w -</kbd> <span class="sep">/</span> <kbd>ctrl-w +</kbd></td><td>shrink / grow the pane vertically (2 rows)</td><td><code>pane::shorter / pane::taller</code></td></tr>
                 <tr><td><kbd>ctrl-w =</kbd></td><td>equalise every split in the tab</td><td><code>pane::equalize</code></td></tr>
+                <tr><td><kbd>ctrl-w z</kbd></td><td>zoom the pane to the full tab; again to restore</td><td><code>pane::zoom</code></td></tr>
+                <tr><td><kbd>ctrl-w b</kbd></td><td>broadcast typing and pastes to every pane in the tab</td><td><code>pane::broadcast</code></td></tr>
+                <tr><td><kbd>ctrl-w o</kbd></td><td>close every other pane in the tab (asks when more than one would go)</td><td><code>pane::only</code></td></tr>
+                <tr><td><kbd>ctrl-w x</kbd></td><td>swap the pane with its neighbour in the split</td><td><code>pane::swap</code></td></tr>
                 <tr><td>drag a divider</td><td>resize the two panes either side of it</td><td></td></tr>
                 <tr><td><kbd>ctrl-w w</kbd></td><td>toggle focus: drawer ↔ terminal</td><td><code>drawer::focus_toggle</code></td></tr>
               </tbody>
@@ -296,6 +310,30 @@
             </table>
           </div>
 
+          <h3 id="copy-mode">In copy mode</h3>
+          <p>
+            <kbd>ctrl-w [</kbd> turns the scrollback into a vim buffer. These
+            keys are fixed — they're vim's — but anything else can be bound in
+            <code>[keymap.terminal_vi]</code>, bare keys included, since
+            nothing typed here reaches the shell.
+          </p>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr><td><kbd>h</kbd> <kbd>j</kbd> <kbd>k</kbd> <kbd>l</kbd> <span class="sep">/</span> arrows</td><td>move; a count prefix repeats (<kbd>5j</kbd>)</td><td></td></tr>
+                <tr><td><kbd>w</kbd> <kbd>b</kbd> <kbd>e</kbd> <span class="sep">/</span> <kbd>W</kbd> <kbd>B</kbd> <kbd>E</kbd></td><td>word motions — punctuation-aware / whitespace-delimited</td><td></td></tr>
+                <tr><td><kbd>0</kbd> <kbd>^</kbd> <kbd>$</kbd></td><td>line start / first non-blank / line end</td><td></td></tr>
+                <tr><td><kbd>gg</kbd> <kbd>G</kbd> <span class="sep">/</span> <kbd>H</kbd> <kbd>M</kbd> <kbd>L</kbd></td><td>top / bottom of the buffer; top / middle / bottom of the screen</td><td></td></tr>
+                <tr><td><kbd>ctrl-d</kbd> <kbd>ctrl-u</kbd> <span class="sep">/</span> <kbd>ctrl-f</kbd> <kbd>ctrl-b</kbd></td><td>half page / full page down and up</td><td></td></tr>
+                <tr><td><kbd>%</kbd> <span class="sep">/</span> <kbd>{</kbd> <kbd>}</kbd></td><td>matching bracket / paragraph</td><td></td></tr>
+                <tr><td><kbd>/</kbd> <kbd>?</kbd> then <kbd>n</kbd> <kbd>N</kbd></td><td>search forward / backward from the cursor, repeat — the same bar and toggles as <kbd>cmd-f</kbd>; <kbd>⏎</kbd> parks the cursor on the match</td><td></td></tr>
+                <tr><td><kbd>v</kbd> <kbd>V</kbd> <kbd>ctrl-v</kbd></td><td>character / line / block selection; motions extend it</td><td></td></tr>
+                <tr><td><kbd>y</kbd> <span class="sep">/</span> <kbd>yy</kbd> <span class="sep">/</span> <kbd>⏎</kbd></td><td>yank the selection (or the line) to the clipboard and leave</td><td></td></tr>
+                <tr><td><kbd>esc</kbd> <span class="sep">/</span> <kbd>q</kbd></td><td>clear the selection, then leave; <kbd>ctrl-w [</kbd> also toggles out</td><td><code>terminal::copy_mode</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+
           <h2 id="menu-only">Menu-only commands</h2>
           <p>
             These have no default binding, but every one is in the command
@@ -304,7 +342,7 @@
           <div class="table-wrap">
             <table class="keys">
               <tbody>
-                <tr><td>View → Clear Scrollback</td><td>empty the focused pane's history</td><td><code>terminal::clear_scrollback</code></td></tr>
+                <tr><td>Window → Move Tab Left / Right</td><td>reorder without the mouse</td><td><code>tab::move_left / tab::move_right</code></td></tr>
                 <tr><td>Edit → Copy Last Command</td><td>the last command line</td><td><code>terminal::copy_last_command</code></td></tr>
                 <tr><td>Edit → Copy Last Command and Output</td><td>both together, for an issue</td><td><code>terminal::copy_last_block</code></td></tr>
                 <tr><td>View → Toggle Status Bar</td><td>show or hide the bar for this window</td><td><code>app::toggle_status_bar</code></td></tr>

@@ -34,6 +34,10 @@ oxide_actions! {
     NewTab            => "tab::new",      "New Tab",      "Tab", [], Root;
     SelectNextTab     => "tab::next",     "Next Tab",     "Tab", [], Root;
     SelectPreviousTab => "tab::previous", "Previous Tab", "Tab", ["prev"], Root;
+    RenameTab         => "tab::rename",   "Rename Tab",   "Tab", ["title"], Root;
+    ReopenClosedTab   => "tab::reopen",   "Reopen Closed Tab", "Tab", ["restore", "undo close"], Root;
+    MoveTabLeft       => "tab::move_left",  "Move Tab Left",  "Tab", ["reorder"], Root;
+    MoveTabRight      => "tab::move_right", "Move Tab Right", "Tab", ["reorder"], Root;
     SelectTab1        => "tab::select_1", "Go to Tab 1",  "Tab", [], Root;
     SelectTab2        => "tab::select_2", "Go to Tab 2",  "Tab", [], Root;
     SelectTab3        => "tab::select_3", "Go to Tab 3",  "Tab", [], Root;
@@ -59,6 +63,10 @@ oxide_actions! {
     PaneTaller     => "pane::taller",      "Grow Pane Vertically",    "Pane", ["resize", "height"], Root;
     PaneShorter    => "pane::shorter",     "Shrink Pane Vertically",  "Pane", ["resize", "height"], Root;
     PaneEqualize   => "pane::equalize",    "Equalize Splits",         "Pane", ["resize", "even", "balance"], Root;
+    PaneZoom       => "pane::zoom",        "Toggle Pane Zoom",        "Pane", ["maximize", "fullscreen pane", "only"], Root;
+    PaneBroadcast  => "pane::broadcast",   "Toggle Broadcast Input",  "Pane", ["synchronize", "type to all"], Root;
+    PaneOnly       => "pane::only",        "Close Other Panes",       "Pane", ["only", "kill others"], Root;
+    PaneSwap       => "pane::swap",        "Swap Pane with Neighbour", "Pane", ["exchange", "rotate"], Root;
 
     // --- Terminal ---
     Copy            => "terminal::copy",             "Copy",                  "Terminal", [], Root;
@@ -75,6 +83,10 @@ oxide_actions! {
     CopyLastOutput  => "terminal::copy_last_output", "Copy Last Command's Output", "Terminal", ["clipboard"], Root;
     CopyLastCommand => "terminal::copy_last_command", "Copy Last Command",    "Terminal", ["clipboard"], Root;
     CopyLastBlock   => "terminal::copy_last_block",  "Copy Last Command and Output", "Terminal", ["clipboard", "issue"], Root;
+    CopyMode        => "terminal::copy_mode",        "Copy Mode (vim scrollback)", "Terminal", ["vi", "vim", "visual", "scrollback"], Root;
+    SearchToggleRegex => "terminal::search_regex",   "Search: Toggle Regex",  "Terminal", ["find", ".*"], Root;
+    SearchToggleCase  => "terminal::search_case",    "Search: Toggle Case Sensitivity", "Terminal", ["find", "Aa"], Root;
+    SearchToggleWord  => "terminal::search_word",    "Search: Toggle Whole Word", "Terminal", ["find"], Root;
 
     // --- Drawer (file tree + workspaces panel) ---
     ToggleDrawer    => "drawer::toggle",           "Toggle Drawer",           "Drawer", ["sidebar", "file tree"], Root;

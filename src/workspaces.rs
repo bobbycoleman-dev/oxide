@@ -28,6 +28,10 @@ pub struct SavedTab {
     pub layout: Node<PathBuf>,
     /// Index into `layout.leaves()` of the focused pane.
     pub active: usize,
+    /// A user-set tab name, overriding the automatic title. Absent in
+    /// files written before v0.4.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 /// The current on-disk format version. Bump when the shape changes in a way
@@ -113,7 +117,7 @@ mod tests {
             name: "workspace 1".into(),
             active_tab: 1,
             tabs: vec![
-                SavedTab { layout: Node::Leaf(PathBuf::from("/tmp")), active: 0 },
+                SavedTab { layout: Node::Leaf(PathBuf::from("/tmp")), active: 0, title: Some("build".into()) },
                 SavedTab {
                     layout: Node::Split {
                         axis: Axis::Horizontal,
@@ -131,6 +135,7 @@ mod tests {
                         ratios: vec![0.6, 0.4],
                     },
                     active: 2,
+                    title: None,
                 },
             ],
         }];
@@ -138,7 +143,8 @@ mod tests {
         let json = serde_json::to_string(&file).unwrap();
         assert!(json.contains("\"version\":2"));
         let back = parse(&json).unwrap();
-        assert_eq!(ws, back, "ratios must survive the save/restore round trip");
+        assert_eq!(ws, back, "ratios and titles must survive the save/restore round trip");
+        assert!(!json.contains("\"title\":null"), "unset titles stay out of the file");
     }
 
     /// A file written by v0.3.2 — the last release before the format grew
@@ -165,6 +171,7 @@ mod tests {
             ]
         );
         assert_eq!(saved[1].tabs[0].layout, Node::Leaf(PathBuf::from("/Users/x/notes")));
+        assert!(saved[0].tabs.iter().all(|t| t.title.is_none()));
         // No ratios in the file → even splits after normalisation.
         match layout {
             Node::Split { ratios, children, .. } => {

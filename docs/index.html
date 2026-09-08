@@ -1173,12 +1173,34 @@
             <div class="card">
               <h3>Search and history</h3>
               <p>
-                <code>cmd-f</code> for live, case-insensitive search;
-                <code>⏎</code> and <code>⇧⏎</code> walk the matches, and
-                <code>cmd-↑</code>/<code>cmd-↓</code> hop between prompts.
-                <code>cmd-r</code> searches every command run in any pane, with
-                its directory and exit status: <code>⏎</code> inserts it at the
-                prompt, <code>⌘⏎</code> runs it.
+                <code>cmd-f</code> for live search, with regex, case, and
+                whole-word chips; <code>⏎</code> and <code>⇧⏎</code> walk the
+                matches, and <code>cmd-↑</code>/<code>cmd-↓</code> hop between
+                prompts. <code>cmd-r</code> searches every command run in any
+                pane, with its directory and exit status: <code>⏎</code>
+                inserts it at the prompt, <code>⌘⏎</code> runs it.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Copy mode</h3>
+              <p>
+                <code>ctrl-w [</code> turns the scrollback into a vim buffer:
+                <code>hjkl</code>, <code>w b e</code>, <code>gg G</code>,
+                counts like <code>5j</code>, <code>/</code> and <code>?</code>
+                with <code>n</code>/<code>N</code>, <code>v</code> /
+                <code>V</code> / <code>ctrl-v</code> to select,
+                <code>y</code> to yank and leave. The last reason to keep tmux
+                running, gone.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Knows where you are</h3>
+              <p>
+                Oxide watches each pane's foreground process. Inside
+                <code>ssh</code>, the status bar says <code>ssh: host</code>,
+                the tab is titled after it, and a <code>[[ssh.hosts]]</code>
+                pattern gives a host an accent — so a production box wears a
+                red border for as long as you're on it.
               </p>
             </div>
             <div class="card">
@@ -1220,8 +1242,9 @@
                 <code>gruvbox-dark</code>, <code>tokyonight</code>,
                 <code>dracula</code>, <code>nord</code>,
                 <code>solarized-dark</code>, and <code>oxide</code> (rust-toned,
-                naturally). Any color individually overridable. Config reloads
-                live.
+                naturally). Any color individually overridable, and
+                <code>follow_system = true</code> flips between a dark and a
+                light preset with macOS. Config reloads live.
               </p>
             </div>
             <div class="card">
@@ -1231,7 +1254,9 @@
                 works the same under tiling window managers like AeroSpace.
                 <code>cmd-t</code> for a new one, <code>cmd-1</code>&ndash;<code>9</code>
                 to jump, starting in the current directory or <code>~/</code> via
-                <code>window.new_tab_directory</code>.
+                <code>window.new_tab_directory</code>. Rename with a
+                double-click, drag to reorder, <code>cmd-shift-t</code> to
+                bring back the one you just closed.
               </p>
             </div>
             <div class="card">
@@ -1250,7 +1275,11 @@
                 fuzzy-searchable. A <code>[keymap]</code> table rebinds
                 anything; a typo gets a banner with a suggestion, and a bare key
                 that would steal from your shell is refused. Splits resize by
-                dragging a divider or with <code>ctrl-w &lt; &gt; - + =</code>.
+                dragging a divider or with <code>ctrl-w &lt; &gt; - + =</code>;
+                <code>ctrl-w z</code> zooms a pane, <code>ctrl-w b</code>
+                broadcasts your typing to every pane in the tab (loudly),
+                <code>ctrl-w o</code> closes the others, <code>ctrl-w x</code>
+                swaps neighbours, and inactive panes can be dimmed.
               </p>
             </div>
             <div class="card">
@@ -1260,8 +1289,11 @@
                 background, and swap themselves in on one click — every build
                 Developer ID signed and notarized. Plus window size and position
                 persistence, copy-on-select, font size at runtime
-                (<code>cmd +/-/0</code>), a configurable bell, and a blinking
-                cursor that pauses while you type.
+                (<code>cmd +/-/0</code>), a configurable bell, a
+                <code>[cursor]</code> section (block, bar, or underline; vim's
+                per-mode shapes honoured), font fallbacks for CJK and emoji, a
+                "lines above" pill while scrolled up, and <code>cmd-k</code> to
+                clear.
               </p>
             </div>
           </div>
@@ -1303,6 +1335,18 @@
                   </tr>
                   <tr>
                     <td>
+                      <kbd>ctrl-w z</kbd> <kbd>b</kbd> <kbd>o</kbd> <kbd>x</kbd>
+                    </td>
+                    <td>zoom / broadcast / close others / swap</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <kbd>ctrl-w [</kbd>
+                    </td>
+                    <td>copy mode — vim keys in the scrollback</td>
+                  </tr>
+                  <tr>
+                    <td>
                       <kbd>cmd-shift-p</kbd><span class="kbd-sep">/</span
                       ><kbd>cmd-p</kbd>
                     </td>
@@ -1313,8 +1357,8 @@
                     <td>toggle the drawer</td>
                   </tr>
                   <tr>
-                    <td><kbd>cmd-f</kbd></td>
-                    <td>search scrollback</td>
+                    <td><kbd>cmd-f</kbd><span class="kbd-sep">/</span><kbd>cmd-k</kbd></td>
+                    <td>search scrollback / clear it</td>
                   </tr>
                   <tr>
                     <td>
@@ -1336,6 +1380,13 @@
                       ><kbd>cmd-n</kbd>
                     </td>
                     <td>new tab / new window</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <kbd>ctrl-w ,</kbd><span class="kbd-sep">/</span
+                      ><kbd>cmd-shift-t</kbd>
+                    </td>
+                    <td>rename tab / reopen closed tab</td>
                   </tr>
                   <tr>
                     <td>
@@ -1467,10 +1518,19 @@ cp -R target/Oxide.app /Applications/</pre>
             <div>
               <pre><span class="c">[colors]</span>
 preset = <span class="p">"oxide"</span>
+follow_system = true
+preset_light = <span class="p">"catppuccin-latte"</span>
 
 <span class="c">[font]</span>
 family = <span class="p">"JetBrainsMono Nerd Font Mono"</span>
 size = 14.0
+
+<span class="c">[cursor]</span>
+style = <span class="p">"bar"</span>
+
+<span class="c">[[ssh.hosts]]</span>
+match = <span class="p">"*.prod.example.com"</span>
+accent = <span class="p">"#f38ba8"</span>
 
 <span class="c">[[prompt.segments]]</span>
 kind = <span class="p">"cwd"</span>

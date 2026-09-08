@@ -21,6 +21,8 @@ use crate::config::schema::KeymapConfig;
 pub enum KeyCtx {
     Root,
     Terminal,
+    /// Copy mode: keys don't reach the shell, so bare letters are legal.
+    TerminalVi,
     FileTree,
     Workspaces,
     /// Any modal list: theme picker and command palette.
@@ -34,6 +36,7 @@ impl KeyCtx {
         match self {
             KeyCtx::Root => "Root",
             KeyCtx::Terminal => "Terminal",
+            KeyCtx::TerminalVi => "TerminalVi",
             KeyCtx::FileTree => "FileTree",
             KeyCtx::Workspaces => "Workspaces",
             KeyCtx::Overlay => "Overlay",
@@ -45,6 +48,7 @@ impl KeyCtx {
         match self {
             KeyCtx::Root => "root",
             KeyCtx::Terminal => "terminal",
+            KeyCtx::TerminalVi => "terminal_vi",
             KeyCtx::FileTree => "file_tree",
             KeyCtx::Workspaces => "workspaces",
             KeyCtx::Overlay => "overlay",
@@ -143,9 +147,10 @@ pub fn resolve(config: &KeymapConfig) -> ResolvedKeymap {
         }
     }
 
-    let tables: [(KeyCtx, &BTreeMap<String, String>); 5] = [
+    let tables: [(KeyCtx, &BTreeMap<String, String>); 6] = [
         (KeyCtx::Root, &config.root),
         (KeyCtx::Terminal, &config.terminal),
+        (KeyCtx::TerminalVi, &config.terminal_vi),
         (KeyCtx::FileTree, &config.file_tree),
         (KeyCtx::Workspaces, &config.workspaces),
         (KeyCtx::Overlay, &config.overlay),
@@ -339,11 +344,13 @@ mod tests {
     fn bare_keys_are_fine_in_list_contexts() {
         let mut c = KeymapConfig::default();
         c.file_tree.insert("y".into(), "tree::refresh".into());
+        c.terminal_vi.insert("q".into(), "terminal::copy_mode".into());
         c.workspaces.insert("x".into(), "workspace::delete".into());
         c.overlay.insert("ctrl-j".into(), "overlay::next".into());
         let r = resolve(&c);
         assert!(r.errors.is_empty(), "{:?}", r.errors);
         assert!(has(&r, "y", "tree::refresh", KeyCtx::FileTree));
+        assert!(has(&r, "q", "terminal::copy_mode", KeyCtx::TerminalVi));
     }
 
     #[test]

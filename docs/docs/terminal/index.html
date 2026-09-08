@@ -140,16 +140,38 @@
             to it instead.
           </p>
           <p>
-            <strong>View → Clear Scrollback</strong> empties the history for the
-            focused pane. It has no default key.
+            While you're scrolled up, a small <code>▲ 2,340 lines above</code>
+            pill in the pane's corner says how far back you are; it goes away
+            at the bottom. <kbd>cmd-k</kbd> (<strong>View → Clear
+            Scrollback</strong>) empties the history for the focused pane.
           </p>
 
           <h2 id="search">Searching the scrollback</h2>
           <p>
             <kbd>cmd-f</kbd> opens a search bar in the focused pane. Search is
-            live and case-insensitive: results update as you type, and the view
-            jumps to the nearest match behind you.
+            live: results update as you type, and the view jumps to the nearest
+            match behind you. Three chips on the right of the bar change what a
+            query means; click one, or use its key while the bar is open. They
+            stay set for the pane until you change them.
           </p>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr>
+                  <td><code>.*</code> <span class="sep">/</span> <kbd>cmd-alt-r</kbd></td>
+                  <td>treat the query as a regular expression (Rust <code>regex</code> syntax) instead of literal text</td>
+                </tr>
+                <tr>
+                  <td><code>Aa</code> <span class="sep">/</span> <kbd>cmd-alt-c</kbd></td>
+                  <td>case-sensitive; off, <code>error</code> also finds <code>Error</code></td>
+                </tr>
+                <tr>
+                  <td><code>ab|</code> <span class="sep">/</span> <kbd>cmd-alt-w</kbd></td>
+                  <td>whole words only, so <code>err</code> skips <code>stderr</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
           <div class="table-wrap">
             <table class="keys">
               <tbody>
@@ -176,7 +198,64 @@
             The bar itself tells you where you stand: it reads
             <code>type to search</code> on an empty query,
             <code>⏎ older ⇧⏎ newer esc</code> once there's a hit, and outlines
-            itself in red with <code>no match</code> when there isn't one.
+            itself in red with <code>no match</code> when there isn't one — or
+            <code>invalid pattern</code> when the regex toggle is on and the
+            query doesn't compile yet (an unclosed <code>(</code>, say).
+          </p>
+
+          <h2 id="copy-mode">Copy mode</h2>
+          <p>
+            <kbd>ctrl-w [</kbd> (or <kbd>cmd-shift-v</kbd>,
+            <strong>Edit → Copy Mode</strong>) turns the scrollback into a
+            vim buffer: a yellow block cursor appears, a
+            <code>-- COPY --</code> badge sits in the pane's corner, and
+            nothing you type reaches the shell until you leave. It's the last
+            reason a vim user keeps tmux around, so the vocabulary is tmux's
+            copy mode and vim's normal mode:
+          </p>
+          <ul>
+            <li>
+              <kbd>h</kbd> <kbd>j</kbd> <kbd>k</kbd> <kbd>l</kbd> and the
+              arrows move; <kbd>w</kbd> <kbd>b</kbd> <kbd>e</kbd> by word
+              (<kbd>W</kbd> <kbd>B</kbd> <kbd>E</kbd> by whitespace),
+              <kbd>0</kbd> <kbd>^</kbd> <kbd>$</kbd> within the line,
+              <kbd>gg</kbd> and <kbd>G</kbd> to either end of the buffer,
+              <kbd>H</kbd> <kbd>M</kbd> <kbd>L</kbd> on the screen,
+              <kbd>%</kbd> to the matching bracket, <kbd>{</kbd> <kbd>}</kbd>
+              by paragraph, <kbd>ctrl-d</kbd> / <kbd>ctrl-u</kbd> half a page
+              and <kbd>ctrl-f</kbd> / <kbd>ctrl-b</kbd> a full one. A count
+              prefix repeats: <kbd>5j</kbd>, <kbd>3w</kbd>. The badge shows the
+              pending count.
+            </li>
+            <li>
+              <kbd>/</kbd> searches forward from the cursor and <kbd>?</kbd>
+              backward, in the same bar — with the same chips — as
+              <kbd>cmd-f</kbd>. <kbd>⏎</kbd> parks the cursor on the match and
+              closes the bar; <kbd>n</kbd> and <kbd>N</kbd> repeat, forward and
+              back.
+            </li>
+            <li>
+              <kbd>v</kbd> starts a character selection, <kbd>V</kbd> a
+              line-wise one, <kbd>ctrl-v</kbd> a block; motions extend it and
+              the badge switches to <code>VISUAL</code>, <code>V-LINE</code>, or
+              <code>V-BLOCK</code>. Pressing the same key again, or
+              <kbd>esc</kbd>, drops it. A click moves the cursor too.
+            </li>
+            <li>
+              <kbd>y</kbd> (or <kbd>⏎</kbd>) yanks the selection to the
+              clipboard and leaves; <kbd>yy</kbd> yanks the cursor's line.
+              <kbd>esc</kbd> with nothing selected, <kbd>q</kbd>, or
+              <kbd>ctrl-w [</kbd> again leave without copying. Leaving snaps
+              back to the live screen.
+            </li>
+          </ul>
+          <p>
+            Copy mode is refused while a full-screen program has the terminal
+            (vim, less, htop): there's no scrollback there, and those programs
+            have their own idea of what <kbd>j</kbd> means. The status bar
+            shows the mode as well, so it's visible even with a small pane. To
+            add bindings of your own inside the mode, use
+            <code>[keymap.terminal_vi]</code> — bare keys are allowed there.
           </p>
 
           <h2 id="commands">Commands: what ran, and how it went</h2>
@@ -307,6 +386,47 @@
             token under the pointer and opens it if it looks like a URL.
           </p>
 
+          <h2 id="ssh">SSH awareness</h2>
+          <p>
+            Oxide watches each pane's foreground process (the same
+            <code>tcgetpgrp</code> lookup that follows <code>cd</code>). When it
+            is <code>ssh</code>, the destination host — parsed from the command
+            line, so it works with no cooperation from the remote side — shows
+            as <code>ssh: prod-web-01</code> in the status bar, and the tab is
+            titled <code>ssh prod-web-01</code>. "Am I on prod?" is a question
+            people answer wrong; to make the answer unmissable, give a host
+            pattern an accent and the pane's border takes that colour for as
+            long as the connection lasts:
+          </p>
+          <pre><span class="c">[[ssh.hosts]]</span>
+match  = <span class="s">"*.prod.example.com"</span>   <span class="c"># glob: * and ?, case-insensitive</span>
+accent = <span class="s">"#f38ba8"</span>
+
+<span class="c">[[ssh.hosts]]</span>
+match  = <span class="s">"bastion-*"</span>
+accent = <span class="s">"#f9e2af"</span></pre>
+          <p>
+            The first matching pattern wins. The match is against the host as
+            you typed it, after any <code>user@</code>, so alias names from
+            <code>~/.ssh/config</code> match as aliases. The same lookup names
+            the tab after whatever is running (<code>vim</code>,
+            <code>cargo</code>, <code>psql</code>) rather than the directory,
+            which is usually the more useful label.
+          </p>
+
+          <h2 id="cursor">The cursor</h2>
+          <p>
+            The <code>[cursor]</code> section picks the shape
+            (<code>block</code>, <code>bar</code>, or <code>underline</code>),
+            whether it blinks and how fast, how thick a bar or underline is,
+            and what an unfocused pane's cursor looks like
+            (<code>hollow</code>, <code>solid</code>, or <code>hidden</code>).
+            Blinking pauses while you type. Programs that set their own shape
+            with DECSCUSR — vim's block in normal mode and bar in insert mode —
+            are honoured until they reset it. See
+            <a class="link" href="/docs/configuration/#cursor">[cursor]</a>.
+          </p>
+
           <h2 id="mouse">Mouse reporting</h2>
           <p>
             When a program turns on mouse reporting, clicks, drags, and scrolls
@@ -327,7 +447,10 @@
             The bar along the bottom shows the active workspace, the focused
             pane's working directory, and — computed natively, not by shelling
             out each prompt — the git branch, whether the tree is dirty, and how
-            far ahead or behind the upstream you are.
+            far ahead or behind the upstream you are. Modes that are easy to
+            forget get a chip there too: a red <strong>⇶ BROADCAST</strong> pill,
+            <code>⤢ zoom</code>, the copy-mode badge, and
+            <code>ssh: host</code>.
           </p>
           <p>
             Move it with <code>status_bar.position = "top"</code>, turn it off

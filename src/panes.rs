@@ -305,6 +305,24 @@ impl<T: PartialEq + Clone> Node<T> {
         }
     }
 
+    /// Swap `target` with the sibling after it in its parent split — or
+    /// the one before, when it's the last child. The sibling may be a whole
+    /// subtree; both keep their shares, so only the order changes. Returns
+    /// false for a lone root leaf.
+    pub fn swap_with_neighbour(&mut self, target: &T) -> bool {
+        let Some(path) = self.path_to(target) else { return false };
+        let Some((&ix, parent)) = path.split_last() else { return false };
+        let Some(Node::Split { children, .. }) = self.at_path_mut(parent) else { return false };
+        let other = if ix + 1 < children.len() {
+            ix + 1
+        } else if ix > 0 {
+            ix - 1
+        } else {
+            return false;
+        };
+        children.swap(ix, other);
+        true
+    }
 }
 
 #[cfg(test)]
@@ -541,6 +559,33 @@ mod tests {
         assert_close(&ratios_of(&tree, &[]), &[0.5, 0.5]);
         assert_close(&ratios_of(&tree, &[1]), &[1.0 / 3.0; 3]);
         check_invariants(&tree);
+    }
+
+    #[test]
+    fn swap_moves_a_pane_past_its_neighbour_at_any_depth() {
+        // [1 | [2 / 3]]
+        let mut tree = Node::leaf(1u32);
+        tree.split(&1, Direction::Right, 2);
+        tree.split(&2, Direction::Down, 3);
+        tree.resize_divider(&[1], 0, 0.2, 0.05);
+
+        // 2 is first in its column: it swaps with 3 below it. The ratios
+        // stay where they were, so the top slot is still the bigger one.
+        assert!(tree.swap_with_neighbour(&2));
+        assert_eq!(ids(&tree), vec![1, 3, 2]);
+        assert_close(&ratios_of(&tree, &[1]), &[0.7, 0.3]);
+        // 2 is now last: swapping again moves it back up.
+        assert!(tree.swap_with_neighbour(&2));
+        assert_eq!(ids(&tree), vec![1, 2, 3]);
+
+        // At the root, 1 swaps with the whole right column.
+        assert!(tree.swap_with_neighbour(&1));
+        assert_eq!(ids(&tree), vec![2, 3, 1]);
+        assert!(matches!(tree.at_path(&[0]), Some(Node::Split { .. })));
+        check_invariants(&tree);
+
+        assert!(!Node::leaf(7u32).swap_with_neighbour(&7), "nothing to swap with");
+        assert!(!tree.swap_with_neighbour(&99));
     }
 
     #[test]
