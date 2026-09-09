@@ -80,6 +80,12 @@ with a file-tree drawer you drive like vim and a status bar that knows where you
   drawer below the file tree (`a` add, `r` rename, `d` delete, `p` pin). Temporary by
   default; pinned ones survive restarts, restoring layout, tabs, splits, and each
   pane's directory with fresh shells.
+- **Startup commands** — the tmuxinator move: give a pane a command (`ctrl-w r`,
+  prefilled with the last thing that ran there) and a pinned workspace re-runs it on
+  restore, once that pane's shell is actually at a prompt. `on exit` per pane: back to
+  the shell, close the pane, or restart with backoff (and a breaker after five quick
+  exits). `e` in the workspaces panel edits every pane's command at once;
+  `--no-startup-commands` or shift at launch restores the layout without running any.
 - **The details** — window size/position persistence, `cmd-click` to open URLs, copy-on-select option, font size at runtime
   (`cmd +/-/0`), configurable bell, a `[cursor]` section (block / bar / underline, blink
   rate, unfocused look — and vim's per-mode DECSCUSR shapes are honoured), a font
@@ -133,6 +139,7 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 | `cmd-shift-c` | copy the last command's output |
 | `cmd-t` / `cmd-n` | new tab / new window |
 | `ctrl-w ,` / `cmd-shift-t` | rename tab (double-click works too) / reopen the last closed tab |
+| `ctrl-w r` | set the pane's startup command (run when its pinned workspace is restored) |
 | `cmd-1..9` | jump to tab |
 | `⌃tab` / `⇧⌘[` `⇧⌘]` | previous / next tab |
 | `ctrl-w p` | focus the workspaces panel (`tab` toggles tree ↔ workspaces) |
@@ -184,6 +191,7 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 | `enter` / `o` | switch to workspace |
 | `a` / `r` / `d` | add / rename / delete (`y` confirms) — also on right-click |
 | `p` | pin — persist this workspace across restarts |
+| `e` | edit every pane's startup command — also on right-click |
 | `esc` | dismiss input → back to terminal |
 
 ## Configuration
@@ -243,7 +251,9 @@ The tree follows `cd` by polling the PTY's foreground process group cwd
   first line into scrollback until the next prompt is drawn (`enter` brings it back).
 - Pinned workspaces restore layout and directories with fresh shells; running
   programs can't survive a full quit (tmux only manages it because its server
-  never exits).
+  never exits). Startup commands are the workaround: declare what a pane runs
+  and it's re-run on restore. `on_exit` needs shell integration with zsh or
+  bash; other shells get the command typed in and nothing more.
 - Left/right Option can't be distinguished; `option_as_meta` treats `left`/`right` as `both`.
 
 ## License

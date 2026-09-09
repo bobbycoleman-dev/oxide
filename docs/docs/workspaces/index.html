@@ -4,11 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Workspaces — Oxide docs</title>
-    <meta name="description" content="Named sets of tabs and splits that can be pinned to survive a restart." />
+    <meta name="description" content="Named sets of tabs and splits that can be pinned to survive a restart, with per-pane startup commands that run again on restore." />
     <link rel="canonical" href="https://oxideterminal.com/docs/workspaces/" />
 
     <meta property="og:title" content="Workspaces — Oxide docs" />
-    <meta property="og:description" content="Named sets of tabs and splits that can be pinned to survive a restart." />
+    <meta property="og:description" content="Named sets of tabs and splits that can be pinned to survive a restart, with per-pane startup commands that run again on restore." />
     <meta property="og:type" content="article" />
     <meta property="og:image" content="https://oxideterminal.com/icon.png" />
     <meta property="og:url" content="https://oxideterminal.com/docs/workspaces/" />
@@ -78,7 +78,8 @@
           <p class="lede">
             A workspace is a named set of tabs and splits — a tmux session, kept
             inside one window. Pin one and its whole shape comes back the next
-            time you launch.
+            time you launch; give its panes startup commands and the session
+            comes back too.
           </p>
 
           <h2 id="panel">The panel</h2>
@@ -115,6 +116,10 @@
                 <tr>
                   <td><kbd>p</kbd></td>
                   <td>pin / unpin — pinned workspaces survive a restart</td>
+                </tr>
+                <tr>
+                  <td><kbd>e</kbd></td>
+                  <td>edit the <a class="link" href="#startup">startup commands</a> of every pane in the workspace</td>
                 </tr>
                 <tr>
                   <td><kbd>esc</kbd></td>
@@ -160,15 +165,123 @@
             <p>
               <strong>Running programs don't come back.</strong> Layout and
               directories are restored; processes are not. tmux only manages that
-              because its server never exits — a quit is a quit here.
+              because its server never exits — a quit is a quit here. What
+              <em>can</em> come back is the command: see
+              <a class="link" href="#startup">startup commands</a>.
             </p>
           </div>
           <p>
             The state file is rewritten atomically, and a file that fails to
             parse is moved aside to <code>workspaces.json.corrupt</code> rather
             than being overwritten, so a bad write can't quietly erase your
-            layouts.
+            layouts. When the file's format changes between releases, the old
+            file is copied once to <code>workspaces.json.v2.bak</code> (or
+            whichever version it was) before the first write in the new one.
           </p>
+
+          <h2 id="startup">Startup commands</h2>
+          <p>
+            Nobody needs the <em>same</em> <code>cargo watch</code> process to
+            survive a quit — they need <code>cargo watch</code> to be running in
+            the top-right pane when they come back. So a pane can declare what
+            it runs, and a pinned workspace re-runs it on restore. It's the
+            tmuxinator model, kept inside the workspace you already have.
+          </p>
+          <p>
+            <kbd>ctrl-w r</kbd> (or <strong>File → Set Startup Command…</strong>,
+            or the palette) opens a small input for the focused pane. It's
+            prefilled with the pane's current startup command — or, if it has
+            none, with the last command that ran there, so most of the time you
+            just press <kbd>enter</kbd>. An empty input clears it.
+            <kbd>tab</kbd> cycles what happens when the command exits:
+          </p>
+          <div class="table-wrap">
+            <table class="keys">
+              <tbody>
+                <tr>
+                  <td><code>shell</code></td>
+                  <td>drop back to the prompt. The default, and almost always what you want.</td>
+                </tr>
+                <tr>
+                  <td><code>close</code></td>
+                  <td>close the pane on a clean exit, exactly as if you'd typed <code>exit</code>. A non-zero status keeps the pane so the failure stays readable.</td>
+                </tr>
+                <tr>
+                  <td><code>restart</code></td>
+                  <td>run it again. Exponential backoff from one second, and a breaker: five exits inside a minute stops the restarts with a banner. A run that lasts over a minute resets the count.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            To see or edit the whole workspace at once, press <kbd>e</kbd> in
+            the workspaces panel or pick <strong>Edit Startup Commands…</strong>
+            from a row's right-click menu. Every pane is listed as
+            <code>tab 1 · pane 2 — ~/dev/api</code> with its command; arrows
+            move between rows, typing edits, <kbd>tab</kbd> cycles on-exit,
+            <kbd>enter</kbd> saves the lot. Rows with a startup command show a
+            <code>▸</code> in the panel.
+          </p>
+          <p>
+            Startup commands are saved with a pinned workspace, and only then —
+            set one on a temporary workspace and Oxide reminds you to pin it.
+            Reopening a closed tab (<kbd>cmd-shift-t</kbd>) also brings its
+            commands back.
+          </p>
+
+          <h3 id="startup-how">How they run</h3>
+          <p>
+            Each pane waits for its own shell to be ready before firing — the
+            first prompt the shell integration reports, not a fixed delay — so a
+            slow <code>.zshrc</code> doesn't lose the command and four panes
+            restoring at once don't race. If a shell never shows a prompt
+            (a broken <code>[shell] program</code>, say) the pane gives up after
+            <code>workspaces.startup_timeout</code> and says so, rather than
+            firing into a void.
+          </p>
+          <p>
+            With shell integration on and zsh or bash, the command goes through
+            the same silent-run channel as "open in <code>$EDITOR</code>":
+            it isn't echoed at the prompt and never enters shell history. It
+            <em>does</em> appear in the
+            <a class="link" href="/docs/terminal/#history">command log</a>, so
+            the status bar shows it running and its exit status is known —
+            which is what <code>close</code> and <code>restart</code> key off.
+            Without integration, or on another shell, the command is typed
+            in visibly followed by <kbd>enter</kbd>; that works, but it lands
+            in history and the pane can't see it finish, so <code>on_exit</code>
+            behaves as <code>shell</code>.
+          </p>
+          <p>
+            Before a command fires, its pane shows a dimmed
+            <code>▸ cargo watch -x check</code> chip in the corner, replaced by
+            real output once it runs (and <code>↻</code> while a restart is
+            waiting on its backoff).
+          </p>
+
+          <h3 id="startup-safety">Turning them off</h3>
+          <p>
+            A startup command that wedges the app needs an out that isn't
+            editing JSON by hand. Any of these restores the layout without
+            running anything:
+          </p>
+          <ul>
+            <li>hold <kbd>shift</kbd> while Oxide launches;</li>
+            <li><code>oxide --no-startup-commands</code> from the CLI shim;</li>
+            <li><code>run_startup_commands = false</code> under
+              <code>[workspaces]</code> in config.toml, to turn the feature off
+              for good.</li>
+          </ul>
+          <div class="note">
+            <p>
+              <strong><code>workspaces.json</code> now contains commands.</strong>
+              Anything that can write that file gets a shell command run on your
+              next launch. It lives in your own <code>~/.cache</code> and is
+              written owner-only (<code>0600</code>), and Oxide will never run a
+              command from anywhere but that file — a per-repository project
+              file is a possible later feature, and it would have to ask first.
+            </p>
+          </div>
         </article>
 
         <nav class="pager">

@@ -102,6 +102,18 @@ pub struct TerminalSession {
     master_fd: RawFd,
     child_pid: i32,
     join: Option<JoinHandle<()>>,
+    /// Unique per spawn; exported to the shell as `OXIDE_SESSION` so the
+    /// silent-cd/run handlers read their own channel file.
+    session_id: String,
+}
+
+/// A session id nothing else in this process (or a previous one) will
+/// reuse: pid plus a counter. Only ever used as a file name, so it is kept
+/// to characters no shell quotes.
+fn next_session_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    format!("{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed))
 }
 
 impl TerminalSession {
@@ -113,10 +125,12 @@ impl TerminalSession {
         let proxy = EventProxy(tx);
 
         tty::setup_env();
+        let session_id = next_session_id();
         let mut env = options.env;
         env.insert("TERM".into(), "xterm-256color".into());
         env.insert("COLORTERM".into(), "truecolor".into());
         env.insert("OXIDE_VERSION".into(), env!("CARGO_PKG_VERSION").into());
+        env.insert("OXIDE_SESSION".into(), session_id.clone());
         // GUI-launched apps get no locale; a C-locale shell breaks multibyte
         // input and prompt glyphs. Mirror Terminal.app: set one if absent.
         if std::env::var("LANG").is_err() && !env.contains_key("LANG") {
@@ -146,7 +160,12 @@ impl TerminalSession {
         let sender = event_loop.sender();
         let join = event_loop.spawn();
 
-        Ok((Self { term, sender, master_fd, child_pid, join: Some(join) }, rx))
+        Ok((Self { term, sender, master_fd, child_pid, join: Some(join), session_id }, rx))
+    }
+
+    /// The value of `OXIDE_SESSION` in this shell's environment.
+    pub fn id(&self) -> &str {
+        &self.session_id
     }
 
     pub fn write_input(&self, bytes: impl Into<Cow<'static, [u8]>>) {

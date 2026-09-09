@@ -243,7 +243,7 @@
           </p>
 
           <h2 id="reset">Starting from a clean slate</h2>
-          <pre>rm -rf ~/.cache/oxide       <span class="c"># generated shell scripts, workspaces, window state</span>
+          <pre>rm -rf ~/.cache/oxide       <span class="c"># generated shell scripts, workspaces, window state, cd/run handoff files</span>
 rm ~/.config/oxide/config.toml   <span class="c"># regenerated on next launch</span></pre>
           <p>
             Deleting the cache directory loses pinned workspaces and the
@@ -253,7 +253,28 @@ rm ~/.config/oxide/config.toml   <span class="c"># regenerated on next launch</s
           <p>
             If <code>workspaces.json</code> ever fails to parse, Oxide renames it
             to <code>workspaces.json.corrupt</code> rather than overwriting it —
-            so a broken file is always recoverable by hand.
+            so a broken file is always recoverable by hand. A file written by an
+            older release is not "corrupt": it's read as-is and copied once to
+            <code>workspaces.json.v&lt;N&gt;.bak</code> before the new format is
+            written over it.
+          </p>
+
+          <h2 id="startup-command">A startup command wedges the app, or never runs</h2>
+          <p>
+            Hold <kbd>shift</kbd> while Oxide launches, or run
+            <code>oxide --no-startup-commands</code>, to restore pinned
+            workspaces without running anything; then fix the command with
+            <kbd>e</kbd> in the workspaces panel. <code>run_startup_commands =
+            false</code> under <code>[workspaces]</code> turns them off for good.
+          </p>
+          <p>
+            A command that never runs usually means the shell never showed a
+            prompt inside <code>workspaces.startup_timeout</code> — a banner says
+            so. Raise the timeout if your rc files are slow, or check
+            <code>[shell] program</code>. If it runs but <code>close</code> /
+            <code>restart</code> don't happen, the pane can't see the command
+            end: that needs <code>shell.integration = true</code> and zsh or
+            bash.
           </p>
 
           <h2 id="limitations">Known limitations</h2>
@@ -276,7 +297,9 @@ rm ~/.config/oxide/config.toml   <span class="c"># regenerated on next launch</s
             <li>
               <strong>Pinned workspaces restore layout, not processes.</strong>
               Directories and shape come back with fresh shells; running programs
-              can't survive a quit.
+              can't survive a quit. A pane's
+              <a class="link" href="/docs/workspaces/#startup">startup command</a>
+              is re-run instead.
             </li>
             <li>
               <strong>Left and right Option are indistinguishable</strong> — see

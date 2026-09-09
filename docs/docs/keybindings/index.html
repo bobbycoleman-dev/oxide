@@ -239,6 +239,7 @@
                 <tr><td><kbd>ctrl-w b</kbd></td><td>broadcast typing and pastes to every pane in the tab</td><td><code>pane::broadcast</code></td></tr>
                 <tr><td><kbd>ctrl-w o</kbd></td><td>close every other pane in the tab (asks when more than one would go)</td><td><code>pane::only</code></td></tr>
                 <tr><td><kbd>ctrl-w x</kbd></td><td>swap the pane with its neighbour in the split</td><td><code>pane::swap</code></td></tr>
+                <tr><td><kbd>ctrl-w r</kbd></td><td>set the pane's <a class="link" href="/docs/workspaces/#startup">startup command</a> — run when its pinned workspace is restored</td><td><code>pane::set_startup_command</code></td></tr>
                 <tr><td>drag a divider</td><td>resize the two panes either side of it</td><td></td></tr>
                 <tr><td><kbd>ctrl-w w</kbd></td><td>toggle focus: drawer ↔ terminal</td><td><code>drawer::focus_toggle</code></td></tr>
               </tbody>
@@ -291,6 +292,7 @@
                 <tr><td><kbd>enter</kbd> <span class="sep">/</span> <kbd>o</kbd></td><td>switch to the workspace</td><td><code>workspace::open</code></td></tr>
                 <tr><td><kbd>a</kbd> <kbd>r</kbd> <kbd>d</kbd></td><td>add / rename / delete (<kbd>y</kbd> confirms)</td><td><code>workspace::add / workspace::rename / workspace::delete</code></td></tr>
                 <tr><td><kbd>p</kbd></td><td>pin — persist across restarts</td><td><code>workspace::toggle_persist</code></td></tr>
+                <tr><td><kbd>e</kbd></td><td>edit every pane's startup command</td><td><code>workspace::edit_startup_commands</code></td></tr>
                 <tr><td><kbd>esc</kbd></td><td>dismiss input → back to the terminal</td><td><code>workspace::escape</code></td></tr>
               </tbody>
             </table>

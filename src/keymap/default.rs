@@ -42,6 +42,8 @@ pub static DEFAULTS: &[DefaultBinding] = &[
     b("ctrl-w [", "terminal::copy_mode", Root),
     b("cmd-shift-v", "terminal::copy_mode", Root),
     b("ctrl-w ,", "tab::rename", Root),
+    // "run": what this pane runs when its workspace is restored.
+    b("ctrl-w r", "pane::set_startup_command", Root),
     b("cmd-shift-t", "tab::reopen", Root),
     // Resizing, vim/tmux-style. Shifted punctuation arrives as the shifted
     // character on macOS, so `<` is bound as itself rather than `shift-,`.
@@ -168,6 +170,7 @@ pub static DEFAULTS: &[DefaultBinding] = &[
     b("d", "workspace::delete", Workspaces),
     b("r", "workspace::rename", Workspaces),
     b("p", "workspace::toggle_persist", Workspaces),
+    b("e", "workspace::edit_startup_commands", Workspaces),
     b("escape", "workspace::escape", Workspaces),
     b("tab", "drawer::focus_tree", Workspaces),
 ];

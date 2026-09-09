@@ -1,4 +1,17 @@
 #!/bin/bash
-# CLI shim: `oxide [dir]` opens the app bundle from another terminal.
+# CLI shim: `oxide [dir] [--no-startup-commands]` opens the app bundle from
+# another terminal.
 # Install: cp scripts/oxide-cli /usr/local/bin/oxide && chmod +x /usr/local/bin/oxide
-open -a Oxide --args "${1:-$PWD}"
+#
+# With no directory given the app opens at the current one. Flags pass
+# through untouched; --no-startup-commands restores pinned workspaces
+# without running their startup commands.
+dir=""
+flags=()
+for arg in "$@"; do
+  case "$arg" in
+    --*) flags+=("$arg") ;;
+    *) dir="$arg" ;;
+  esac
+done
+open -a Oxide --args "${dir:-$PWD}" "${flags[@]}"

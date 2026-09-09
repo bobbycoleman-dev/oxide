@@ -27,7 +27,8 @@ use crate::terminal::commands::format_duration;
 use crate::terminal::{LastLayout, TerminalEvent, TerminalPane};
 use crate::panes::{Axis, Direction, Node, NodePath};
 use crate::tree::{FileTree, TreeEvent};
-use crate::workspaces::{SavedTab, SavedWorkspace};
+use crate::startup::{OnExit, StartupCommand};
+use crate::workspaces::{SavedPane, SavedTab, SavedWorkspace};
 
 pub type PaneId = u64;
 
@@ -147,6 +148,10 @@ pub struct Oxide {
     dark_appearance: bool,
     /// Another app is frontmost, for `window.inactive_window_opacity`.
     window_active: bool,
+    /// Saved startup commands run on restore. `workspaces.run_startup_commands`
+    /// unless this launch opted out (`--no-startup-commands`, or shift held).
+    run_startup_commands: bool,
+    startup_skipped_at_launch: bool,
     _config_watcher: Option<notify_debouncer_full::Debouncer<notify::RecommendedWatcher, notify_debouncer_full::FileIdMap>>,
     _subscriptions: Vec<Subscription>,
 }
@@ -160,6 +165,37 @@ enum Overlay {
     FileFinder(FinderState),
     TabRename(TabRenameState),
     Confirm(ConfirmState),
+    /// One pane's startup command, from the terminal.
+    StartupCommand(StartupCommandState),
+    /// Every pane's startup command in one workspace, from the drawer.
+    StartupEditor(StartupEditorState),
+}
+
+struct StartupCommandState {
+    pane: PaneId,
+    buffer: String,
+    on_exit: OnExit,
+    /// Where the pane lives, for the header.
+    cwd: Option<PathBuf>,
+    return_focus: FocusTarget,
+}
+
+/// One row of the workspace-level editor.
+struct StartupRow {
+    pane: PaneId,
+    /// `tab 1 · pane 2 — ~/dev/api`
+    label: String,
+    command: String,
+    on_exit: OnExit,
+}
+
+struct StartupEditorState {
+    /// Index of the workspace being edited.
+    ws: usize,
+    name: String,
+    rows: Vec<StartupRow>,
+    selected: usize,
+    return_focus: FocusTarget,
 }
 
 struct TabRenameState {
@@ -530,10 +566,22 @@ impl Oxide {
             closed_tabs: VecDeque::new(),
             dark_appearance,
             window_active: window.is_window_active(),
+            run_startup_commands: false,
+            startup_skipped_at_launch: false,
             _config_watcher: config_watcher,
             _subscriptions: subscriptions,
         };
+        // The escape hatches for a startup command that wedges the app:
+        // a flag on the command line, or shift held while it launches.
+        // Neither depends on any file the app writes.
+        this.startup_skipped_at_launch =
+            crate::startup_commands_disabled_by_cli() || window.modifiers().shift;
+        this.run_startup_commands =
+            this.config.workspaces.run_startup_commands && !this.startup_skipped_at_launch;
         this.bootstrap_workspaces(cwd, restore, window, cx);
+        if this.startup_skipped_at_launch && this.any_startup_commands(cx) {
+            this.show_transient_banner("startup commands skipped for this launch".into(), cx);
+        }
         this.refresh_git_status(cx);
 
         // Auto-check for updates: installed bundles only (not cargo run),
@@ -1256,6 +1304,8 @@ impl Oxide {
                     || new_config.prompt != self.config.prompt;
                 let keymap_changed = new_config.keymap != self.config.keymap;
                 self.config = Rc::new(new_config);
+                self.run_startup_commands =
+                    self.config.workspaces.run_startup_commands && !self.startup_skipped_at_launch;
                 self.theme = Rc::new(Theme::resolve(&self.config.colors, self.dark_appearance));
                 let config = self.config.clone();
                 let theme = self.theme.clone();
@@ -1388,6 +1438,14 @@ impl Oxide {
                     .find(|(_, p)| p.entity_id() == emitter.entity_id())
                     .map(|(id, _)| *id);
                 if let Some(id) = id
+                    && !self.close_pane(id, window, cx)
+                {
+                    window.remove_window();
+                }
+            }
+            TerminalEvent::StartupExited => {
+                // `on_exit = close`: the same path a clean `exit` takes.
+                if let Some(id) = self.pane_id_of(emitter)
                     && !self.close_pane(id, window, cx)
                 {
                     window.remove_window();
@@ -1619,6 +1677,8 @@ impl Oxide {
             Overlay::FileFinder(f) => f.return_focus,
             Overlay::TabRename(r) => r.return_focus,
             Overlay::Confirm(c) => c.return_focus,
+            Overlay::StartupCommand(s) => s.return_focus,
+            Overlay::StartupEditor(e) => e.return_focus,
         };
         self.restore_focus(target, window, cx);
         cx.notify();
@@ -1630,7 +1690,8 @@ impl Oxide {
             Some(Overlay::Palette(_)) => self.palette_move(delta, cx),
             Some(Overlay::History(_)) => self.history_move(delta, cx),
             Some(Overlay::FileFinder(_)) => self.finder_move(delta, cx),
-            Some(Overlay::TabRename(_) | Overlay::Confirm(_)) | None => {}
+            Some(Overlay::StartupEditor(_)) => self.startup_editor_move(delta, cx),
+            Some(Overlay::TabRename(_) | Overlay::Confirm(_) | Overlay::StartupCommand(_)) | None => {}
         }
     }
 
@@ -1642,6 +1703,8 @@ impl Oxide {
             Some(Overlay::FileFinder(_)) => self.finder_confirm(FinderAction::Open, window, cx),
             Some(Overlay::TabRename(_)) => self.tab_rename_confirm(window, cx),
             Some(Overlay::Confirm(_)) => self.confirm_run(window, cx),
+            Some(Overlay::StartupCommand(_)) => self.startup_command_confirm(window, cx),
+            Some(Overlay::StartupEditor(_)) => self.startup_editor_confirm(window, cx),
             None => {}
         }
     }
@@ -1668,7 +1731,13 @@ impl Oxide {
         match &self.overlay {
             Some(Overlay::ThemePicker(_)) => self.picker_cancel(window, cx),
             Some(
-                Overlay::Palette(_) | Overlay::History(_) | Overlay::FileFinder(_) | Overlay::TabRename(_) | Overlay::Confirm(_),
+                Overlay::Palette(_)
+                | Overlay::History(_)
+                | Overlay::FileFinder(_)
+                | Overlay::TabRename(_)
+                | Overlay::Confirm(_)
+                | Overlay::StartupCommand(_)
+                | Overlay::StartupEditor(_),
             ) => self.close_overlay(window, cx),
             None => {}
         }
@@ -1681,8 +1750,274 @@ impl Oxide {
             Some(Overlay::History(h)) => Some(&mut h.query),
             Some(Overlay::FileFinder(f)) => Some(&mut f.query),
             Some(Overlay::TabRename(r)) => Some(&mut r.buffer),
+            Some(Overlay::StartupCommand(s)) => Some(&mut s.buffer),
+            Some(Overlay::StartupEditor(e)) => e.rows.get_mut(e.selected).map(|r| &mut r.command),
             _ => None,
         }
+    }
+
+    // --- Startup commands ---
+
+    /// Ask what one pane should run when its workspace is restored.
+    /// Prefilled with the current command, or — the part that makes this
+    /// feel like remembering rather than form-filling — the last command
+    /// that ran in the pane.
+    fn open_startup_command(&mut self, pane: PaneId, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(entity) = self.panes.get(&pane) else { return };
+        let (current, cwd, last) = {
+            let p = entity.read(cx);
+            let last = p.log.entries().rev().find_map(|c| c.text.clone());
+            (p.startup.clone(), p.cwd.clone(), last)
+        };
+        let (buffer, on_exit) = match current {
+            Some(s) => (s.command, s.on_exit),
+            None => (last.unwrap_or_default(), OnExit::default()),
+        };
+        let return_focus = self.current_focus_target(window, cx);
+        self.overlay = Some(Overlay::StartupCommand(StartupCommandState {
+            pane,
+            buffer,
+            on_exit,
+            cwd,
+            return_focus,
+        }));
+        window.focus(&self.picker_focus);
+        cx.notify();
+    }
+
+    fn startup_command_confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(Overlay::StartupCommand(s)) = &self.overlay else { return };
+        let (pane, command, on_exit) = (s.pane, s.buffer.trim().to_string(), s.on_exit);
+        let startup = (!command.is_empty()).then_some(StartupCommand { command, on_exit });
+        if let Some(entity) = self.panes.get(&pane) {
+            entity.update(cx, |p, cx| p.set_startup(startup.clone(), cx));
+        }
+        self.close_overlay(window, cx);
+        self.after_startup_edit(self.locate_pane(pane).map(|(w, _)| w), startup.is_some(), cx);
+    }
+
+    /// Save, and nudge if the workspace isn't pinned — a startup command on
+    /// a temporary workspace is forgotten at quit, which is rarely the
+    /// intent.
+    fn after_startup_edit(&mut self, wix: Option<usize>, any_set: bool, cx: &mut Context<Self>) {
+        self.save_workspaces(cx);
+        if any_set && let Some(ws) = wix.and_then(|w| self.workspaces.get(w)) && !ws.persist {
+            self.show_transient_banner(
+                format!("startup command set — pin \"{}\" (p in the workspaces panel) to keep it across restarts", ws.name),
+                cx,
+            );
+        }
+        cx.notify();
+    }
+
+    /// Every pane in a workspace with its command, editable in one place.
+    fn open_startup_editor(&mut self, wix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(ws) = self.workspaces.get(wix) else { return };
+        let home = home_dir();
+        let mut rows = Vec::new();
+        for (tix, tab) in ws.tabs.iter().enumerate() {
+            for (pix, id) in tab.layout.leaves().into_iter().enumerate() {
+                let Some(pane) = self.panes.get(&id) else { continue };
+                let p = pane.read(cx);
+                let dir = p.cwd.as_deref().map(|d| pretty_path(d, home.as_deref())).unwrap_or_default();
+                let tab_name = tab.title.clone().unwrap_or_else(|| format!("tab {}", tix + 1));
+                let label = if tab.layout.len() > 1 {
+                    format!("{tab_name} · pane {} — {dir}", pix + 1)
+                } else {
+                    format!("{tab_name} — {dir}")
+                };
+                let (command, on_exit) = match &p.startup {
+                    Some(s) => (s.command.clone(), s.on_exit),
+                    None => (String::new(), OnExit::default()),
+                };
+                rows.push(StartupRow { pane: id, label, command, on_exit });
+            }
+        }
+        if rows.is_empty() {
+            return;
+        }
+        let return_focus = self.current_focus_target(window, cx);
+        self.overlay = Some(Overlay::StartupEditor(StartupEditorState {
+            ws: wix,
+            name: ws.name.clone(),
+            rows,
+            selected: 0,
+            return_focus,
+        }));
+        window.focus(&self.picker_focus);
+        cx.notify();
+    }
+
+    fn startup_editor_move(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let Some(Overlay::StartupEditor(e)) = &mut self.overlay else { return };
+        let n = e.rows.len() as isize;
+        if n > 0 {
+            e.selected = (e.selected as isize + delta).rem_euclid(n) as usize;
+            cx.notify();
+        }
+    }
+
+    fn startup_editor_confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(Overlay::StartupEditor(e)) = &self.overlay else { return };
+        let wix = e.ws;
+        let edits: Vec<(PaneId, Option<StartupCommand>)> = e
+            .rows
+            .iter()
+            .map(|r| {
+                let command = r.command.trim().to_string();
+                (r.pane, (!command.is_empty()).then_some(StartupCommand { command, on_exit: r.on_exit }))
+            })
+            .collect();
+        let any_set = edits.iter().any(|(_, s)| s.is_some());
+        for (id, startup) in edits {
+            if let Some(entity) = self.panes.get(&id) {
+                entity.update(cx, |p, cx| p.set_startup(startup, cx));
+            }
+        }
+        self.close_overlay(window, cx);
+        self.after_startup_edit(Some(wix), any_set, cx);
+    }
+
+    /// `tab` in either startup overlay cycles the selected row's on-exit
+    /// behaviour.
+    fn startup_cycle_on_exit(&mut self, cx: &mut Context<Self>) {
+        match &mut self.overlay {
+            Some(Overlay::StartupCommand(s)) => s.on_exit = s.on_exit.next(),
+            Some(Overlay::StartupEditor(e)) => {
+                if let Some(row) = e.rows.get_mut(e.selected) {
+                    row.on_exit = row.on_exit.next();
+                }
+            }
+            _ => return,
+        }
+        cx.notify();
+    }
+
+    /// The `on exit: shell` chip shared by both startup overlays.
+    fn on_exit_chip(&self, on_exit: OnExit, lit: bool) -> gpui::Div {
+        let theme = &self.theme;
+        let dim = blend(theme.foreground, theme.background, 0.45);
+        div()
+            .flex_none()
+            .px_1p5()
+            .rounded_sm()
+            .text_size(px(11.0))
+            .bg(theme.ansi[0])
+            .text_color(if lit { theme.foreground } else { dim })
+            .child(format!("on exit: {}", on_exit.label()))
+    }
+
+    fn render_startup_command_body(&self, s: &StartupCommandState) -> gpui::Div {
+        let theme = &self.theme;
+        let accent = theme.ansi[4];
+        let dim = blend(theme.foreground, theme.background, 0.45);
+        let border = blend(theme.foreground, theme.background, 0.85);
+        let home = home_dir();
+        let where_ = s.cwd.as_deref().map(|d| pretty_path(d, home.as_deref())).unwrap_or_default();
+        let header = div()
+            .flex_none()
+            .px_3()
+            .py_1p5()
+            .border_b_1()
+            .border_color(border)
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(div().text_color(blend(theme.foreground, theme.background, 0.3)).child("startup command"))
+            .child(div().flex_1().overflow_hidden().text_size(px(11.0)).text_color(dim).child(where_));
+        let input = div()
+            .flex_none()
+            .px_3()
+            .py_2()
+            .border_b_1()
+            .border_color(border)
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(div().text_color(accent).child("▸"))
+            .child(if s.buffer.is_empty() {
+                div().flex_1().text_color(dim).child("▏nothing — just a shell")
+            } else {
+                div().flex_1().overflow_hidden().child(format!("{}▏", s.buffer))
+            })
+            .child(self.on_exit_chip(s.on_exit, true));
+        let footer = div()
+            .flex_none()
+            .px_3()
+            .py_1()
+            .text_size(px(11.0))
+            .text_color(dim)
+            .child("⏎ save · empty clears · tab cycles on-exit (shell / close / restart) · esc cancel");
+        div().flex().flex_col().child(header).child(input).child(footer)
+    }
+
+    fn render_startup_editor_body(&self, e: &StartupEditorState, cx: &Context<Self>) -> gpui::Div {
+        let theme = &self.theme;
+        let accent = theme.ansi[4];
+        let dim = blend(theme.foreground, theme.background, 0.45);
+        let border = blend(theme.foreground, theme.background, 0.85);
+        let header = div()
+            .flex_none()
+            .px_3()
+            .py_1p5()
+            .border_b_1()
+            .border_color(border)
+            .text_color(blend(theme.foreground, theme.background, 0.3))
+            .child(format!("startup commands — {}", e.name));
+        let mut list = div().flex().flex_col().p_1().gap(px(1.0));
+        for (ix, row) in e.rows.iter().enumerate() {
+            let is_selected = ix == e.selected;
+            list = list.child(
+                div()
+                    .id(("startup-row", ix))
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .flex()
+                    .flex_col()
+                    .gap_0p5()
+                    .when(is_selected, |d| d.bg(theme.selection_bg))
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _: &gpui::MouseDownEvent, _w, cx| {
+                            if let Some(Overlay::StartupEditor(e)) = &mut this.overlay {
+                                e.selected = ix;
+                                cx.notify();
+                            }
+                        }),
+                    )
+                    .child(div().text_size(px(11.0)).text_color(dim).child(row.label.clone()))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .child(div().text_color(if row.command.is_empty() { dim } else { accent }).child("▸"))
+                            .child(match (row.command.is_empty(), is_selected) {
+                                (true, true) => div().flex_1().text_color(dim).child("▏nothing — just a shell"),
+                                (true, false) => div().flex_1().text_color(dim).child("just a shell"),
+                                (false, true) => div().flex_1().overflow_hidden().child(format!("{}▏", row.command)),
+                                (false, false) => div().flex_1().overflow_hidden().child(row.command.clone()),
+                            })
+                            .when(!row.command.is_empty() || is_selected, |d| {
+                                d.child(self.on_exit_chip(row.on_exit, is_selected))
+                            }),
+                    ),
+            );
+        }
+        let footer = div()
+            .flex_none()
+            .px_3()
+            .py_1()
+            .border_t_1()
+            .border_color(border)
+            .text_size(px(11.0))
+            .text_color(dim)
+            .child("↑↓ pane · type to edit · tab cycles on-exit · ⏎ save all · esc cancel");
+        div().flex().flex_col().child(header).child(list).child(footer)
     }
 
     // --- Tab rename and confirmations ---
@@ -2038,6 +2373,13 @@ impl Oxide {
                 "n" => self.close_overlay(window, cx),
                 _ => {}
             }
+            cx.stop_propagation();
+            return;
+        }
+        if ks.key == "tab"
+            && matches!(self.overlay, Some(Overlay::StartupCommand(_) | Overlay::StartupEditor(_)))
+        {
+            self.startup_cycle_on_exit(cx);
             cx.stop_propagation();
             return;
         }
@@ -2752,6 +3094,16 @@ impl Oxide {
                 .track_focus(&self.picker_focus)
                 .on_key_down(cx.listener(Self::on_overlay_key_down))
                 .child(self.render_confirm_body(c)),
+            Overlay::StartupCommand(s) => panel
+                .w(px(560.0))
+                .track_focus(&self.picker_focus)
+                .on_key_down(cx.listener(Self::on_overlay_key_down))
+                .child(self.render_startup_command_body(s)),
+            Overlay::StartupEditor(e) => panel
+                .w(px(640.0))
+                .track_focus(&self.picker_focus)
+                .on_key_down(cx.listener(Self::on_overlay_key_down))
+                .child(self.render_startup_editor_body(e, cx)),
         };
 
         div()
@@ -3019,17 +3371,58 @@ impl Oxide {
         }
     }
 
-    /// What a tab looks like on disk: directories in place of pane ids.
+    /// What a tab looks like on disk: pane records (directory, startup
+    /// command) in place of pane ids.
     fn saved_tab(&self, t: &TabState, cx: &Context<Self>) -> SavedTab {
-        let layout = t.layout.map(&mut |id| {
-            self.panes
-                .get(id)
-                .and_then(|p| p.read(cx).cwd.clone())
-                .or_else(home_dir)
-                .unwrap_or_else(|| PathBuf::from("/"))
-        });
+        let layout = t.layout.map(&mut |id| self.saved_pane(*id, cx));
         let active = t.layout.leaves().iter().position(|l| *l == t.active).unwrap_or(0);
         SavedTab { layout, active, title: t.title.clone() }
+    }
+
+    fn saved_pane(&self, id: PaneId, cx: &Context<Self>) -> SavedPane {
+        let pane = self.panes.get(&id).map(|p| p.read(cx));
+        let cwd = pane
+            .and_then(|p| p.cwd.clone())
+            .or_else(home_dir)
+            .unwrap_or_else(|| PathBuf::from("/"));
+        let startup = pane.and_then(|p| p.startup.clone());
+        SavedPane {
+            cwd,
+            command: startup.as_ref().map(|s| s.command.clone()),
+            on_exit: startup.map(|s| s.on_exit).unwrap_or_default(),
+        }
+    }
+
+    /// A fresh shell from a saved pane. With `run`, its startup command is
+    /// queued to fire once the shell is ready.
+    fn create_pane_from(&mut self, saved: &SavedPane, run: bool, window: &mut Window, cx: &mut Context<Self>) -> PaneId {
+        let id = self.create_pane(saved.cwd.clone(), window, cx);
+        if let Some(startup) = saved.startup() {
+            let timeout = self.config.workspaces.startup_timeout.0;
+            self.panes[&id].update(cx, |pane, cx| {
+                pane.set_startup(Some(startup), cx);
+                if run {
+                    pane.arm_startup(timeout, cx);
+                }
+            });
+        }
+        id
+    }
+
+    fn pane_startup(&self, id: PaneId, cx: &Context<Self>) -> Option<StartupCommand> {
+        self.panes.get(&id).and_then(|p| p.read(cx).startup.clone())
+    }
+
+    /// Whether any pane in `ws` has a startup command.
+    fn workspace_has_startup(&self, ws: &Workspace, cx: &Context<Self>) -> bool {
+        ws.tabs
+            .iter()
+            .flat_map(|t| t.layout.leaves())
+            .any(|id| self.pane_startup(id, cx).is_some())
+    }
+
+    fn any_startup_commands(&self, cx: &Context<Self>) -> bool {
+        self.workspaces.iter().any(|w| self.workspace_has_startup(w, cx))
     }
 
     /// Keep a closed tab's shape and directories so cmd-shift-t can bring
@@ -3045,7 +3438,8 @@ impl Oxide {
             self.show_transient_banner("no closed tab to reopen".into(), cx);
             return;
         };
-        let layout = saved.layout.map(&mut |cwd| self.create_pane(cwd.clone(), window, cx));
+        let run = self.run_startup_commands;
+        let layout = saved.layout.map(&mut |pane| self.create_pane_from(pane, run, window, cx));
         let leaves = layout.leaves();
         let active = leaves.get(saved.active).copied().unwrap_or(leaves[0]);
         let mut tab = TabState::new(layout, active);
@@ -3257,10 +3651,11 @@ impl Oxide {
         cx: &mut Context<Self>,
     ) {
         if restore {
+            let run = self.run_startup_commands;
             for saved in crate::workspaces::load() {
                 let mut tabs = Vec::new();
                 for st in &saved.tabs {
-                    let layout = st.layout.map(&mut |cwd| self.create_pane(cwd.clone(), window, cx));
+                    let layout = st.layout.map(&mut |pane| self.create_pane_from(pane, run, window, cx));
                     let leaves = layout.leaves();
                     let active = leaves.get(st.active).copied().unwrap_or(leaves[0]);
                     let mut tab = TabState::new(layout, active);
@@ -3431,6 +3826,10 @@ impl Oxide {
                         }),
                     )
                     .child(div().flex_1().overflow_hidden().child(w.name.clone()))
+                    .when(self.workspace_has_startup(w, cx), |d| {
+                        // Has startup commands, visible without opening anything.
+                        d.child(div().flex_none().text_color(dim).child("▸"))
+                    })
                     .when(w.persist, |d| {
                         // Pin: this workspace survives restarts.
                         d.child(div().flex_none().text_color(accent).child("\u{f08d}"))
@@ -3484,6 +3883,10 @@ impl Oxide {
                     this.save_workspaces(cx);
                     cx.notify();
                 }
+            }))
+            .on_action(cx.listener(|this, _: &WsEditStartup, window, cx| {
+                let ix = this.ws_selected;
+                this.open_startup_editor(ix, window, cx);
             }))
             .on_action(cx.listener(|this, _: &WsEscape, window, cx| {
                 if this.ws_input.is_some() {
@@ -3548,7 +3951,7 @@ impl Oxide {
 
         // Keep the menu on screen when the click lands near an edge.
         let viewport = window.viewport_size();
-        let (menu_w, menu_h) = (160.0, 100.0);
+        let (menu_w, menu_h) = (200.0, 130.0);
         let x = f32::from(menu.position.x).min(f32::from(viewport.width) - menu_w - 8.0);
         let y = f32::from(menu.position.y).min(f32::from(viewport.height) - menu_h - 8.0);
 
@@ -3633,6 +4036,16 @@ impl Oxide {
                                     this.save_workspaces(cx);
                                 }
                                 cx.notify();
+                            }),
+                        ),
+                    )
+                    .child(
+                        item("ws-menu-startup", "Edit Startup Commands…".into()).on_mouse_down(
+                            gpui::MouseButton::Left,
+                            cx.listener(move |this, _: &gpui::MouseDownEvent, window, cx| {
+                                this.ws_context_menu = None;
+                                this.ws_selected = ix;
+                                this.open_startup_editor(ix, window, cx);
                             }),
                         ),
                     )
@@ -4208,6 +4621,10 @@ impl Render for Oxide {
             }))
             .on_action(cx.listener(|this, _: &ReopenClosedTab, window, cx| {
                 this.reopen_closed_tab(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SetStartupCommand, window, cx| {
+                let id = this.active_id();
+                this.open_startup_command(id, window, cx);
             }))
             .on_action(cx.listener(|this, _: &MoveTabLeft, _w, cx| this.move_active_tab(-1, cx)))
             .on_action(cx.listener(|this, _: &MoveTabRight, _w, cx| this.move_active_tab(1, cx)))

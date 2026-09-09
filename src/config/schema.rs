@@ -22,6 +22,31 @@ pub struct Config {
     pub editor: EditorConfig,
     pub cursor: CursorConfig,
     pub ssh: SshConfig,
+    pub workspaces: WorkspacesConfig,
+}
+
+/// Pinned-workspace restore: whether saved startup commands run, and how
+/// long to wait for a shell to be ready before giving up on its command.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct WorkspacesConfig {
+    /// Run saved startup commands when restoring a pinned workspace (and
+    /// when reopening a closed tab that had them). `--no-startup-commands`
+    /// on the command line, or shift held at launch, overrides this for one
+    /// launch.
+    pub run_startup_commands: bool,
+    /// How long to wait for a shell to show its first prompt before giving
+    /// up on that pane's startup command rather than firing it into a void.
+    pub startup_timeout: DurationText,
+}
+
+impl Default for WorkspacesConfig {
+    fn default() -> Self {
+        Self {
+            run_startup_commands: true,
+            startup_timeout: DurationText(std::time::Duration::from_secs(5)),
+        }
+    }
 }
 
 /// The cursor's shape and blink. Programs that set their own shape with

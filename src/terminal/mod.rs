@@ -36,6 +36,8 @@ use crate::keymap::actions::{
     ClearScrollback, Copy, CopyLastBlock, CopyLastCommand, CopyLastOutput, CopyMode, Paste, PromptDown,
     PromptUp, Search, SearchToggleCase, SearchToggleRegex, SearchToggleWord, SelectAll,
 };
+use crate::prompt::integration::{Channel, write_channel};
+use crate::startup::{OnExit, RestartDecision, RestartGate, StartupCommand};
 pub use click::ClickTarget;
 pub use commands::{Command, CommandLog};
 use element::TerminalElement;
@@ -78,6 +80,26 @@ pub enum TerminalEvent {
     /// The foreground process changed (a program started or ended, ssh
     /// connected or dropped).
     ForegroundChanged,
+    /// The pane's startup command exited cleanly and its `on_exit` is
+    /// `close`: the owner closes the pane with the usual semantics.
+    StartupExited,
+}
+
+/// Where a pane's startup command is in its life.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartupPhase {
+    /// Nothing queued (no command, or it already ran).
+    Idle,
+    /// Waiting for the shell to be ready.
+    Pending,
+    /// Sent to the shell; waiting for its C marker.
+    AwaitingStart,
+    /// Running; waiting for its D marker.
+    Running,
+    /// Exited under `on_exit = restart`; the backoff timer is ticking.
+    RestartWait,
+    /// Ran (or was given up on). Nothing more happens automatically.
+    Done,
 }
 
 /// Copy mode's sub-mode, for the indicator.
@@ -210,6 +232,21 @@ pub struct TerminalPane {
     /// The last accepted `/` or `?` search, for `n` / `N`.
     last_search: Option<(String, Direction)>,
     pub search_options: SearchOptions,
+    /// What this pane runs when its workspace is restored. Saved with a
+    /// pinned workspace; set from the terminal or the workspaces panel.
+    pub startup: Option<StartupCommand>,
+    startup_phase: StartupPhase,
+    /// Bumped whenever the startup state machine restarts, so a timer from
+    /// an earlier arm/restart can't act on a later one.
+    startup_generation: usize,
+    /// Set once the fallback (no markers) ready-detection has been kicked
+    /// off, so the first Wakeup is the only one that schedules it.
+    startup_wakeup_seen: bool,
+    /// The C marker that just arrived is the startup command's: if the
+    /// shell didn't send its text (`commands.emit_cmdline = false`), the
+    /// log entry gets it from us rather than from the grid.
+    startup_label_pending: bool,
+    restart_gate: RestartGate,
 }
 
 struct SearchState {
@@ -356,6 +393,12 @@ impl TerminalPane {
             vi: None,
             last_search: None,
             search_options: SearchOptions::default(),
+            startup: None,
+            startup_phase: StartupPhase::Idle,
+            startup_generation: 0,
+            startup_wakeup_seen: false,
+            startup_label_pending: false,
+            restart_gate: RestartGate::default(),
         };
         this.spawn_session(cx);
         this.refresh_git_root(cx);
@@ -499,6 +542,7 @@ impl TerminalPane {
             }
             _ => {}
         }
+        self.track_startup_marker(&marker, cx);
         if !self.config.commands.track {
             // Still note that integration is live, so cmd-↑ trusts A markers.
             self.log.markers_seen = true;
@@ -506,8 +550,11 @@ impl TerminalPane {
         }
         match self.log.on_marker(&marker, now) {
             Some(commands::LogEvent::Started(id)) => {
+                let known = std::mem::take(&mut self.startup_label_pending)
+                    .then(|| self.startup.as_ref().map(|s| s.command.clone()))
+                    .flatten();
                 if self.log.get(id).is_some_and(|c| c.text.is_none())
-                    && let Some(text) = self.read_command_line(marker.row)
+                    && let Some(text) = known.or_else(|| self.read_command_line(marker.row))
                 {
                     self.log.set_text(id, text);
                 }
@@ -628,6 +675,7 @@ impl TerminalPane {
                     self.poll_cwd(cx);
                 }
                 self.poll_foreground(cx);
+                self.startup_on_first_output(cx);
             }
             AlacEvent::Title(title) => {
                 self.title = title;
@@ -1268,10 +1316,10 @@ impl TerminalPane {
     /// hands the path off through a file and triggers a zle/readline widget,
     /// so no `cd` command is echoed; otherwise it falls back to typing one.
     pub fn request_cd(&mut self, path: &std::path::Path) {
+        use std::os::unix::ffi::OsStrExt as _;
         let Some(session) = &self.session else { return };
         if self.config.shell.integration
-            && let Some(target) = crate::prompt::integration::cd_target_path()
-            && std::fs::write(&target, path.to_string_lossy().as_bytes()).is_ok()
+            && write_channel(Channel::Cd, session.id(), path.as_os_str().as_bytes())
         {
             // zsh's zle widget redraws the prompt in place. bash's readline
             // cannot, so submit an empty line to get a fresh correct prompt.
@@ -1303,8 +1351,7 @@ impl TerminalPane {
         let Some(session) = &self.session else { return };
         if self.config.shell.integration
             && self.shell_supports_widgets()
-            && let Some(target) = crate::prompt::integration::run_target_path()
-            && std::fs::write(&target, command.as_bytes()).is_ok()
+            && write_channel(Channel::Run, session.id(), command.as_bytes())
         {
             session.write_input(b"\x1b[9002~".to_vec());
             session.term.lock().scroll_display(Scroll::Bottom);
@@ -1324,6 +1371,173 @@ impl TerminalPane {
         if let Some(session) = &self.session {
             session.write_input(command.as_bytes().to_vec());
             session.term.lock().scroll_display(Scroll::Bottom);
+        }
+    }
+
+    // --- Workspace startup commands ---
+
+    /// Whether the shell will say when it's ready (OSC 133 A) and how a
+    /// command it ran ended (133 D). Only the shells Oxide injects into.
+    fn startup_uses_markers(&self) -> bool {
+        self.config.shell.integration && self.shell_supports_widgets()
+    }
+
+    pub fn set_startup(&mut self, startup: Option<StartupCommand>, cx: &mut Context<Self>) {
+        if self.startup != startup {
+            self.startup = startup;
+            cx.notify();
+        }
+    }
+
+    /// Queue the startup command to run once the shell is ready. Called
+    /// right after the pane is created on restore. With shell integration
+    /// the first prompt marker is the signal; without it, a short delay
+    /// after the first output. If neither arrives within `timeout` the
+    /// command is dropped rather than fired into a void.
+    pub fn arm_startup(&mut self, timeout: Duration, cx: &mut Context<Self>) {
+        if self.startup.is_none() {
+            return;
+        }
+        self.startup_phase = StartupPhase::Pending;
+        self.startup_wakeup_seen = false;
+        self.startup_generation += 1;
+        let generation = self.startup_generation;
+        let timer = cx.background_executor().timer(timeout);
+        cx.spawn(async move |this, cx| {
+            timer.await;
+            this.update(cx, |pane, cx| {
+                if pane.startup_generation == generation && pane.startup_phase == StartupPhase::Pending {
+                    pane.startup_phase = StartupPhase::Done;
+                    cx.emit(TerminalEvent::Notice(format!(
+                        "startup command skipped — the shell wasn't ready after {}",
+                        commands::format_duration(timeout)
+                    )));
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// No markers to say the prompt is up: treat the first output as "the
+    /// rc files are running" and fire shortly after. Racy by nature, which
+    /// is why the marker path is preferred.
+    fn startup_on_first_output(&mut self, cx: &mut Context<Self>) {
+        if self.startup_phase != StartupPhase::Pending || self.startup_uses_markers() || self.startup_wakeup_seen {
+            return;
+        }
+        self.startup_wakeup_seen = true;
+        let generation = self.startup_generation;
+        let timer = cx.background_executor().timer(Duration::from_millis(500));
+        cx.spawn(async move |this, cx| {
+            timer.await;
+            this.update(cx, |pane, cx| {
+                if pane.startup_generation == generation {
+                    pane.on_shell_ready(cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn on_shell_ready(&mut self, cx: &mut Context<Self>) {
+        if self.startup_phase == StartupPhase::Pending {
+            self.fire_startup(cx);
+        }
+    }
+
+    fn fire_startup(&mut self, cx: &mut Context<Self>) {
+        let Some(startup) = self.startup.clone() else {
+            self.startup_phase = StartupPhase::Idle;
+            return;
+        };
+        // Without markers there is no way to see the command end, so
+        // `on_exit` can't apply; the run is simply done.
+        self.startup_phase = if self.startup_uses_markers() {
+            StartupPhase::AwaitingStart
+        } else {
+            StartupPhase::Done
+        };
+        self.restart_gate.record_start(Instant::now());
+        self.run_command(&startup.command);
+        cx.notify();
+    }
+
+    /// Follow the startup command through the shell's markers: C says it
+    /// started, D says it ended and how. Independent of the command log so
+    /// `commands.track = false` doesn't disable `on_exit`.
+    fn track_startup_marker(&mut self, marker: &Marker, cx: &mut Context<Self>) {
+        match (&marker.kind, self.startup_phase) {
+            (MarkerKind::PromptStart, StartupPhase::Pending) => self.on_shell_ready(cx),
+            (MarkerKind::CommandStart { .. }, StartupPhase::AwaitingStart) => {
+                self.startup_phase = StartupPhase::Running;
+                self.startup_label_pending = true;
+            }
+            (MarkerKind::CommandEnd { exit }, StartupPhase::Running) => {
+                let exit = *exit;
+                self.startup_finished(exit, cx);
+            }
+            _ => {}
+        }
+    }
+
+    fn startup_finished(&mut self, exit: Option<i32>, cx: &mut Context<Self>) {
+        self.startup_phase = StartupPhase::Done;
+        let Some(startup) = self.startup.clone() else { return };
+        match startup.on_exit {
+            OnExit::Shell => {}
+            OnExit::Close => {
+                // Same rule as `exit` in a shell: a clean exit closes, a
+                // failure stays on screen so it can be read.
+                if exit == Some(0) {
+                    cx.emit(TerminalEvent::StartupExited);
+                } else {
+                    let status = exit.map(|c| c.to_string()).unwrap_or_else(|| "unknown".into());
+                    cx.emit(TerminalEvent::Notice(format!(
+                        "startup command exited with status {status} — pane kept open"
+                    )));
+                }
+            }
+            OnExit::Restart => match self.restart_gate.record_exit(Instant::now()) {
+                RestartDecision::After(delay) => {
+                    self.startup_phase = StartupPhase::RestartWait;
+                    self.startup_generation += 1;
+                    let generation = self.startup_generation;
+                    let timer = cx.background_executor().timer(delay);
+                    cx.spawn(async move |this, cx| {
+                        timer.await;
+                        this.update(cx, |pane, cx| {
+                            if pane.startup_generation == generation
+                                && pane.startup_phase == StartupPhase::RestartWait
+                                && pane.child_exited.is_none()
+                            {
+                                pane.fire_startup(cx);
+                            }
+                        })
+                        .ok();
+                    })
+                    .detach();
+                }
+                RestartDecision::Stop => {
+                    cx.emit(TerminalEvent::Notice(crate::startup::breaker_message(
+                        self.restart_gate.exits_in_window(),
+                    )));
+                }
+            },
+        }
+        cx.notify();
+    }
+
+    /// The restore-time affordance: what's about to run in this pane.
+    fn startup_chip(&self) -> Option<String> {
+        let startup = self.startup.as_ref()?;
+        match self.startup_phase {
+            StartupPhase::Pending => Some(format!("▸ {}", startup.command)),
+            StartupPhase::RestartWait => Some(format!("↻ {}", startup.command)),
+            _ => None,
         }
     }
 
@@ -2059,6 +2273,23 @@ impl Render for TerminalPane {
                         .text_color(theme.background)
                         .text_size(gpui::px(11.0))
                         .font_weight(gpui::FontWeight::BOLD)
+                        .child(label),
+                )
+            })
+            // A startup command queued for this pane: visible before it
+            // runs, then replaced by the command's own output.
+            .when_some(self.startup_chip(), |this, label| {
+                this.child(
+                    div()
+                        .absolute()
+                        .bottom_2()
+                        .left_2()
+                        .px_2()
+                        .py_0p5()
+                        .rounded_md()
+                        .bg(theme.ansi[0])
+                        .text_size(gpui::px(11.0))
+                        .text_color(dim)
                         .child(label),
                 )
             })

@@ -193,6 +193,12 @@ track        = true           # the command log: status bar, tab dots, cmd-r his
 emit_cmdline = true           # the shell sends each command line to Oxide (memory only)
 max_entries  = 500
 
+[workspaces]
+run_startup_commands = true   # re-run each pane's saved startup command when a pinned
+                              # workspace is restored (skip once: --no-startup-commands,
+                              # or hold shift while Oxide launches)
+startup_timeout      = "5s"   # give up on a pane's command if its shell isn't ready by then
+
 # [keymap]                    # keystroke = "action id"; see the keybindings docs
 # "cmd-shift-p" = "app::palette"
 # "cmd-d"       = ""          # unbind a default

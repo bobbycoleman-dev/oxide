@@ -6,6 +6,7 @@ mod notifications;
 mod palette;
 mod panes;
 mod prompt;
+mod startup;
 mod terminal;
 mod tree;
 mod update;
@@ -46,6 +47,7 @@ pub(crate) fn menus() -> Vec<Menu> {
                 MenuItem::separator(),
                 MenuItem::action("Rename Tab…", RenameTab),
                 MenuItem::action("Reopen Closed Tab", ReopenClosedTab),
+                MenuItem::action("Set Startup Command…", SetStartupCommand),
                 MenuItem::separator(),
                 MenuItem::action("Split Right", SplitRight),
                 MenuItem::action("Split Down", SplitDown),
@@ -119,8 +121,17 @@ pub(crate) fn menus() -> Vec<Menu> {
     ]
 }
 
+/// `--no-startup-commands`: restore pinned workspaces' layout without
+/// running anything. The out for someone whose startup command wedges the
+/// app, so it must not depend on any state the app writes.
+pub(crate) fn startup_commands_disabled_by_cli() -> bool {
+    std::env::args().skip(1).any(|a| a == "--no-startup-commands")
+}
+
 fn main() {
     let (config, config_error) = config::load();
+    // Silent-cd/run handoff files a killed shell never consumed.
+    prompt::integration::clean_stale_channels();
 
     // Closing the last window leaves Oxide running, the way most macOS apps
     // behave; clicking the Dock icon brings a fresh window back. cmd-q quits.

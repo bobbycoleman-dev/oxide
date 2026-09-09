@@ -4,15 +4,64 @@ use std::path::{Path, PathBuf};
 use crate::config::Config;
 use crate::config::schema::PromptConfig;
 
-/// File the app writes a directory into for the shell's silent-cd widget.
-pub fn cd_target_path() -> Option<PathBuf> {
-    Some(cache_dir()?.join("cd_target"))
+/// The silent-cd and silent-run channels are one file per shell session,
+/// keyed by the `OXIDE_SESSION` value the app puts in each shell's
+/// environment. A shared file would race: restoring a workspace with four
+/// startup commands writes four targets at nearly the same instant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Channel {
+    Cd,
+    Run,
 }
 
-/// File the app writes a command into for the shell's silent-run widget —
-/// how "open this file in $EDITOR" happens without echoing a command line.
-pub fn run_target_path() -> Option<PathBuf> {
-    Some(cache_dir()?.join("run_target"))
+impl Channel {
+    fn dir_name(self) -> &'static str {
+        match self {
+            Channel::Cd => "cd",
+            Channel::Run => "run",
+        }
+    }
+}
+
+/// `~/.cache/oxide/<cd|run>/<session>` — where the generated shell handlers
+/// look for their target, using `$OXIDE_SESSION`.
+pub fn channel_path(channel: Channel, session: &str) -> Option<PathBuf> {
+    Some(cache_dir()?.join(channel.dir_name()).join(session))
+}
+
+/// Hand a target to one shell session's widget. The file is consumed by the
+/// handler that reads it, so nothing is left behind on the normal path.
+pub fn write_channel(channel: Channel, session: &str, payload: &[u8]) -> bool {
+    let Some(path) = channel_path(channel, session) else { return false };
+    let Some(dir) = path.parent() else { return false };
+    if std::fs::create_dir_all(dir).is_err() {
+        return false;
+    }
+    std::fs::write(&path, payload).is_ok()
+}
+
+/// Remove channel files a previous instance left behind (a shell that was
+/// killed between the write and the read). Anything older than a minute is
+/// stale; a live handoff completes in milliseconds. Called once at launch.
+pub fn clean_stale_channels() {
+    let Some(cache) = cache_dir() else { return };
+    let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+    for channel in [Channel::Cd, Channel::Run] {
+        let Ok(entries) = std::fs::read_dir(cache.join(channel.dir_name())) else { continue };
+        for entry in entries.flatten() {
+            let stale = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .map(|t| t < cutoff)
+                .unwrap_or(true);
+            if stale {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    // The pre-0.5 shared files, if an old shell left one.
+    let _ = std::fs::remove_file(cache.join("cd_target"));
+    let _ = std::fs::remove_file(cache.join("run_target"));
 }
 
 fn cache_dir() -> Option<PathBuf> {

@@ -13,10 +13,13 @@ The architecture is largely portable already:
   already resolved in `Cargo.lock`. No Xcode/Metal anywhere in the Linux path.
 - **`alacritty_terminal`'s Unix tty layer is identical on Linux** — PTY spawn,
   event loop, SIGHUP/SIGKILL teardown (plain POSIX `libc`), winsize handling.
-- **Pure-portable subsystems**: panes/splits, tabs, workspaces + persistence,
-  themes, config load/reload, prompt generation (bash/zsh scripts run
-  unchanged), scrollback search, prompt marks, file tree, git status bar,
-  `directories`-based paths (already XDG-correct on Linux).
+- **Pure-portable subsystems**: panes/splits, tabs, workspaces + persistence
+  (including startup commands, the restart gate, and the per-session
+  `~/.cache/oxide/{cd,run}/<OXIDE_SESSION>` handoff files — plain POSIX
+  files, 0600 via `std::os::unix`), themes, config load/reload, prompt
+  generation (bash/zsh scripts run unchanged), scrollback search, prompt
+  marks, file tree, git status bar, `directories`-based paths (already
+  XDG-correct on Linux).
 
 Nothing in `src/` is cfg-gated yet, so the crate currently **does not compile
 for Linux**. Two hard blockers, a handful of compiles-but-wrong items, one big
@@ -100,8 +103,13 @@ keeping the remove_dir_all fallback.
 
 ### 2.3 `open` in shell-facing places
 
-- `scripts/oxide-cli` uses `open -a Oxide` — on Linux the shim is just a
-  symlink to the binary (or `oxide "$@"` wrapper). Ship it in packaging.
+- `scripts/oxide-cli` uses `open -a Oxide --args <dir> [flags]` — on Linux
+  the shim is just a symlink to the binary (or `oxide "$@"` wrapper). Ship
+  it in packaging. The binary already parses its own argv (`<dir>` plus
+  `--no-startup-commands`, see `main.rs::startup_commands_disabled_by_cli`
+  and the cwd lookup in `Oxide::new`), so a direct invocation needs no
+  translation — just keep the flag-after-dir order tolerant, as the shim
+  does.
 - `cx.open_url` (help/report-issue/BMC) — GPUI handles per-platform; verify
   it actually uses the portal/xdg-open on Wayland.
 
@@ -121,7 +129,21 @@ keeping the remove_dir_all fallback.
   Hyprland decides geometry. Make restore a no-op on Linux (saving is
   harmless).
 
-### 2.5 macOS app-lifecycle bits — `src/main.rs`
+### 2.5 Shift-at-launch escape hatch — `src/app.rs::Oxide::new`
+
+Holding shift while Oxide launches skips workspace startup commands. It
+reads `window.modifiers().shift` right after the window opens. On macOS
+that is a live `NSEvent.modifierFlags` query; on Wayland GPUI only knows
+modifier state from key events it has received, so at window creation it
+will likely report nothing pressed and the shortcut silently won't work.
+Options: keep the CLI flag as the documented Linux out (it needs no
+platform support), or read the modifier on the first `ModifiersChanged` /
+key event within ~1s of launch and cancel pending commands then (each pane
+holds a `Pending` phase until its first prompt, so there is a window to do
+it in — `TerminalPane::arm_startup` / `startup_generation`). Verify on
+real hardware before documenting shift for Linux.
+
+### 2.6 macOS app-lifecycle bits — `src/main.rs`
 
 - `on_reopen` is a Dock concept; GPUI's platform trait default is a no-op on
   Linux, but the "keep running with zero windows" model is also weird under a
@@ -154,6 +176,7 @@ following Linux terminal conventions:
 | cmd-, | ctrl-, | settings |
 | cmd-k cmd-t | ctrl-k ctrl-t | theme picker |
 | cmd-up/down | ctrl-shift-up/down | prompt jump |
+| ctrl-w r, ctrl-w , (chords) | unchanged | `ctrl-w …` sequences are WM-free everywhere |
 | cmd-b / cmd-shift-e | ctrl-shift-b / ctrl-shift-o | drawer |
 | cmd-q/h/m, fullscreen | drop | WM's job under Hyprland |
 
@@ -237,6 +260,13 @@ CI and the Omarchy box are the two real build environments.
 - [ ] `ls` columns aligned (tab handling), truecolor test, `vim`, `htop`
 - [ ] tree follows `cd` (procfs path), silent-cd `c` from tree works
 - [ ] splits + geometric navigation; tabs; workspaces + pin/restore cycle
+- [ ] startup commands: set one (`ctrl-w r`), pin, quit, relaunch — fires
+      after the first prompt, not before; four panes at once don't cross
+      (per-session `OXIDE_SESSION` channel files under `~/.cache/oxide/run/`)
+- [ ] `oxide --no-startup-commands` restores layout only; shift-at-launch
+      (see 2.5 — may need the key-event fallback under Wayland)
+- [ ] `on_exit = restart` backoff + breaker banner; `close` closes the pane
+- [ ] `~/.cache/oxide/workspaces.json` is 0600 after a save (`stat -c %a`)
 - [ ] clipboard copy/paste both directions; then primary selection (Phase 4)
 - [ ] config live-reload (inotify backend of `notify`)
 - [ ] scrollback search, prompt jumping
@@ -253,6 +283,8 @@ CI and the Omarchy box are the two real build environments.
 4. AppImage self-update vs "open releases page" pill.
 5. Whether `window.titlebar` config gains a `none` value or Linux just
    ignores it.
+6. Shift-at-launch for skipping startup commands: implement the key-event
+   fallback, or document the CLI flag as the only Linux out.
 
 ## Effort sketch
 

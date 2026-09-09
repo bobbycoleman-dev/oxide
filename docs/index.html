@@ -1265,7 +1265,11 @@
                 Named sets of tabs and splits, tmux-session style, managed from a
                 panel below the file tree &mdash; add, rename, delete, or pin one to
                 persist. Pinned workspaces restore their full layout and every
-                pane's directory the next time you launch, with fresh shells.
+                pane's directory the next time you launch, with fresh shells
+                &mdash; and each pane can carry a <em>startup command</em>
+                (<code>ctrl-w r</code>, prefilled with the last thing you ran
+                there) that runs again once its shell is at a prompt. Back to
+                the shell, close the pane, or restart with backoff when it exits.
               </p>
             </div>
             <div class="card">

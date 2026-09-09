@@ -189,27 +189,34 @@ enabled = <span class="k">false</span>    <span class="c"># keep starship / p10k
             <li>
               <strong>Silent <code>cd</code></strong> — pressing <kbd>c</kbd> in
               the file tree writes a path to
-              <code>~/.cache/oxide/cd_target</code> and triggers a zle widget,
+              <code>~/.cache/oxide/cd/&lt;session&gt;</code> (one file per
+              shell, keyed by the <code>OXIDE_SESSION</code> variable in its
+              environment) and triggers a zle widget,
               which <code>cd</code>s and redraws the prompt in place. Nothing is
               echoed and no command lands in your history.
             </li>
             <li>
               <strong>Silent command runs</strong> — the same trick for commands
               only the shell can resolve. Opening a file from the tree, or
-              <kbd>cmd-,</kbd> for your config, hands
-              <code>~/.cache/oxide/run_target</code> to a widget that runs it
-              with the terminal attached, so a full-screen editor takes over the
-              way it should while the command line itself is never shown or
-              recorded.
+              <kbd>cmd-,</kbd> for your config, or a workspace's
+              <a class="link" href="/docs/workspaces/#startup">startup command</a>,
+              hands <code>~/.cache/oxide/run/&lt;session&gt;</code> to a widget
+              that runs it with the terminal attached, so a full-screen editor
+              takes over the way it should while the command line itself is
+              never shown or recorded in shell history. The widget emits its own
+              <code>C</code> and <code>D</code> markers, so the run still shows
+              in the command log with its exit status.
             </li>
           </ul>
           <div class="note">
             <p>
-              The <code>A</code> and <code>B</code> markers are embedded in the
-              prompt Oxide builds, so they're only emitted when
-              <code>prompt.enabled = true</code>. Prompt jumping
-              (<kbd>cmd-↑</kbd>/<kbd>cmd-↓</kbd>) doesn't depend on them — it
-              tracks where you pressed <kbd>enter</kbd> — so it works either way.
+              With <code>prompt.enabled = false</code> your own prompt is kept,
+              so the markers can't ride inside it: the <code>A</code> marker is
+              emitted by the prompt hook just before your prompt draws instead,
+              and <code>B</code> (where input begins) is not emitted at all.
+              Everything that keys off <code>A</code> — prompt jumping,
+              workspace startup commands waiting for a ready shell — works
+              either way.
             </p>
           </div>
 

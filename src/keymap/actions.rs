@@ -67,6 +67,7 @@ oxide_actions! {
     PaneBroadcast  => "pane::broadcast",   "Toggle Broadcast Input",  "Pane", ["synchronize", "type to all"], Root;
     PaneOnly       => "pane::only",        "Close Other Panes",       "Pane", ["only", "kill others"], Root;
     PaneSwap       => "pane::swap",        "Swap Pane with Neighbour", "Pane", ["exchange", "rotate"], Root;
+    SetStartupCommand => "pane::set_startup_command", "Set Startup Command…", "Pane", ["run on restore", "autorun", "workspace", "tmuxinator"], Root;
 
     // --- Terminal ---
     Copy            => "terminal::copy",             "Copy",                  "Terminal", [], Root;
@@ -105,6 +106,7 @@ oxide_actions! {
     WsDelete        => "workspace::delete",         "Workspaces: Delete Selected", "Workspace", ["remove"], Workspaces;
     WsRename        => "workspace::rename",         "Workspaces: Rename Selected", "Workspace", [], Workspaces;
     WsTogglePersist => "workspace::toggle_persist", "Workspaces: Pin / Unpin",    "Workspace", ["persist", "save"], Workspaces;
+    WsEditStartup   => "workspace::edit_startup_commands", "Workspaces: Edit Startup Commands…", "Workspace", ["run on restore", "autorun"], Workspaces;
     WsEscape        => "workspace::escape",         "Workspaces: Dismiss",        "Workspace", [], Workspaces;
 
     // --- File tree ---

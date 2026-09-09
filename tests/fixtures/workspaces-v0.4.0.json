@@ -1,0 +1,52 @@
+{
+  "version": 2,
+  "workspaces": [
+    {
+      "name": "workspace 1",
+      "active_tab": 1,
+      "tabs": [
+        {
+          "layout": {
+            "leaf": "/Users/x"
+          },
+          "active": 0,
+          "title": "build"
+        },
+        {
+          "layout": {
+            "split": {
+              "axis": "horizontal",
+              "children": [
+                {
+                  "leaf": "/Users/x/dev"
+                },
+                {
+                  "split": {
+                    "axis": "vertical",
+                    "children": [
+                      {
+                        "leaf": "/Users/x/dev/a"
+                      },
+                      {
+                        "leaf": "/Users/x/dev/b"
+                      }
+                    ],
+                    "ratios": [
+                      0.25,
+                      0.75
+                    ]
+                  }
+                }
+              ],
+              "ratios": [
+                0.6,
+                0.4
+              ]
+            }
+          },
+          "active": 2
+        }
+      ]
+    }
+  ]
+}
