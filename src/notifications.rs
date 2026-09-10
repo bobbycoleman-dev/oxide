@@ -115,7 +115,7 @@ mod macos {
 
     use block::{Block, ConcreteBlock};
     use objc::declare::ClassDecl;
-    use objc::runtime::{BOOL, Class, Object, Protocol, Sel, YES};
+    use objc::runtime::{BOOL, Class, Object, Protocol, Sel};
     use objc::{class, msg_send, sel, sel_impl};
 
     use super::RouteKey;
@@ -270,7 +270,6 @@ mod macos {
             let request: Id = msg_send![class!(UNNotificationRequest), requestWithIdentifier: ident content: content trigger: std::ptr::null::<Object>()];
             let on_added = ConcreteBlock::new(move |_error: Id| {}).copy();
             let _: () = msg_send![center, addNotificationRequest: request withCompletionHandler: &*on_added];
-            let _ = YES;
         }
     }
 }

@@ -120,7 +120,7 @@ impl TerminalSession {
     pub fn spawn(
         options: SessionOptions,
         size: TermSize,
-    ) -> anyhow::Result<(Self, UnboundedReceiver<SessionEvent>)> {
+    ) -> std::io::Result<(Self, UnboundedReceiver<SessionEvent>)> {
         let (tx, rx) = unbounded();
         let proxy = EventProxy(tx);
 

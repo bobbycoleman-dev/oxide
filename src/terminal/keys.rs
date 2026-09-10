@@ -52,24 +52,8 @@ pub fn to_bytes(ks: &Keystroke, mode: &TermMode, option_as_meta: OptionAsMeta) -
         "down" => return Some(csi_cursor('B')),
         "right" => return Some(csi_cursor('C')),
         "left" => return Some(csi_cursor('D')),
-        "home" => {
-            return Some(if modified {
-                format!("\x1b[1;{mod_param}H").into_bytes()
-            } else if app_cursor {
-                b"\x1bOH".to_vec()
-            } else {
-                b"\x1b[H".to_vec()
-            });
-        }
-        "end" => {
-            return Some(if modified {
-                format!("\x1b[1;{mod_param}F").into_bytes()
-            } else if app_cursor {
-                b"\x1bOF".to_vec()
-            } else {
-                b"\x1b[F".to_vec()
-            });
-        }
+        "home" => return Some(csi_cursor('H')),
+        "end" => return Some(csi_cursor('F')),
         "pageup" => return Some(csi_tilde(5)),
         "pagedown" => return Some(csi_tilde(6)),
         "insert" => return Some(csi_tilde(2)),

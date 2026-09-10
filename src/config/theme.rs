@@ -87,29 +87,7 @@ fn preset(name: &str) -> Option<&'static Palette> {
 }
 
 pub fn parse_hex(s: &str) -> Option<Hsla> {
-    let s = s.trim().strip_prefix('#')?;
-    let (r, g, b, a) = match s.len() {
-        3 => {
-            let v = u32::from_str_radix(s, 16).ok()?;
-            let (r, g, b) = ((v >> 8) & 0xf, (v >> 4) & 0xf, v & 0xf);
-            ((r * 17) as f32, (g * 17) as f32, (b * 17) as f32, 255.0)
-        }
-        6 => {
-            let v = u32::from_str_radix(s, 16).ok()?;
-            (((v >> 16) & 0xff) as f32, ((v >> 8) & 0xff) as f32, (v & 0xff) as f32, 255.0)
-        }
-        8 => {
-            let v = u32::from_str_radix(s, 16).ok()?;
-            (
-                ((v >> 24) & 0xff) as f32,
-                ((v >> 16) & 0xff) as f32,
-                ((v >> 8) & 0xff) as f32,
-                (v & 0xff) as f32,
-            )
-        }
-        _ => return None,
-    };
-    Some(Rgba { r: r / 255.0, g: g / 255.0, b: b / 255.0, a: a / 255.0 }.into())
+    Rgba::try_from(s.trim()).ok().map(Hsla::from)
 }
 
 impl Theme {

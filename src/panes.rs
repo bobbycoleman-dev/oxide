@@ -64,10 +64,6 @@ fn even(n: usize) -> Vec<f32> {
 }
 
 impl<T: PartialEq + Clone> Node<T> {
-    pub fn leaf(id: T) -> Self {
-        Node::Leaf(id)
-    }
-
     /// An evenly divided split.
     pub fn split_even(axis: Axis, children: Vec<Node<T>>) -> Self {
         let ratios = even(children.len());
@@ -363,7 +359,7 @@ mod tests {
     fn split_right_then_down_nests_only_the_right_pane() {
         // The scenario from the spec: split right, focus the new pane, split
         // down. The original pane keeps the full left side.
-        let mut tree = Node::leaf(1u32);
+        let mut tree = Node::Leaf(1u32);
         assert!(tree.split(&1, Direction::Right, 2));
         assert_eq!(ids(&tree), vec![1, 2]);
 
@@ -390,7 +386,7 @@ mod tests {
 
     #[test]
     fn repeated_same_axis_splits_stay_siblings() {
-        let mut tree = Node::leaf(1u32);
+        let mut tree = Node::Leaf(1u32);
         tree.split(&1, Direction::Right, 2);
         tree.split(&2, Direction::Right, 3);
         // Three columns, not nested halves. The last split halves pane 2's
@@ -418,18 +414,18 @@ mod tests {
 
     #[test]
     fn split_left_and_up_insert_before() {
-        let mut tree = Node::leaf(1u32);
+        let mut tree = Node::Leaf(1u32);
         tree.split(&1, Direction::Left, 2);
         assert_eq!(ids(&tree), vec![2, 1]);
 
-        let mut tree = Node::leaf(1u32);
+        let mut tree = Node::Leaf(1u32);
         tree.split(&1, Direction::Up, 2);
         assert_eq!(ids(&tree), vec![2, 1]);
     }
 
     #[test]
     fn removing_collapses_single_child_splits() {
-        let mut tree = Node::leaf(1u32);
+        let mut tree = Node::Leaf(1u32);
         tree.split(&1, Direction::Right, 2);
         tree.split(&2, Direction::Down, 3);
 
@@ -458,14 +454,14 @@ mod tests {
 
     #[test]
     fn last_leaf_cannot_be_removed() {
-        let mut tree = Node::leaf(1u32);
+        let mut tree = Node::Leaf(1u32);
         assert!(!tree.remove(&1));
         assert_eq!(tree.len(), 1);
     }
 
     #[test]
     fn removing_an_unknown_leaf_is_a_no_op() {
-        let mut tree = Node::leaf(1u32);
+        let mut tree = Node::Leaf(1u32);
         tree.split(&1, Direction::Right, 2);
         assert!(!tree.remove(&99));
         assert_eq!(ids(&tree), vec![1, 2]);
@@ -473,7 +469,7 @@ mod tests {
 
     #[test]
     fn paths_round_trip() {
-        let mut tree = Node::leaf(1u32);
+        let mut tree = Node::Leaf(1u32);
         tree.split(&1, Direction::Right, 2);
         tree.split(&2, Direction::Down, 3);
         assert_eq!(tree.path_to(&1), Some(vec![0]));
@@ -517,7 +513,7 @@ mod tests {
     fn resize_leaf_finds_the_enclosing_split_on_the_right_axis() {
         // [1 | [2 / 3]]: pane 3 is inside a vertical split inside a
         // horizontal one.
-        let mut tree = Node::leaf(1u32);
+        let mut tree = Node::Leaf(1u32);
         tree.split(&1, Direction::Right, 2);
         tree.split(&2, Direction::Down, 3);
 
@@ -537,7 +533,7 @@ mod tests {
         assert!(tree.resize_leaf(&1, Axis::Horizontal, 0.1, 0.05));
         assert_close(&ratios_of(&tree, &[]), &[0.5, 0.5]);
         // A lone root leaf has nothing to resize against.
-        assert!(!Node::leaf(7u32).resize_leaf(&7, Axis::Horizontal, 0.1, 0.05));
+        assert!(!Node::Leaf(7u32).resize_leaf(&7, Axis::Horizontal, 0.1, 0.05));
         check_invariants(&tree);
     }
 
@@ -564,7 +560,7 @@ mod tests {
     #[test]
     fn swap_moves_a_pane_past_its_neighbour_at_any_depth() {
         // [1 | [2 / 3]]
-        let mut tree = Node::leaf(1u32);
+        let mut tree = Node::Leaf(1u32);
         tree.split(&1, Direction::Right, 2);
         tree.split(&2, Direction::Down, 3);
         tree.resize_divider(&[1], 0, 0.2, 0.05);
@@ -584,7 +580,7 @@ mod tests {
         assert!(matches!(tree.at_path(&[0]), Some(Node::Split { .. })));
         check_invariants(&tree);
 
-        assert!(!Node::leaf(7u32).swap_with_neighbour(&7), "nothing to swap with");
+        assert!(!Node::Leaf(7u32).swap_with_neighbour(&7), "nothing to swap with");
         assert!(!tree.swap_with_neighbour(&99));
     }
 

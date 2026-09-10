@@ -275,16 +275,14 @@ pub fn save_to(path: &Path, workspaces: &[SavedWorkspace]) {
     }
 }
 
-/// Whether any pane in this workspace has a startup command.
-#[cfg(test)]
-pub fn has_startup_commands(ws: &SavedWorkspace) -> bool {
-    ws.tabs.iter().any(|t| t.layout.leaves().iter().any(|p| p.startup().is_some()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::panes::{Axis, Node};
+
+    fn has_startup_commands(ws: &SavedWorkspace) -> bool {
+        ws.tabs.iter().any(|t| t.layout.leaves().iter().any(|p| p.startup().is_some()))
+    }
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("oxide-ws-{name}-{}", std::process::id()));

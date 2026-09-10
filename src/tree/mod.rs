@@ -957,7 +957,10 @@ impl FileTree {
                             window.focus(&tree.focus_handle);
                             tree.select(ix, cx);
                             if event.click_count > 1 {
-                                tree.open_row(cx);
+                                // Directories already toggled on the first mouse-down.
+                                if tree.selected_row().is_some_and(|r| !r.is_dir) {
+                                    tree.open_row(cx);
+                                }
                             } else if let Some(row) = tree.selected_row().cloned()
                                 && row.is_dir
                                 && row.kind == RowKind::Entry

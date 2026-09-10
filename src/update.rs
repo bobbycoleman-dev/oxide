@@ -13,10 +13,6 @@ pub struct ReleaseInfo {
     pub dmg_url: String,
 }
 
-pub fn current_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}
-
 fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
     let v = v.trim().trim_start_matches('v');
     let mut parts = v.splitn(3, '.').map(|p| {

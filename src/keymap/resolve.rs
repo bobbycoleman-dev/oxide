@@ -316,7 +316,6 @@ mod tests {
         // "cmd-" is actually a valid spelling of cmd-minus in GPUI; use
         // something that really doesn't parse.
         let r2 = resolve(&cfg(&[("ctrl-w -x", "tab::next")]));
-        assert!(r.errors.is_empty() || !r.errors.is_empty()); // parse outcome is GPUI's call
         assert_eq!(r2.errors.len(), 1, "{:?}", r2.errors);
         assert!(r2.errors[0].contains("can't parse keystroke"), "{}", r2.errors[0]);
         assert!(has(&r, "cmd-shift-j", "tab::next", KeyCtx::Root));

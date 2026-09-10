@@ -53,7 +53,7 @@ pub fn fuzzy_match(query: &str, candidate: &str) -> Option<Match> {
     let mut prev = vec![vec![usize::MAX; m]; n];
     for j in 0..m {
         if cl[j] == q[0] {
-            best[0][j] = MATCH + if is_word_start(&c, j) { WORD_START } else { 0 } - (j as i32).min(3) * 0;
+            best[0][j] = MATCH + if is_word_start(&c, j) { WORD_START } else { 0 };
         }
     }
     for i in 1..n {

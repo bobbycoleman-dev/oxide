@@ -208,13 +208,7 @@ struct TabRenameState {
 /// A yes/no question before something destructive.
 struct ConfirmState {
     message: String,
-    action: ConfirmAction,
     return_focus: FocusTarget,
-}
-
-#[derive(Clone, Copy)]
-enum ConfirmAction {
-    CloseOtherPanes,
 }
 
 fn appearance_is_dark(appearance: gpui::WindowAppearance) -> bool {
@@ -629,7 +623,7 @@ impl Oxide {
             let latest = bg.spawn(async move { crate::update::fetch_latest() }).await;
             let info = match latest {
                 Ok(Some(info))
-                    if crate::update::is_newer(&info.version, crate::update::current_version()) =>
+                    if crate::update::is_newer(&info.version, env!("CARGO_PKG_VERSION")) =>
                 {
                     info
                 }
@@ -638,7 +632,7 @@ impl Oxide {
                         this.update = UpdateState::Idle;
                         if manual {
                             this.show_transient_banner(
-                                format!("Oxide is up to date (v{})", crate::update::current_version()),
+                                format!("Oxide is up to date (v{})", env!("CARGO_PKG_VERSION")),
                                 cx,
                             );
                         }
@@ -965,12 +959,7 @@ impl Oxide {
         match others {
             0 => {}
             1 => self.close_other_panes(window, cx),
-            n => self.open_confirm(
-                format!("Close the other {n} panes in this tab?"),
-                ConfirmAction::CloseOtherPanes,
-                window,
-                cx,
-            ),
+            n => self.open_confirm(format!("Close the other {n} panes in this tab?"), window, cx),
         }
     }
 
@@ -1079,7 +1068,7 @@ impl Oxide {
             let fresh = Workspace {
                 name,
                 persist: false,
-                tabs: vec![TabState::new(Node::leaf(id), id)],
+                tabs: vec![TabState::new(Node::Leaf(id), id)],
                 active_tab: 0,
             };
             let old = std::mem::replace(&mut self.workspaces[0], fresh);
@@ -1396,7 +1385,7 @@ impl Oxide {
                 let path = path.clone();
                 self.open_in_editor(&path, None, window, cx);
             }
-            TreeEvent::ChangedRoot(path) => {
+            TreeEvent::ChangedRoot(path) | TreeEvent::CdShell(path) => {
                 let path = path.clone();
                 self.active_pane().update(cx, |t, _| t.request_cd(&path));
             }
@@ -1408,10 +1397,6 @@ impl Oxide {
                 let (path, absolute) = (path.clone(), *absolute);
                 self.active_pane().update(cx, |t, _| t.insert_path(&path, absolute));
                 self.focus_terminal(Some(window), cx);
-            }
-            TreeEvent::CdShell(dir) => {
-                let dir = dir.clone();
-                self.active_pane().update(cx, |t, _| t.request_cd(&dir));
             }
             TreeEvent::FocusTerminal => self.focus_terminal(Some(window), cx),
         }
@@ -2044,20 +2029,20 @@ impl Oxide {
         self.save_workspaces(cx);
     }
 
-    fn open_confirm(&mut self, message: String, action: ConfirmAction, window: &mut Window, cx: &mut Context<Self>) {
+    /// The only confirmable action today is close-other-panes; `confirm_run` calls it directly.
+    fn open_confirm(&mut self, message: String, window: &mut Window, cx: &mut Context<Self>) {
         let return_focus = self.current_focus_target(window, cx);
-        self.overlay = Some(Overlay::Confirm(ConfirmState { message, action, return_focus }));
+        self.overlay = Some(Overlay::Confirm(ConfirmState { message, return_focus }));
         window.focus(&self.picker_focus);
         cx.notify();
     }
 
     fn confirm_run(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(Overlay::Confirm(c)) = &self.overlay else { return };
-        let action = c.action;
-        self.close_overlay(window, cx);
-        match action {
-            ConfirmAction::CloseOtherPanes => self.close_other_panes(window, cx),
+        if !matches!(self.overlay, Some(Overlay::Confirm(_))) {
+            return;
         }
+        self.close_overlay(window, cx);
+        self.close_other_panes(window, cx);
     }
 
     fn render_tab_rename_body(&self, r: &TabRenameState) -> gpui::Div {
@@ -2983,7 +2968,7 @@ impl Oxide {
                     )
                     .child(div().flex_none().text_color(dim).child(item.category))
                     .child(div().flex_none().text_color(dim).child("›"))
-                    .child(div().flex_1().overflow_hidden().child(highlighted_title(item, accent)))
+                    .child(div().flex_1().overflow_hidden().child(highlighted_text(item.title, &item.highlights, accent)))
                     .when_some(item.binding.clone(), |d, keys| {
                         d.child(div().flex_none().text_size(px(11.0)).text_color(dim).child(keys))
                     }),
@@ -3323,7 +3308,7 @@ impl Oxide {
         let cwd = self.new_tab_cwd(cx);
         let id = self.create_pane(cwd, window, cx);
         let ws = self.ws_mut();
-        ws.tabs.push(TabState::new(Node::leaf(id), id));
+        ws.tabs.push(TabState::new(Node::Leaf(id), id));
         ws.active_tab = ws.tabs.len() - 1;
         self.focus_pane(id, window, cx);
         self.save_workspaces(cx);
@@ -3461,13 +3446,11 @@ impl Oxide {
         self.select_tab(ix, window, cx);
     }
 
-    fn render_tab_bar(&self, window: &Window, cx: &Context<Self>) -> gpui::Div {
+    fn render_tab_bar(&self, cx: &Context<Self>) -> gpui::Div {
         let theme = &self.theme;
         let bar_bg = blend(theme.background, gpui::black(), 0.25);
         let dim = blend(theme.foreground, theme.background, 0.45);
         let border = blend(theme.foreground, theme.background, 0.85);
-        let _ = window;
-
         let mut bar = div()
             .flex_none()
             .h(px(30.0))
@@ -3606,7 +3589,7 @@ impl Oxide {
         self.workspaces.push(Workspace {
             name,
             persist: false,
-            tabs: vec![TabState::new(Node::leaf(id), id)],
+            tabs: vec![TabState::new(Node::Leaf(id), id)],
             active_tab: 0,
         });
         self.active_ws = self.workspaces.len() - 1;
@@ -3682,7 +3665,7 @@ impl Oxide {
             self.workspaces.push(Workspace {
                 name,
                 persist: false,
-                tabs: vec![TabState::new(Node::leaf(id), id)],
+                tabs: vec![TabState::new(Node::Leaf(id), id)],
                 active_tab: 0,
             });
         }
@@ -4077,19 +4060,7 @@ impl Oxide {
             .read(cx)
             .cwd
             .as_ref()
-            .map(|cwd| {
-                let text = cwd.to_string_lossy().to_string();
-                match directories::BaseDirs::new() {
-                    Some(dirs) => {
-                        let home = dirs.home_dir().to_string_lossy().to_string();
-                        match text.strip_prefix(&home) {
-                            Some(rest) => format!("~{rest}"),
-                            None => text,
-                        }
-                    }
-                    None => text,
-                }
-            })
+            .map(|cwd| pretty_path(cwd, home_dir().as_deref()))
             .unwrap_or_default();
         let git = &self.git_status;
 
@@ -4263,10 +4234,6 @@ fn walk_files(root: &Path, respect_gitignore: bool, show_hidden: bool) -> (Vec<S
 }
 
 /// A palette row's title with the matched characters picked out.
-fn highlighted_title(item: &PaletteItem, accent: gpui::Hsla) -> gpui::StyledText {
-    highlighted_text(item.title, &item.highlights, accent)
-}
-
 /// `$HOME` as `~`, for compact directory labels.
 fn pretty_path(path: &Path, home: Option<&Path>) -> String {
     match home.and_then(|h| path.strip_prefix(h).ok()) {
@@ -4688,14 +4655,14 @@ impl Render for Oxide {
                             .overflow_hidden()
                             .flex()
                             .flex_col()
-                            .child(self.render_tab_bar(window, cx))
+                            .child(self.render_tab_bar(cx))
                             .child({
                                 // Zoomed: just that leaf, at full size. The
                                 // hidden panes aren't laid out, so their
                                 // PTYs keep their size until they're back.
                                 let tab = self.tab();
                                 let layout = match tab.zoomed {
-                                    Some(id) if tab.layout.leaves().contains(&id) => Node::leaf(id),
+                                    Some(id) if tab.layout.leaves().contains(&id) => Node::Leaf(id),
                                     _ => tab.layout.clone(),
                                 };
                                 div()

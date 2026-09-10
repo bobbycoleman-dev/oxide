@@ -201,20 +201,6 @@ fn color_key(c: Hsla) -> u64 {
     (r << 24) | (g << 16) | (b << 8) | a
 }
 
-fn selection_contains(range: &SelectionRange, point: GridPoint) -> bool {
-    if range.is_block {
-        point.line >= range.start.line
-            && point.line <= range.end.line
-            && point.column >= range.start.column
-            && point.column <= range.end.column
-    } else {
-        (point.line > range.start.line
-            || (point.line == range.start.line && point.column >= range.start.column))
-            && (point.line < range.end.line
-                || (point.line == range.end.line && point.column <= range.end.column))
-    }
-}
-
 fn layout_grid(
     pane: &mut TerminalPane,
     bounds: Bounds<Pixels>,
@@ -232,9 +218,10 @@ fn layout_grid(
     // cell_height is rounded to whole pixels so rows don't accumulate error.
     let font = base_font(pane, false, false);
     let text_system = window.text_system().clone();
+    let font_id = text_system.resolve_font(&font);
     let cell_width = text_system
-        .resolve_font(&font)
-        .pipe(|font_id| text_system.advance(font_id, font_size, 'm').map(|s| f32::from(s.width)))
+        .advance(font_id, font_size, 'm')
+        .map(|s| f32::from(s.width))
         .unwrap_or(8.0);
     let cell_height = (f32::from(font_size) * line_height_mult).round();
 
@@ -343,7 +330,7 @@ fn layout_grid(
                 alacritty_terminal::index::Line(row_idx as i32 - display_offset as i32),
                 alacritty_terminal::index::Column(col),
             );
-            let selected = selection.map_or(false, |r| selection_contains(&r, grid_point));
+            let selected = selection.map_or(false, |r| r.contains(grid_point));
             if selected {
                 open_sel = match open_sel {
                     Some((start, end)) if end == col => Some((start, col + width)),
@@ -545,7 +532,7 @@ fn shape_row(
             fg = blend(fg, bg, 0.4);
         }
         if let Some((sel_fg, range)) = selection_fg
-            && selection_contains(range, GridPoint::new(line, alacritty_terminal::index::Column(cell_col)))
+            && range.contains(GridPoint::new(line, alacritty_terminal::index::Column(cell_col)))
         {
             fg = sel_fg;
         }
@@ -627,13 +614,6 @@ fn shape_row(
     pane.shape_cache.insert(key, line.clone());
     Some(line)
 }
-
-trait Pipe: Sized {
-    fn pipe<R>(self, f: impl FnOnce(Self) -> R) -> R {
-        f(self)
-    }
-}
-impl<T> Pipe for T {}
 
 #[cfg(test)]
 mod tests {

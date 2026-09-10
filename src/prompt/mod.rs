@@ -765,7 +765,7 @@ mod cd_tests {
         let options = SessionOptions {
             program: bash.to_string(),
             args,
-            working_directory: Some("/Users/bobby/Developer/oxide".into()),
+            working_directory: Some(env!("CARGO_MANIFEST_DIR").into()),
             scrollback: 100,
             env: { let mut e = integration.env.clone(); e.insert("HISTFILE".into(), "/dev/null".into()); e },
         };
