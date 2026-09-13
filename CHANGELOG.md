@@ -1,0 +1,267 @@
+# Changelog
+
+All notable changes to Oxide. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
+[Semantic Versioning](https://semver.org/).
+
+Add entries under **Unreleased** as work lands. `scripts/bump.sh` turns that
+section into the versioned one, and `scripts/release.sh` publishes it as the
+GitHub release notes. **Help → What's New** shows this file inside the app, so
+write for users: what changed and why it matters, not which files moved.
+
+## [Unreleased]
+
+### Added
+- In-app toasts in the bottom-right corner replace the yellow strip across the
+  top of the window. Config and keymap errors show in red and stay until the
+  next clean reload; other notices fade after a few seconds. Click any toast to
+  dismiss it.
+- The first launch after an update shows a toast; clicking it opens the
+  changelog, rendered, in a new tab of the current workspace. **Help → What's
+  New** (`app::changelog`) opens the same tab any time, and it's in the command
+  palette.
+- A failed update download is reported even on the automatic check, since the
+  check itself just succeeded so the machine isn't offline.
+- `scripts/bump.sh <version>` prepares the release commit (Cargo.toml,
+  Cargo.lock, this file, RELEASING.md), and `scripts/release.sh` builds the
+  notarized DMG and publishes the GitHub release with notes from this file.
+
+## [0.5.1] - 2026-09-13
+
+### Fixed
+- Double-clicking a directory in the file tree toggled it twice, so it ended up
+  back where it started. Directories now open on the first click and stay open.
+- A hardcoded path left over from testing was removed.
+
+### Changed
+- Each release now uploads the DMG twice: `Oxide-x.y.z.dmg` for the website's
+  download button and `Oxide-x.y.z-update.dmg` for the in-app updater. GitHub
+  counts downloads per asset, so the website's counter reflects people who
+  chose to download rather than installed copies updating themselves. The
+  updater prefers the `-update` asset and falls back to the plain one for
+  older releases.
+- Small cleanups from a code review: simpler pane and theme code, a redundant
+  assertion dropped from the keymap tests.
+
+## [0.5.0] - 2026-09-09
+
+### Added
+- **Startup commands**, the tmuxinator move. Give a pane a command with
+  `ctrl-w r` (prefilled with the last thing that ran there) and a pinned
+  workspace re-runs it on restore, once that pane's shell is actually at a
+  prompt rather than blindly typing into a shell that's still loading its rc
+  files.
+- Per-pane **on exit** behaviour: drop back to the shell, close the pane, or
+  restart with exponential backoff. A breaker stops the restarts after five
+  exits inside a minute, so a crash-looping command can't spin forever; a run
+  that lasts over a minute resets the count.
+- `e` in the workspaces panel (also on right-click) edits every pane's startup
+  command in one overlay.
+- `--no-startup-commands` on the command line, or holding shift at launch,
+  restores pinned layouts without running anything. The escape hatch for a
+  command that wedges the app.
+- `[workspaces]` config: `run_startup_commands` and `startup_timeout`.
+- Shell integration gained a per-session run channel, so Oxide can hand a
+  command to a specific shell without it echoing as typed input.
+
+### Changed
+- `workspaces.json` moved to a v3 format that carries startup commands. Older
+  files still load.
+
+## [0.4.0] - 2026-09-08
+
+### Added
+- **Scrollback search** grew regex, case-sensitive, and whole-word toggles as
+  clickable chips (`cmd-alt-r` / `c` / `w`). A malformed regex says so instead
+  of silently matching nothing.
+- **Copy mode** (`ctrl-w [` or `cmd-shift-v`) turns the scrollback into a vim
+  buffer: `hjkl`, word motions, `0 ^ $`, `gg G`, `H M L`, half and full page,
+  counts like `5j`, `/` and `?` search with `n`/`N`, and `v` / `V` / `ctrl-v`
+  selection. `y` yanks and leaves. Nothing typed reaches the shell until you
+  `esc`.
+- **tmux reflexes for panes**: `ctrl-w z` zooms a pane to the full tab,
+  `ctrl-w b` broadcasts typing to every pane in the tab (with a red border and
+  a status-bar pill so you can't forget it's on), `ctrl-w o` closes the
+  others, `ctrl-w x` swaps with the neighbour.
+- **Light and dark**: `follow_system = true` switches between `preset_dark`
+  and `preset_light` with the macOS appearance. Every preset colour is
+  individually overridable, including `selection_fg`.
+- **SSH awareness**: Oxide watches the foreground process. An `ssh` session
+  shows `ssh: host` in the status bar, and `[[ssh.hosts]]` glob patterns give
+  a host an accent colour on the pane border, so a production box is visibly
+  red. The process name also titles the tab (`vim`, `cargo`, `ssh prod-web`).
+- **Tabs**: double-click or `ctrl-w ,` to rename (names persist with pinned
+  workspaces), drag to reorder, `cmd-shift-t` reopens the last closed one,
+  and a close-all-tabs action.
+- A `[cursor]` section: block, bar, or underline; blink rate; how the cursor
+  looks when the pane is unfocused. vim's per-mode DECSCUSR shapes are
+  honoured.
+- `window.inactive_pane_opacity` dims the panes you aren't in, and
+  `inactive_window_opacity` dims the whole window when another app is
+  frontmost.
+- `font.family` accepts a fallback list, so CJK and emoji render even when the
+  primary font lacks them.
+- A "2,340 lines above" pill while scrolled up, `cmd-k` to clear scrollback,
+  and a configurable bell.
+
+### Changed
+- The theme picker moved to `cmd-alt-t`; GPUI's chord handling made the bare
+  `cmd-k` prefix lag.
+
+## [0.3.4] - 2026-09-05
+
+### Added
+- **Command awareness.** The shell integration's OSC 133 markers are read
+  straight off the PTY, so Oxide knows what's running, how long it took, and
+  whether it failed: elapsed time in the status bar, activity dots on
+  background tabs, a red flash on a background pane whose command failed, and
+  a failure gutter you can click to jump back to the command.
+- **Desktop notifications** for long or failed commands in panes you aren't
+  watching. Clicking one focuses the pane. Programs can post their own with
+  OSC 9 / OSC 777. Thresholds live under `[notifications]`.
+- **Command history** (`cmd-r`) searches every command run in any pane, with
+  its directory and exit status. `⏎` inserts it at the prompt, `⌘⏎` runs it.
+  `cmd-shift-c` copies the last command's output.
+- **Fuzzy file finder** (`cmd-p`) over everything under the tree root: `⏎`
+  opens, `⌘⏎` inserts the path at the prompt, `⌥⏎` reveals it in the tree.
+- **The tree/terminal seam**: `y` inserts the selected path at the prompt,
+  quoted and relative (`Y` for absolute); `cmd-shift-r` reveals the shell's
+  directory; right-click a row to re-root, copy the path, `cd` the shell
+  there, or reveal in Finder; drag rows or drop files onto a pane.
+- `cmd-click` a `path:line:col` in output opens it in `$EDITOR` at that line.
+  nvim, VS Code, emacs, Sublime, and Helix argument dialects are built in;
+  `editor.open_at_line` overrides.
+- Tree rows are coloured by git status (`tree.git_status`).
+
+## [0.3.3] - 2026-09-04
+
+### Added
+- **Command palette** (`cmd-shift-p`) lists every action with its binding,
+  fuzzy-matched across title, category, and aliases, most-recently-used
+  first. Focus returns to the pane you were in before the action runs.
+- **Configurable keys.** A `[keymap]` table in config.toml rebinds anything:
+  flat pairs bind at the root, subtables (`[keymap.terminal]`,
+  `[keymap.file_tree]`, …) bind per context, `""` unbinds, and
+  `replace_defaults = true` starts from nothing. An unknown action id gets a
+  did-you-mean, a keystroke that doesn't parse is skipped, and a bare key that
+  would steal from your shell is refused; all errors land in one banner while
+  the rest of the map still binds. Reloads live.
+- An action registry behind both: every action now has a stable public id,
+  and the palette, the keymap, and the menu bar read from the same table.
+- **Resizable splits.** Drag a divider, or `ctrl-w < > - +` to resize by a few
+  cells and `ctrl-w =` to equalise. Panes have a 20×3 cell minimum.
+- `scripts/docs.sh` serves the docs site locally.
+
+### Changed
+- `workspaces.json` gained a version field. v0.3.2 files still load and get
+  even splits.
+
+### Known issues
+- Narrowing a pane past the width of a multi-line bash prompt can scroll the
+  prompt's first line into scrollback until the next prompt is drawn.
+
+## [0.3.2] - 2026-09-02
+
+### Added
+- The documentation site at oxideterminal.com/docs: install, terminal, file
+  tree, tabs and splits, workspaces, prompt, themes, keybindings,
+  configuration, and troubleshooting pages.
+- Shell integration for fish, nushell, and the csh family, alongside zsh and
+  bash. Anything Oxide types at a prompt is now routed through `/bin/sh` on
+  shells where the Bourne one-liner would be a syntax error.
+
+### Changed
+- "Open Settings" runs the editor command silently instead of echoing it at
+  your prompt.
+
+### Fixed
+- Paths containing `'`, `\`, or `!` open correctly in every supported shell.
+
+## [0.3.1] - 2026-09-02
+
+### Added
+- JetBrainsMono Nerd Font Mono is bundled, so a machine with no Nerd Font
+  installed still gets every powerline and tree glyph. Set `font.family` to
+  use your own.
+- Double-clicking the window's padding band zooms the window, respecting the
+  System Settings double-click action, matching a real titlebar.
+
+### Fixed
+- Opening a file with no `$EDITOR` set now hands it to the macOS default text
+  editor instead of failing with "command not found: nvim".
+- On a Mac without the Command Line Tools, the git status poll no longer
+  triggers Apple's "Install Developer Tools?" dialog every three seconds.
+- Shell integration tests pass on Apple's bash 3.2 as well as Homebrew bash 5.
+
+## [0.3.0] - 2026-09-01
+
+### Added
+- **Workspaces**: named sets of tabs and splits, tmux-session style, managed
+  from a panel below the file tree (`a` add, `r` rename, `d` delete, `p` pin;
+  `ctrl-w p` focuses the panel, `tab` toggles tree ↔ workspaces). Temporary by
+  default; pinned ones survive restarts, restoring layout, tabs, splits, and
+  each pane's directory with fresh shells. Right-click for the same actions.
+- **In-app tabs.** A Zed-style tab bar replaces macOS window tabbing, so tabs
+  work everywhere, including under tiling window managers like AeroSpace and
+  yabai that previously turned every tab into a window. `cmd-1..9` jump
+  straight to a tab.
+- MIT license, and the oxideterminal.com landing page.
+
+### Fixed
+- Workspace persistence writes atomically, so a crash mid-save can't leave an
+  empty file.
+- New workspaces start at `~` rather than wherever the previous shell was.
+
+## [0.2.0] - 2026-08-31
+
+### Added
+- **Split panes.** Split in any direction (`ctrl-w v` / `s`, or `cmd-d` /
+  `cmd-shift-d`) and nest freely. `ctrl-w h j k l` or `cmd-opt-arrows` move
+  between panes by what's on screen; `exit` or `ctrl-w q` closes a pane and
+  its neighbour reclaims the space.
+- The file tree follows the focused pane, so switching splits re-roots it to
+  that shell's directory.
+- The oxideterminal.com landing page.
+
+### Known issues
+- Splits divide their space evenly and can't be resized yet.
+
+## [0.1.1] - 2026-08-31
+
+### Added
+- Native macOS window tabs (`cmd-t`); new tabs start in the current directory
+  or `~/` (`window.new_tab_directory`).
+- The prompt switches with the file tree: `cd`-ing in the shell re-roots the
+  tree, and picking a directory in the tree changes the shell's directory.
+- `cmd-click` opens URLs, copy-on-select as an option, font size at runtime.
+
+### Fixed
+- `ls` output columns rendered wrongly.
+
+## [0.1.0] - 2026-08-31
+
+First release: a native macOS terminal emulator built on GPUI and
+`alacritty_terminal`, with a vim-navigable file tree drawer.
+
+- **Terminal**: full VT emulation with truecolor, wide glyphs and combining
+  marks, bracketed paste, SGR mouse reporting, alternate-screen scrolling,
+  OSC 8 hyperlinks, and OSC 52 clipboard. vim, htop, and tmux work as expected.
+- **File tree drawer**: modeless vim navigation (`j`/`k`/`gg`/`G`, nvim-tree
+  `h`/`l`), `/` to filter, `a`/`r`/`d` to add, rename, and delete to Trash.
+  Respects `.gitignore`, watches the filesystem, and follows the shell's `cd`.
+- **Scrollback search** (`cmd-f`), live and case-insensitive.
+- **Prompt jumping** (`cmd-↑`/`cmd-↓`) between previous prompts via OSC 133.
+- **Status bar** with cwd, git branch, dirty state, and ahead/behind.
+- **Theme picker** with live preview across eight presets.
+- **Configurable prompt**: a powerline prompt compiled from TOML segments and
+  injected without touching your dotfiles. `prompt.enabled = false` keeps
+  starship or p10k.
+- **Native menu bar** and a **self-updater** that installs later releases with
+  one click.
+- Signed with a Developer ID and notarized, so the DMG opens with a normal
+  double-click.
+
+### Known limitations
+- No IME or dead-key composition yet.
+- No tabs or splits.
+- Apple Silicon only.

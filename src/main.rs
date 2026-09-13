@@ -1,4 +1,5 @@
 mod app;
+mod changelog;
 mod config;
 mod git;
 mod keymap;
@@ -115,6 +116,7 @@ pub(crate) fn menus() -> Vec<Menu> {
             name: "Help".into(),
             items: vec![
                 MenuItem::action("Oxide Help", OpenHelp),
+                MenuItem::action("What's New", ShowChangelog),
                 MenuItem::action("Report an Issue", ReportIssue),
             ],
         },

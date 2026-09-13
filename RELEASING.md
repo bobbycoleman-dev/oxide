@@ -1,33 +1,35 @@
 # Releasing Oxide
 
-The loop: **bump → commit → `release.sh`**.
+The loop: **note changes in `CHANGELOG.md` → `bump.sh` → commit → `release.sh`**.
 
 ## Steps
 
 ### 1. Land the feature work
 
 Commit and push your changes as usual, with whatever descriptive messages you
-like. The version bump is deliberately *not* part of these commits.
+like. Add a line for anything user-visible under **Unreleased** in
+`CHANGELOG.md` as you go. The version bump is deliberately *not* part of these
+commits.
 
 ### 2. Make the release commit
 
-Bump the version in `Cargo.toml`:
-
-```toml
-version = "0.5.1"
-```
-
-Then refresh the lockfile and commit **both files together**:
-
 ```sh
-cargo check                              # rewrites Cargo.lock's own version line
+./scripts/bump.sh 0.5.1
 git commit -am "release v0.5.1" && git push
 ```
 
-`cargo check` matters: `Cargo.lock` records this package's version too, so if
-you skip it the build rewrites the lock afterwards and you end up with a second
-stray commit for the same release. It takes a second and leaves your pinned
-dependency versions alone.
+`bump.sh` does four things, and refuses to run if **Unreleased** in
+`CHANGELOG.md` is empty:
+
+- sets `version` in `Cargo.toml`
+- runs `cargo check`, which rewrites `Cargo.lock`'s own version line (skip
+  this and the release build rewrites the lock afterwards, leaving a stray
+  second commit; pinned dependency versions are untouched)
+- renames the **Unreleased** heading in `CHANGELOG.md` to the version and
+  today's date, and starts a fresh empty **Unreleased** above it
+- updates the example version in this file
+
+Commit everything it touched as one commit.
 
 Two reasons this is one commit of its own:
 
@@ -41,11 +43,14 @@ Two reasons this is one commit of its own:
 ### 3. Build and publish
 
 ```sh
-./scripts/release.sh "what changed"
+./scripts/release.sh
 ```
 
 This runs `dmg.sh` (sign, notarize, staple), then uploads the DMG to a new
-GitHub release under two names:
+GitHub release, with the `## [<version>]` section of `CHANGELOG.md` as the
+release notes. It refuses to run if that section is missing or empty, so a
+forgotten changelog rename fails before the slow build starts. The DMG goes up
+under two names:
 
 - `Oxide-<version>.dmg` — what the website's download button serves
 - `Oxide-<version>-update.dmg` — the same bytes, what the in-app updater fetches
@@ -79,7 +84,7 @@ tag a different commit (`gh` rejects abbreviated SHAs; pass the full hash):
 cp target/Oxide-0.5.1.dmg target/Oxide-0.5.1-update.dmg
 gh release create v0.5.1 target/Oxide-0.5.1.dmg target/Oxide-0.5.1-update.dmg \
   --title "Oxide v0.5.1" \
-  --notes "what changed"
+  --notes "$(sed -n '/^## \[0.5.1\]/,/^## \[/p' CHANGELOG.md | sed '1d;$d')"
 ```
 
 ## What happens after publishing

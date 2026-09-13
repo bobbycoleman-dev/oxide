@@ -124,15 +124,16 @@
           <p>
             A malformed file never takes the app down. Oxide keeps running with
             the configuration it already had and shows the first line of the
-            parse error in a banner across the top of the window. Fix the file,
-            save, and the banner clears.
+            parse error as a red toast in the bottom-right corner. Fix the file,
+            save, and the toast clears. Click it to hide it early; it comes
+            back on the next reload if the file is still broken.
           </p>
           <p>
             Unknown keys are an error rather than a shrug — a typo'd
             <code>show_hiden</code> tells you so instead of silently doing
             nothing. An unrecognised color preset is reported the same way, with
             the list of valid names. Bad <code>[keymap]</code> entries are
-            listed in the banner too, one per line, while the rest of the map
+            listed in the toast too, one per line, while the rest of the map
             still binds.
           </p>
 

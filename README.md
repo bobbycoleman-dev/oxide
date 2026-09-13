@@ -70,7 +70,10 @@ with a file-tree drawer you drive like vim and a status bar that knows where you
   the neighbour. `window.inactive_pane_opacity` dims the panes you aren't in.
 - **Command palette** — `cmd-shift-p` lists every action with its binding, fuzzy-searchable.
 - **Configurable keys** — a `[keymap]` table in config.toml rebinds anything; typos get a
-  banner with a suggestion, and a bare key that would steal from your shell is refused.
+  toast with a suggestion, and a bare key that would steal from your shell is refused.
+- **Toasts, not dialogs** — config errors, update problems, and other notices land as
+  toasts in the bottom-right corner; click to dismiss. The first launch after an update
+  shows one that opens the changelog in a new tab.
 - **Tabs** — a Zed-style in-app tab bar, so tabs work everywhere (including under
   tiling window managers). `cmd-t` opens one in the current directory or `~/`
   (`window.new_tab_directory`); `cmd-1..9` jump straight to a tab. Double-click or
@@ -115,8 +118,9 @@ cargo run                     # development
 ./scripts/bundle.sh           # release build -> target/Oxide.app (ad-hoc signed)
 cp -R target/Oxide.app /Applications/
 
-# maintainers: build the notarized DMG and publish the GitHub release
-./scripts/release.sh "release notes"
+# maintainers: cut a release
+./scripts/bump.sh 0.6.0       # Cargo.toml, Cargo.lock, CHANGELOG.md; then commit
+./scripts/release.sh          # notarized DMG + GitHub release, notes from CHANGELOG.md
 
 # optional CLI shim: `oxide [dir]` from any terminal
 sudo cp scripts/oxide-cli /usr/local/bin/oxide && sudo chmod +x /usr/local/bin/oxide

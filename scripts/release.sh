@@ -1,7 +1,9 @@
 #!/bin/bash
 # Build the notarized DMG and publish it as a GitHub release.
 #
-#   scripts/release.sh "release notes"
+#   scripts/release.sh
+#
+# Release notes come from CHANGELOG.md: the section headed `## [<version>]`.
 #
 # Uploads the DMG twice: Oxide-<v>.dmg for the website's download button and
 # Oxide-<v>-update.dmg for the in-app updater. GitHub counts downloads per
@@ -9,8 +11,12 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-NOTES="${1:?usage: scripts/release.sh \"release notes\"}"
 VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+NOTES=$(awk -v v="$VERSION" '/^## \[/ { p = index($0, "## [" v "]") == 1 } p' CHANGELOG.md | tail -n +2)
+if [[ -z "${NOTES//[[:space:]]/}" ]]; then
+  echo "error: CHANGELOG.md has no '## [$VERSION]' section (rename Unreleased before committing)" >&2
+  exit 1
+fi
 TAG="v$VERSION"
 DMG="target/Oxide-${VERSION}.dmg"
 UPDATE_DMG="target/Oxide-${VERSION}-update.dmg"
@@ -26,4 +32,4 @@ cp "$DMG" "$UPDATE_DMG"
 # Update DMG first: updaters older than 0.5.1 take the first .dmg asset, and
 # GitHub lists assets in upload order.
 echo "==> publishing $TAG"
-gh release create "$TAG" "$UPDATE_DMG" "$DMG" --title "Oxide $TAG" --notes "$NOTES"
+printf '%s\n' "$NOTES" | gh release create "$TAG" "$UPDATE_DMG" "$DMG" --title "Oxide $TAG" --notes-file -

@@ -20,6 +20,7 @@ oxide_actions! {
     OpenHelp        => "app::help",              "Open Help",               "Application", ["docs"], Root;
     ReportIssue     => "app::report_issue",      "Report an Issue",         "Application", ["bug", "github"], Root;
     CheckForUpdates => "app::check_for_updates", "Check for Updates",       "Application", ["upgrade"], Root;
+    ShowChangelog   => "app::changelog",         "What's New",              "Application", ["changelog", "release notes"], Root;
     InstallUpdate   => "app::install_update",    "Install Downloaded Update", "Application", [], Root;
     ToggleStatusBar => "app::toggle_status_bar", "Toggle Status Bar",       "Application", [], Root;
 

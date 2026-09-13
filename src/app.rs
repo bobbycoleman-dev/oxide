@@ -118,8 +118,8 @@ pub struct Oxide {
     next_pane_id: PaneId,
     pane_subscriptions: HashMap<PaneId, Subscription>,
     drawer_visible: bool,
-    banner: Option<String>,
-    banner_generation: usize,
+    toasts: Vec<Toast>,
+    next_toast_id: usize,
     git_status: GitStatus,
     last_bounds: Option<gpui::Bounds<gpui::Pixels>>,
     bounds_save_scheduled: bool,
@@ -328,6 +328,24 @@ struct DividerDrag {
     min_ratio: f32,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum ToastKind {
+    Info,
+    Error,
+}
+
+/// A corner notice. Transient ones time out; `sticky` ones (config and
+/// keymap errors) stay until the next clean reload. Any toast goes on click;
+/// the post-update one also opens the changelog tab.
+#[derive(Clone)]
+struct Toast {
+    id: usize,
+    kind: ToastKind,
+    message: String,
+    opens_changelog: bool,
+    sticky: bool,
+}
+
 #[derive(Clone, PartialEq)]
 enum UpdateState {
     Idle,
@@ -522,7 +540,7 @@ impl Oxide {
         // Bad [keymap] entries are skipped by `resolve`; report them here so
         // the user learns why a binding didn't take.
         let resolved = Rc::new(keymap::resolve(&config.keymap));
-        let banner = config_error.or_else(|| resolved.error_banner());
+        let config_error = config_error.or_else(|| resolved.error_banner());
 
         let mut this = Self {
             config,
@@ -539,8 +557,8 @@ impl Oxide {
             next_pane_id: 0,
             pane_subscriptions: HashMap::new(),
             drawer_visible: true,
-            banner,
-            banner_generation: 0,
+            toasts: Vec::new(),
+            next_toast_id: 0,
             git_status: GitStatus::default(),
             last_bounds: None,
             bounds_save_scheduled: false,
@@ -573,8 +591,20 @@ impl Oxide {
         this.run_startup_commands =
             this.config.workspaces.run_startup_commands && !this.startup_skipped_at_launch;
         this.bootstrap_workspaces(cwd, restore, window, cx);
+        if let Some(message) = config_error {
+            this.sticky_toast(message);
+        }
         if this.startup_skipped_at_launch && this.any_startup_commands(cx) {
-            this.show_transient_banner("startup commands skipped for this launch".into(), cx);
+            this.toast(ToastKind::Info, "startup commands skipped for this launch".into(), cx);
+        }
+        if let Some(previous) = crate::update::note_launch_version() {
+            let current = env!("CARGO_PKG_VERSION");
+            this.push_toast(
+                ToastKind::Info,
+                format!("updated v{previous} → v{current} — click for what's new"),
+                true,
+                false,
+            );
         }
         this.refresh_git_status(cx);
 
@@ -613,7 +643,7 @@ impl Oxide {
         }
         if let UpdateState::Ready { .. } = self.update {
             if manual {
-                self.show_transient_banner("update already downloaded — click the button to install".into(), cx);
+                self.toast(ToastKind::Info, "update already downloaded — click the button to install".into(), cx);
             }
             return;
         }
@@ -631,7 +661,7 @@ impl Oxide {
                     this.update(cx, |this, cx| {
                         this.update = UpdateState::Idle;
                         if manual {
-                            this.show_transient_banner(
+                            this.toast(ToastKind::Info, 
                                 format!("Oxide is up to date (v{})", env!("CARGO_PKG_VERSION")),
                                 cx,
                             );
@@ -644,7 +674,7 @@ impl Oxide {
                     this.update(cx, |this, cx| {
                         this.update = UpdateState::Idle;
                         if manual {
-                            this.show_transient_banner(e, cx);
+                            this.toast(ToastKind::Error, e, cx);
                         }
                     })
                     .ok();
@@ -669,10 +699,10 @@ impl Oxide {
                         this.update = UpdateState::Ready { version: version.clone(), dmg };
                     }
                     Err(e) => {
+                        // The check just succeeded, so this isn't "offline":
+                        // worth saying even on the automatic path.
                         this.update = UpdateState::Idle;
-                        if manual {
-                            this.show_transient_banner(e, cx);
-                        }
+                        this.toast(ToastKind::Error, e, cx);
                     }
                 }
                 cx.notify();
@@ -690,13 +720,13 @@ impl Oxide {
                     if crate::update::installed_bundle().is_some() {
                         cx.quit();
                     } else {
-                        self.show_transient_banner(
+                        self.toast(ToastKind::Info, 
                             "not running from an installed app — opened the DMG instead".into(),
                             cx,
                         );
                     }
                 }
-                Err(e) => self.show_transient_banner(e, cx),
+                Err(e) => self.toast(ToastKind::Error, e, cx),
             }
         }
     }
@@ -905,7 +935,7 @@ impl Oxide {
         } else if tab.layout.len() > 1 {
             tab.zoomed = Some(tab.active);
         } else {
-            self.show_transient_banner("zoom needs more than one pane in the tab".into(), cx);
+            self.toast(ToastKind::Info, "zoom needs more than one pane in the tab".into(), cx);
             return;
         }
         cx.notify();
@@ -913,7 +943,7 @@ impl Oxide {
 
     fn toggle_broadcast(&mut self, cx: &mut Context<Self>) {
         if self.tab().layout.len() < 2 {
-            self.show_transient_banner("broadcast needs more than one pane in the tab".into(), cx);
+            self.toast(ToastKind::Info, "broadcast needs more than one pane in the tab".into(), cx);
             return;
         }
         let on = !self.tab().broadcast;
@@ -1303,23 +1333,22 @@ impl Oxide {
                 let keymap_banner = if keymap_changed { self.rebind_keys(cx) } else { None };
                 if let Some(message) = keymap_banner {
                     // Like a parse error: stays up until the next clean reload.
-                    self.banner = Some(message);
-                    self.banner_generation += 1;
-                } else if shell_or_prompt_changed {
-                    self.show_transient_banner(
-                        "config reloaded — shell/prompt changes apply to new sessions".into(),
-                        cx,
-                    );
+                    self.sticky_toast(message);
                 } else {
-                    self.banner = None;
-                    self.banner_generation += 1;
+                    self.toasts.retain(|t| !t.sticky);
+                    if shell_or_prompt_changed {
+                        self.toast(
+                            ToastKind::Info,
+                            "config reloaded — shell/prompt changes apply to new sessions".into(),
+                            cx,
+                        );
+                    }
                 }
             }
             Err(message) => {
                 // Keep the previous config, show the error, keep running.
-                // Error banners persist until the next successful reload.
-                self.banner = Some(message);
-                self.banner_generation += 1;
+                // Sticky errors persist until the next successful reload.
+                self.sticky_toast(message);
             }
         }
         cx.notify();
@@ -1354,23 +1383,106 @@ impl Oxide {
         banner
     }
 
-    fn show_transient_banner(&mut self, message: String, cx: &mut Context<Self>) {
-        self.banner = Some(message);
-        self.banner_generation += 1;
-        let generation = self.banner_generation;
-        let timer = cx.background_executor().timer(std::time::Duration::from_secs(4));
+    fn push_toast(&mut self, kind: ToastKind, message: String, opens_changelog: bool, sticky: bool) -> usize {
+        let id = self.next_toast_id;
+        self.next_toast_id += 1;
+        self.toasts.push(Toast { id, kind, message, opens_changelog, sticky });
+        id
+    }
+
+    /// A notice that times out on its own: 4s for info, 8s for errors.
+    fn toast(&mut self, kind: ToastKind, message: String, cx: &mut Context<Self>) {
+        let id = self.push_toast(kind, message, false, false);
+        let secs = if kind == ToastKind::Error { 8 } else { 4 };
+        let timer = cx.background_executor().timer(Duration::from_secs(secs));
         cx.spawn(async move |this, cx| {
             timer.await;
-            this.update(cx, |this, cx| {
-                // A newer banner (e.g. a parse error) must not be dismissed.
-                if this.banner_generation == generation {
-                    this.banner = None;
-                    cx.notify();
-                }
-            })
-            .ok();
+            this.update(cx, |this, cx| this.dismiss_toast(id, cx)).ok();
         })
         .detach();
+        cx.notify();
+    }
+
+    /// The one sticky slot: a config/keymap error that stays until the next
+    /// clean reload replaces or clears it.
+    fn sticky_toast(&mut self, message: String) {
+        self.toasts.retain(|t| !t.sticky);
+        self.push_toast(ToastKind::Error, message, false, true);
+    }
+
+    fn dismiss_toast(&mut self, id: usize, cx: &mut Context<Self>) {
+        let before = self.toasts.len();
+        self.toasts.retain(|t| t.id != id);
+        if self.toasts.len() != before {
+            cx.notify();
+        }
+    }
+
+    fn click_toast(&mut self, id: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let opens_changelog = self.toasts.iter().any(|t| t.id == id && t.opens_changelog);
+        self.dismiss_toast(id, cx);
+        if opens_changelog {
+            self.open_changelog_tab(window, cx);
+        }
+    }
+
+    /// The bundled changelog, rendered to ANSI and paged with `less` in a
+    /// new tab of the current workspace. The tab closes when `less` quits.
+    fn open_changelog_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(path) = crate::changelog::write_rendered() else {
+            self.toast(ToastKind::Error, "couldn't write the changelog to ~/.cache/oxide".into(), cx);
+            return;
+        };
+        let cwd = self.new_tab_cwd(cx);
+        let id = self.create_pane(cwd, window, cx);
+        let timeout = self.config.workspaces.startup_timeout.0;
+        self.panes[&id].update(cx, |pane, cx| {
+            let command = format!("less -R {}", shell_quote(&path));
+            pane.set_startup(Some(StartupCommand { command, on_exit: OnExit::Close }), cx);
+            pane.arm_startup(timeout, cx);
+        });
+        let ws = self.ws_mut();
+        ws.tabs.push(TabState { title: Some("what's new".into()), ..TabState::new(Node::Leaf(id), id) });
+        ws.active_tab = ws.tabs.len() - 1;
+        self.focus_pane(id, window, cx);
+    }
+
+    /// Bottom-right stack, newest at the bottom, lifted above the status bar
+    /// when that sits at the bottom. Clicking a toast dismisses it.
+    fn render_toasts(&self, above_status_bar: bool, cx: &Context<Self>) -> gpui::Div {
+        let theme = &self.theme;
+        div()
+            .absolute()
+            .right(px(8.0))
+            .bottom(px(if above_status_bar { 34.0 } else { 8.0 }))
+            .flex()
+            .flex_col()
+            .items_end()
+            .gap_1()
+            .children(self.toasts.iter().map(|t| {
+                let (bg, fg) = match t.kind {
+                    ToastKind::Info => (blend(theme.background, theme.foreground, 0.12), theme.foreground),
+                    ToastKind::Error => (theme.ansi[1], theme.background),
+                };
+                let id = t.id;
+                div()
+                    .id(("toast", id))
+                    .max_w(px(480.0))
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .bg(bg)
+                    .text_size(px(12.0))
+                    .text_color(fg)
+                    .cursor_pointer()
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _: &gpui::MouseDownEvent, window, cx| {
+                            this.click_toast(id, window, cx)
+                        }),
+                    )
+                    .child(t.message.clone())
+            }))
     }
 
     fn on_tree_event(
@@ -1500,7 +1612,7 @@ impl Oxide {
                 }
             }
             TerminalEvent::Notice(message) => {
-                self.show_transient_banner(message.clone(), cx);
+                self.toast(ToastKind::Info, message.clone(), cx);
             }
             // Tab titles and the ssh chip follow the foreground process.
             TerminalEvent::ForegroundChanged => cx.notify(),
@@ -1787,7 +1899,7 @@ impl Oxide {
     fn after_startup_edit(&mut self, wix: Option<usize>, any_set: bool, cx: &mut Context<Self>) {
         self.save_workspaces(cx);
         if any_set && let Some(ws) = wix.and_then(|w| self.workspaces.get(w)) && !ws.persist {
-            self.show_transient_banner(
+            self.toast(ToastKind::Info, 
                 format!("startup command set — pin \"{}\" (p in the workspaces panel) to keep it across restarts", ws.name),
                 cx,
             );
@@ -2173,8 +2285,7 @@ impl Oxide {
         };
         self.config = Rc::new(config);
         if let Err(e) = persist_preset(&name, variant) {
-            self.banner = Some(e);
-            self.banner_generation += 1;
+            self.sticky_toast(e);
         }
         self.preview_selected(cx);
         self.close_overlay(window, cx);
@@ -2658,7 +2769,7 @@ impl Oxide {
         if !(self.config.shell.integration && widgets) {
             self.drawer_visible = true;
             self.tree.update(cx, |tree, cx| tree.reveal(path.to_path_buf(), cx));
-            self.show_transient_banner(
+            self.toast(ToastKind::Info, 
                 "shell integration is off, so Oxide can't ask the shell for $EDITOR — revealed in the tree instead".into(),
                 cx,
             );
@@ -3420,7 +3531,7 @@ impl Oxide {
 
     fn reopen_closed_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(saved) = self.closed_tabs.pop_front() else {
-            self.show_transient_banner("no closed tab to reopen".into(), cx);
+            self.toast(ToastKind::Info, "no closed tab to reopen".into(), cx);
             return;
         };
         let run = self.run_startup_commands;
@@ -4598,20 +4709,12 @@ impl Render for Oxide {
             .on_action(cx.listener(|this, _: &CheckForUpdates, _w, cx| {
                 this.check_for_updates(true, cx);
             }))
+            .on_action(cx.listener(|this, _: &ShowChangelog, window, cx| {
+                this.open_changelog_tab(window, cx);
+            }))
             .on_action(cx.listener(|this, _: &InstallUpdate, _w, cx| {
                 this.install_update(cx);
             }))
-            .when_some(self.banner.clone(), |d, banner| {
-                d.child(
-                    div()
-                        .flex_none()
-                        .px_3()
-                        .py_1()
-                        .bg(theme.ansi[3])
-                        .text_color(theme.background)
-                        .child(banner),
-                )
-            })
             .when(status_bar && bar_on_top, |d| d.child(self.render_status_bar(cx)))
             .child(
                 div()
@@ -4674,6 +4777,7 @@ impl Render for Oxide {
                     ),
             )
             .when(status_bar && !bar_on_top, |d| d.child(self.render_status_bar(cx)))
+            .child(self.render_toasts(status_bar && !bar_on_top, cx))
             .map(|d| match &self.update {
                 UpdateState::Downloading(version) => d.child(
                     div()

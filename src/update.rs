@@ -66,6 +66,24 @@ fn dmg_url(release: &serde_json::Value) -> Option<&str> {
     named("-update.dmg").or_else(|| named(".dmg"))?["browser_download_url"].as_str()
 }
 
+/// The version that ran last time, when this binary is newer than it — i.e.
+/// the first launch after an update. Records the current version either way,
+/// so a second window opened at startup sees nothing.
+pub fn note_launch_version() -> Option<String> {
+    let path = directories::BaseDirs::new()?.home_dir().join(".cache/oxide/last_version.txt");
+    let current = env!("CARGO_PKG_VERSION");
+    let previous = std::fs::read_to_string(&path).ok().map(|s| s.trim().to_string());
+    if previous.as_deref() != Some(current) {
+        let _ = std::fs::create_dir_all(path.parent()?);
+        let _ = std::fs::write(&path, current);
+    }
+    updated_from(previous.as_deref(), current)
+}
+
+fn updated_from(previous: Option<&str>, current: &str) -> Option<String> {
+    previous.filter(|p| is_newer(current, p)).map(str::to_string)
+}
+
 fn updates_dir() -> Option<PathBuf> {
     let dir = directories::BaseDirs::new()?.home_dir().join(".cache/oxide/updates");
     std::fs::create_dir_all(&dir).ok()?;
@@ -142,6 +160,14 @@ open {bundle}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn updated_from_only_reports_upgrades() {
+        assert_eq!(updated_from(Some("0.5.0"), "0.5.1"), Some("0.5.0".into()));
+        assert_eq!(updated_from(Some("0.5.1"), "0.5.1"), None, "same version");
+        assert_eq!(updated_from(Some("0.6.0"), "0.5.1"), None, "dev build older than installed");
+        assert_eq!(updated_from(None, "0.5.1"), None, "fresh install");
+    }
 
     #[test]
     fn prefers_update_dmg_and_falls_back() {

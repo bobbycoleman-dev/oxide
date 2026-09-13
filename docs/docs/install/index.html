@@ -145,7 +145,9 @@ oxide --no-startup-commands   <span class="c"># restore pinned workspaces withou
             a newer release on launch and every six hours after that. When one exists, Oxide downloads it in
             the background and offers to install; one click swaps the bundle and
             relaunches. You can also check on demand from
-            <strong>Oxide → Check for Updates…</strong>
+            <strong>Oxide → Check for Updates…</strong> A failed download shows
+            up as an error toast in the corner, and the first launch after an
+            update shows a toast; click it to read the changelog in a new tab.
           </p>
           <p>
             Version comparison is numeric on <code>major.minor.patch</code>, so a
@@ -174,7 +176,7 @@ cargo run                     <span class="c"># development build</span>
 cp -R target/Oxide.app /Applications/</pre>
           <p>
             Maintainers publish a release with
-            <code>./scripts/release.sh "notes"</code>, which builds the
+            <code>./scripts/release.sh</code>, which takes the notes from <code>CHANGELOG.md</code>, builds the
             notarized DMG and uploads it twice: once for the website's download
             button and once as <code>-update.dmg</code> for the in-app updater,
             so the site's download count doesn't include updates.
