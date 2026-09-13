@@ -14,14 +14,14 @@ like. The version bump is deliberately *not* part of these commits.
 Bump the version in `Cargo.toml`:
 
 ```toml
-version = "0.5.0"
+version = "0.5.1"
 ```
 
 Then refresh the lockfile and commit **both files together**:
 
 ```sh
 cargo check                              # rewrites Cargo.lock's own version line
-git commit -am "release v0.5.0" && git push
+git commit -am "release v0.5.1" && git push
 ```
 
 `cargo check` matters: `Cargo.lock` records this package's version too, so if
@@ -76,9 +76,9 @@ If the build succeeded but publishing failed, or you need `--target <sha>` to
 tag a different commit (`gh` rejects abbreviated SHAs; pass the full hash):
 
 ```sh
-cp target/Oxide-0.5.0.dmg target/Oxide-0.5.0-update.dmg
-gh release create v0.5.0 target/Oxide-0.5.0.dmg target/Oxide-0.5.0-update.dmg \
-  --title "Oxide v0.5.0" \
+cp target/Oxide-0.5.1.dmg target/Oxide-0.5.1-update.dmg
+gh release create v0.5.1 target/Oxide-0.5.1.dmg target/Oxide-0.5.1-update.dmg \
+  --title "Oxide v0.5.1" \
   --notes "what changed"
 ```
 
@@ -91,7 +91,7 @@ relaunch. Nothing else to do on the publishing side.
 
 ## Gotchas
 
-- **The tag must be `v<Cargo.toml version>`** (e.g. `v0.5.0` for `0.5.0`) and
+- **The tag must be `v<Cargo.toml version>`** (e.g. `v0.5.1` for `0.5.1`) and
   the release must have a `.dmg` asset, or the updater ignores it. The updater
   prefers `-update.dmg` and falls back to the plain one, so a release with only
   a single DMG still works — it just muddles the website's download count.
