@@ -14,8 +14,8 @@ commits.
 ### 2. Make the release commit
 
 ```sh
-./scripts/bump.sh 0.5.1
-git commit -am "release v0.5.1" && git push
+./scripts/bump.sh 0.5.2
+git commit -am "release v0.5.2" && git push
 ```
 
 `bump.sh` does four things, and refuses to run if **Unreleased** in
@@ -81,10 +81,10 @@ If the build succeeded but publishing failed, or you need `--target <sha>` to
 tag a different commit (`gh` rejects abbreviated SHAs; pass the full hash):
 
 ```sh
-cp target/Oxide-0.5.1.dmg target/Oxide-0.5.1-update.dmg
-gh release create v0.5.1 target/Oxide-0.5.1.dmg target/Oxide-0.5.1-update.dmg \
-  --title "Oxide v0.5.1" \
-  --notes "$(sed -n '/^## \[0.5.1\]/,/^## \[/p' CHANGELOG.md | sed '1d;$d')"
+cp target/Oxide-0.5.2.dmg target/Oxide-0.5.2-update.dmg
+gh release create v0.5.2 target/Oxide-0.5.2.dmg target/Oxide-0.5.2-update.dmg \
+  --title "Oxide v0.5.2" \
+  --notes "$(sed -n '/^## \[0.5.2\]/,/^## \[/p' CHANGELOG.md | sed '1d;$d')"
 ```
 
 ## What happens after publishing
@@ -96,7 +96,7 @@ relaunch. Nothing else to do on the publishing side.
 
 ## Gotchas
 
-- **The tag must be `v<Cargo.toml version>`** (e.g. `v0.5.1` for `0.5.1`) and
+- **The tag must be `v<Cargo.toml version>`** (e.g. `v0.5.2` for `0.5.2`) and
   the release must have a `.dmg` asset, or the updater ignores it. The updater
   prefers `-update.dmg` and falls back to the plain one, so a release with only
   a single DMG still works — it just muddles the website's download count.

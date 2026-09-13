@@ -11,6 +11,8 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-09-13
+
 ### Added
 - In-app toasts in the bottom-right corner replace the yellow strip across the
   top of the window. Config and keymap errors show in red and stay until the
