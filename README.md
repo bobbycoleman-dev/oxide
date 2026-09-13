@@ -115,6 +115,9 @@ cargo run                     # development
 ./scripts/bundle.sh           # release build -> target/Oxide.app (ad-hoc signed)
 cp -R target/Oxide.app /Applications/
 
+# maintainers: build the notarized DMG and publish the GitHub release
+./scripts/release.sh "release notes"
+
 # optional CLI shim: `oxide [dir]` from any terminal
 sudo cp scripts/oxide-cli /usr/local/bin/oxide && sudo chmod +x /usr/local/bin/oxide
 ```

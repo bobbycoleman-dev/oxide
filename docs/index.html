@@ -1004,6 +1004,7 @@
                   >Free · Developer ID signed &amp; notarized ·
                   <strong id="size-line">—</strong></span
                 >
+                <span id="downloads-line" class="meta-version"></span>
               </div>
             </div>
           </div>
@@ -1602,6 +1603,33 @@ min_duration = <span class="p">"1m"</span></pre>
         return mb >= 100 ? `${Math.round(mb)} MB` : `${mb.toFixed(1)} MB`;
       }
 
+      // Each release ships the DMG twice: the plain one for this page and a
+      // `-update.dmg` copy the in-app updater fetches, so the plain asset's
+      // GitHub download count means "downloaded from the site", not updates.
+      function isSiteDmg(a) {
+        const n = a.name.toLowerCase();
+        return n.endsWith(".dmg") && !n.endsWith("-update.dmg");
+      }
+
+      async function loadDownloadCount() {
+        const el = document.getElementById("downloads-line");
+        try {
+          const res = await fetch(
+            `https://api.github.com/repos/${REPO}/releases?per_page=100`,
+            { headers: { Accept: "application/vnd.github+json" } }
+          );
+          if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+          const total = (await res.json())
+            .flatMap((r) => r.assets || [])
+            .filter(isSiteDmg)
+            .reduce((n, a) => n + (a.download_count || 0), 0);
+          el.textContent = `${total.toLocaleString()} download${total === 1 ? "" : "s"}`;
+        } catch (err) {
+          console.error(err);
+          el.textContent = "";
+        }
+      }
+
       async function loadLatestRelease() {
         const btn = document.getElementById("download-btn");
         const label = document.getElementById("download-label");
@@ -1616,9 +1644,7 @@ min_duration = <span class="p">"1m"</span></pre>
           if (!res.ok) throw new Error(`GitHub API ${res.status}`);
 
           const data = await res.json();
-          const dmg = (data.assets || []).find((a) =>
-            a.name.toLowerCase().endsWith(".dmg")
-          );
+          const dmg = (data.assets || []).find(isSiteDmg);
           if (!dmg) throw new Error("no .dmg asset on the latest release");
 
           btn.href = dmg.browser_download_url;
@@ -1647,6 +1673,7 @@ min_duration = <span class="p">"1m"</span></pre>
       }
 
       loadLatestRelease();
+      loadDownloadCount();
     </script>
   </body>
 </html>

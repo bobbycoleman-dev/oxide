@@ -1,6 +1,6 @@
 # Releasing Oxide
 
-The loop: **bump → commit → `dmg.sh` → `gh release create`**.
+The loop: **bump → commit → `release.sh`**.
 
 ## Steps
 
@@ -32,20 +32,31 @@ dependency versions alone.
 Two reasons this is one commit of its own:
 
 - The binary must correspond to exactly one commit, so the tag you create in
-  step 4 points at precisely what you shipped. `dmg.sh` refuses to build from a
+  step 3 points at precisely what you shipped. `dmg.sh` refuses to build from a
   dirty tree for this reason (`ALLOW_DIRTY=1` overrides for local experiments).
 - Installed copies decide whether to offer an update by comparing the release
   tag against the version compiled into the binary. A release that reuses the
   old version number is invisible to the updater.
 
-### 3. Build, sign, notarize, staple
+### 3. Build and publish
 
 ```sh
-./scripts/dmg.sh
+./scripts/release.sh "what changed"
 ```
 
-Produces `target/Oxide-<version>.dmg` — signed with the Developer ID
-certificate (auto-detected from the keychain), notarized, and stapled.
+This runs `dmg.sh` (sign, notarize, staple), then uploads the DMG to a new
+GitHub release under two names:
+
+- `Oxide-<version>.dmg` — what the website's download button serves
+- `Oxide-<version>-update.dmg` — the same bytes, what the in-app updater fetches
+
+GitHub counts downloads per asset, so the website's download counter only
+reflects people downloading from the site, not installed copies updating.
+
+The tag lands on current HEAD — the commit you just built from, because of
+step 2. The script refuses to run if the tag already exists.
+
+Notes on the DMG build:
 
 - Notary credentials come from the `oxide-notary` keychain profile
   (falls back to `APPLE_ID` / `APPLE_TEAM_ID` / `APPLE_PASSWORD` env vars).
@@ -59,17 +70,17 @@ certificate (auto-detected from the keychain), notarized, and stapled.
 - Notarization normally clears in ~1–3 minutes. (An account's first-ever
   submission gets extended review and can take an hour.)
 
-### 4. Publish the GitHub release
+#### Doing it by hand
+
+If the build succeeded but publishing failed, or you need `--target <sha>` to
+tag a different commit (`gh` rejects abbreviated SHAs; pass the full hash):
 
 ```sh
-gh release create v0.5.0 target/Oxide-0.5.0.dmg \
+cp target/Oxide-0.5.0.dmg target/Oxide-0.5.0-update.dmg
+gh release create v0.5.0 target/Oxide-0.5.0.dmg target/Oxide-0.5.0-update.dmg \
   --title "Oxide v0.5.0" \
   --notes "what changed"
 ```
-
-The tag lands on current HEAD — the commit you just built from, because of
-step 2. To tag a different commit explicitly use `--target <sha>`, and note
-that `gh` rejects abbreviated SHAs: pass the full 40-character hash.
 
 ## What happens after publishing
 
@@ -81,7 +92,9 @@ relaunch. Nothing else to do on the publishing side.
 ## Gotchas
 
 - **The tag must be `v<Cargo.toml version>`** (e.g. `v0.5.0` for `0.5.0`) and
-  the release must have a `.dmg` asset, or the updater ignores it.
+  the release must have a `.dmg` asset, or the updater ignores it. The updater
+  prefers `-update.dmg` and falls back to the plain one, so a release with only
+  a single DMG still works — it just muddles the website's download count.
 - Version numbering: bug fixes and polish get a patch bump (`0.1.1`), a new
   user-facing capability gets a minor bump (`0.2.0`).
 - **Don't rebuild while a notarization is in flight** — `bundle.sh`/`dmg.sh`

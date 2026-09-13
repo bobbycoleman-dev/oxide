@@ -173,6 +173,13 @@ cargo run                     <span class="c"># development build</span>
 ./scripts/bundle.sh           <span class="c"># release -&gt; target/Oxide.app (ad-hoc signed)</span>
 cp -R target/Oxide.app /Applications/</pre>
           <p>
+            Maintainers publish a release with
+            <code>./scripts/release.sh "notes"</code>, which builds the
+            notarized DMG and uploads it twice: once for the website's download
+            button and once as <code>-update.dmg</code> for the in-app updater,
+            so the site's download count doesn't include updates.
+          </p>
+          <p>
             The first build compiles GPUI and its shaders — expect several
             minutes. A locally bundled app is ad-hoc signed rather than notarized;
             it runs fine on your own machine.

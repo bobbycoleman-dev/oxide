@@ -50,14 +50,20 @@ pub fn fetch_latest() -> Result<Option<ReleaseInfo>, String> {
         serde_json::from_slice(&out.stdout).map_err(|e| format!("update check failed: {e}"))?;
     // A 404 body ({"message": "Not Found"}) means no releases yet — not an error.
     let Some(tag) = json["tag_name"].as_str() else { return Ok(None) };
-    let dmg_url = json["assets"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|a| a["name"].as_str().is_some_and(|n| n.ends_with(".dmg")))
-        .and_then(|a| a["browser_download_url"].as_str());
-    let Some(dmg_url) = dmg_url else { return Ok(None) };
+    let Some(dmg_url) = dmg_url(&json) else { return Ok(None) };
     Ok(Some(ReleaseInfo { version: tag.trim_start_matches('v').to_string(), dmg_url: dmg_url.to_string() }))
+}
+
+/// Releases carry the same DMG twice: `Oxide-x.y.z-update.dmg` for the
+/// updater and `Oxide-x.y.z.dmg` for the website, so GitHub's per-asset
+/// download counts keep installs and updates apart. Older releases only have
+/// the plain one.
+fn dmg_url(release: &serde_json::Value) -> Option<&str> {
+    let assets = release["assets"].as_array()?;
+    let named = |suffix: &str| {
+        assets.iter().find(|a| a["name"].as_str().is_some_and(|n| n.ends_with(suffix)))
+    };
+    named("-update.dmg").or_else(|| named(".dmg"))?["browser_download_url"].as_str()
 }
 
 fn updates_dir() -> Option<PathBuf> {
@@ -136,6 +142,18 @@ open {bundle}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prefers_update_dmg_and_falls_back() {
+        let both = serde_json::json!({"assets": [
+            {"name": "Oxide-1.0.0.dmg", "browser_download_url": "site"},
+            {"name": "Oxide-1.0.0-update.dmg", "browser_download_url": "update"},
+        ]});
+        assert_eq!(dmg_url(&both), Some("update"));
+        let old = serde_json::json!({"assets": [{"name": "Oxide-0.5.0.dmg", "browser_download_url": "site"}]});
+        assert_eq!(dmg_url(&old), Some("site"));
+        assert_eq!(dmg_url(&serde_json::json!({"assets": []})), None);
+    }
 
     #[test]
     fn version_comparison() {
