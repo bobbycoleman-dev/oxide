@@ -60,28 +60,149 @@ const OXIDE: Palette = [
     "#7d9bb8", "#c78a92", "#8fb0a0", "#c9bcb2", "#5c4a3d", "#f0876f", "#b8cc7a", "#f5b96a",
     "#93b3d4", "#dda0aa", "#a3c9b6", "#e8ddd5",
 ];
+// Omarchy's built-in themes, mapped the way its alacritty template does:
+// black = background, white = foreground, bright black = muted.
+const ETHEREAL: Palette = [
+    "#060b1e", "#ffcead", "#ffcead", "#252e56", "#060b1e", "#ed5b5a", "#92a593", "#e9bb4f",
+    "#7d82d9", "#c89dc1", "#a3bfd1", "#ffcead", "#6d7db6", "#faaaa9", "#c4cfc4", "#f7dc9c",
+    "#c2c4f0", "#ead7e7", "#dfeaf0", "#ffcead",
+];
+const EVERFOREST: Palette = [
+    "#2d353b", "#d3c6aa", "#d3c6aa", "#3d484d", "#2d353b", "#e67e80", "#a7c080", "#dbbc7f",
+    "#7fbbb3", "#d699b6", "#83c092", "#d3c6aa", "#475258", "#e67e80", "#a7c080", "#dbbc7f",
+    "#7fbbb3", "#d699b6", "#83c092", "#d3c6aa",
+];
+const FLEXOKI_LIGHT: Palette = [
+    "#fffcf0", "#100f0f", "#100f0f", "#cecdc3", "#fffcf0", "#d14d41", "#879a39", "#d0a215",
+    "#205ea6", "#ce5d97", "#3aa99f", "#100f0f", "#b7b5ac", "#d14d41", "#879a39", "#d0a215",
+    "#4385be", "#ce5d97", "#3aa99f", "#100f0f",
+];
+const HACKERMAN: Palette = [
+    "#0b0c16", "#ddf7ff", "#ddf7ff", "#1f253a", "#0b0c16", "#50f872", "#4fe88f", "#50f7d4",
+    "#829dd4", "#86a7df", "#7cf8f7", "#ddf7ff", "#2d3450", "#85ff9d", "#9cf7c2", "#a4ffec",
+    "#c4d2ed", "#cddbf4", "#d1fffe", "#ddf7ff",
+];
+const KANAGAWA: Palette = [
+    "#1f1f28", "#dcd7ba", "#dcd7ba", "#363646", "#1f1f28", "#c34043", "#76946a", "#c0a36e",
+    "#7e9cd8", "#957fb8", "#6a9589", "#dcd7ba", "#54546d", "#e82424", "#98bb6c", "#e6c384",
+    "#7fb4ca", "#938aa9", "#7aa89f", "#dcd7ba",
+];
+const LAST_HORIZON: Palette = [
+    "#0c0b0c", "#fafcfb", "#e2dddc", "#584e51", "#0c0b0c", "#c38b7b", "#87a9b0", "#6b5e73",
+    "#b59790", "#c4d8e2", "#a5a0b6", "#fafcfb", "#584e51", "#c38b7b", "#87a9b0", "#6b5e73",
+    "#b59790", "#c4d8e2", "#a5a0b6", "#e2dddc",
+];
+const LUMON: Palette = [
+    "#16242d", "#d6e2ee", "#f2fcff", "#243d56", "#16242d", "#4d86b0", "#5e95bc", "#6fa4c9",
+    "#6fb8e3", "#8bc9eb", "#b4e4f6", "#d6e2ee", "#304860", "#73a6cb", "#86b7d8", "#9dcae5",
+    "#f2fcff", "#b1d8ee", "#d1eef8", "#f2fcff",
+];
+const LUPINE: Palette = [
+    "#fafafa", "#212121", "#000000", "#d0d0d0", "#fafafa", "#c900c4", "#4a2fd0", "#026fde",
+    "#3264eb", "#8a4ad7", "#0c67de", "#212121", "#9e9e9e", "#f930fb", "#9f85e0", "#358fff",
+    "#5482ff", "#b363ff", "#3986ff", "#000000",
+];
+const MATTE_BLACK: Palette = [
+    "#121212", "#bebebe", "#bebebe", "#2a2a2a", "#121212", "#d35f5f", "#ffc107", "#b91c1c",
+    "#e68e0d", "#d35f5f", "#bebebe", "#bebebe", "#333333", "#b91c1c", "#ffc107", "#b90a0a",
+    "#f59e0b", "#b91c1c", "#eaeaea", "#bebebe",
+];
+const MIASMA: Palette = [
+    "#222222", "#c2c2b0", "#c2c2b0", "#383838", "#222222", "#685742", "#5f875f", "#b36d43",
+    "#78824b", "#bb7744", "#c9a554", "#c2c2b0", "#666666", "#685742", "#5f875f", "#b36d43",
+    "#78824b", "#bb7744", "#c9a554", "#c2c2b0",
+];
+const OSAKA_JADE: Palette = [
+    "#111c18", "#c1c497", "#f7e8b2", "#32473b", "#111c18", "#ff5345", "#549e6a", "#459451",
+    "#509475", "#d2689c", "#2dd5b7", "#c1c497", "#53685b", "#db9f9c", "#63b07a", "#e5c736",
+    "#acd4cf", "#75bbb3", "#8cd3cb", "#f7e8b2",
+];
+const RETRO_82: Palette = [
+    "#05182e", "#f6dcac", "#f6dcac", "#134e5a", "#05182e", "#f85525", "#028391", "#e97b3c",
+    "#3f8f8a", "#3f8f8a", "#8cbfb8", "#f6dcac", "#2a6b78", "#f85525", "#028391", "#e97b3c",
+    "#faa968", "#3f8f8a", "#8cbfb8", "#f6dcac",
+];
+const RISTRETTO: Palette = [
+    "#2c2525", "#e6d9db", "#e6d9db", "#403e41", "#2c2525", "#fd6883", "#adda78", "#f9cc6c",
+    "#f38d70", "#a8a9eb", "#85dacc", "#e6d9db", "#72696a", "#ff8297", "#c8e292", "#fcd675",
+    "#f8a788", "#bebffd", "#9bf1e1", "#e6d9db",
+];
+const ROSE_PINE_DAWN: Palette = [
+    "#faf4ed", "#575279", "#575279", "#dfdad9", "#faf4ed", "#b4637a", "#286983", "#ea9d34",
+    "#56949f", "#907aa9", "#d7827e", "#575279", "#cecacd", "#b4637a", "#286983", "#ea9d34",
+    "#56949f", "#907aa9", "#d7827e", "#575279",
+];
+const SOLITUDE: Palette = [
+    "#101315", "#cacccc", "#a5aeb4", "#343d41", "#101315", "#565d60", "#9fa5a9", "#d9dbdc",
+    "#798186", "#aeaeae", "#707070", "#cacccc", "#4b4e55", "#de6145", "#343d41", "#c9c2b4",
+    "#5d6367", "#9a9a9a", "#707070", "#a5aeb4",
+];
+const VANTABLACK: Palette = [
+    "#000000", "#ffffff", "#ffffff", "#1a1a1a", "#000000", "#a4a4a4", "#b6b6b6", "#cecece",
+    "#8d8d8d", "#9b9b9b", "#b0b0b0", "#ffffff", "#7a7a7a", "#a4a4a4", "#b6b6b6", "#cecece",
+    "#8d8d8d", "#9b9b9b", "#b0b0b0", "#ffffff",
+];
+const WHITE: Palette = [
+    "#ffffff", "#000000", "#000000", "#c0c0c0", "#ffffff", "#2a2a2a", "#3a3a3a", "#4a4a4a",
+    "#1a1a1a", "#2e2e2e", "#3e3e3e", "#000000", "#808080", "#2a2a2a", "#3a3a3a", "#4a4a4a",
+    "#1a1a1a", "#2e2e2e", "#3e3e3e", "#000000",
+];
 
 pub const PRESET_NAMES: &[&str] = &[
     "catppuccin-mocha",
     "catppuccin-latte",
-    "gruvbox-dark",
-    "tokyonight",
     "dracula",
+    "ethereal",
+    "everforest",
+    "flexoki-light",
+    "gruvbox-dark",
+    "hackerman",
+    "kanagawa",
+    "last-horizon",
+    "lumon",
+    "lupine",
+    "matte-black",
+    "miasma",
     "nord",
-    "solarized-dark",
+    "osaka-jade",
     "oxide",
+    "retro-82",
+    "ristretto",
+    "rose-pine-dawn",
+    "solarized-dark",
+    "solitude",
+    "tokyonight",
+    "vantablack",
+    "white",
 ];
 
 fn preset(name: &str) -> Option<&'static Palette> {
     match name {
-        "catppuccin-mocha" => Some(&CATPPUCCIN_MOCHA),
         "catppuccin-latte" => Some(&CATPPUCCIN_LATTE),
-        "gruvbox-dark" => Some(&GRUVBOX_DARK),
-        "tokyonight" => Some(&TOKYONIGHT),
+        "catppuccin-mocha" => Some(&CATPPUCCIN_MOCHA),
         "dracula" => Some(&DRACULA),
+        "ethereal" => Some(&ETHEREAL),
+        "everforest" => Some(&EVERFOREST),
+        "flexoki-light" => Some(&FLEXOKI_LIGHT),
+        "gruvbox-dark" => Some(&GRUVBOX_DARK),
+        "hackerman" => Some(&HACKERMAN),
+        "kanagawa" => Some(&KANAGAWA),
+        "last-horizon" => Some(&LAST_HORIZON),
+        "lumon" => Some(&LUMON),
+        "lupine" => Some(&LUPINE),
+        "matte-black" => Some(&MATTE_BLACK),
+        "miasma" => Some(&MIASMA),
         "nord" => Some(&NORD),
-        "solarized-dark" => Some(&SOLARIZED_DARK),
+        "osaka-jade" => Some(&OSAKA_JADE),
         "oxide" => Some(&OXIDE),
+        "retro-82" => Some(&RETRO_82),
+        "ristretto" => Some(&RISTRETTO),
+        "rose-pine-dawn" => Some(&ROSE_PINE_DAWN),
+        "solarized-dark" => Some(&SOLARIZED_DARK),
+        "solitude" => Some(&SOLITUDE),
+        "tokyonight" => Some(&TOKYONIGHT),
+        "vantablack" => Some(&VANTABLACK),
+        "white" => Some(&WHITE),
         _ => None,
     }
 }

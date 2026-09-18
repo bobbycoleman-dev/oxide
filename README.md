@@ -59,7 +59,10 @@ with a file-tree drawer you drive like vim and a status bar that knows where you
   dotfiles (ZDOTDIR shim for zsh, `--init-file` for bash), with OSC 133 semantic prompt
   markers. Or set `prompt.enabled = false` and keep your starship/p10k prompt as-is.
 - **Themes** — `catppuccin-mocha`, `catppuccin-latte`, `gruvbox-dark`, `tokyonight`,
-  `dracula`, `nord`, `solarized-dark`, and `oxide` (rust-toned, naturally). Any color
+  `dracula`, `nord`, `solarized-dark`, and `oxide` (rust-toned, naturally), plus the
+  [Omarchy](https://omarchy.org/manual/themes/) set: `kanagawa`, `everforest`,
+  `osaka-jade`, `matte-black`, `hackerman`, `rose-pine-dawn`, and a dozen more —
+  25 presets in all. Any color
   individually overridable, including `selection_fg`. `follow_system = true` switches
   between a dark and a light preset with the macOS appearance. Config reloads live.
 - **Split panes** — split in any direction and nest freely; navigation moves by what's

@@ -231,6 +231,9 @@ startup_timeout      = "5s"   # give up on a pane's command if its shell isn't r
 [colors]
 # Presets: catppuccin-mocha | catppuccin-latte | gruvbox-dark | tokyonight
 #          | dracula | nord | solarized-dark | oxide
+#          | ethereal | everforest | flexoki-light | hackerman | kanagawa
+#          | last-horizon | lumon | lupine | matte-black | miasma | osaka-jade
+#          | retro-82 | ristretto | rose-pine-dawn | solitude | vantablack | white
 preset = "catppuccin-mocha"
 # Follow the macOS appearance instead, switching between two presets:
 # follow_system = true

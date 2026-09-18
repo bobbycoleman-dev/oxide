@@ -11,6 +11,15 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+### Added
+
+- 17 new theme presets from [Omarchy](https://omarchy.org/manual/themes/):
+  `ethereal`, `everforest`, `flexoki-light`, `hackerman`, `kanagawa`,
+  `last-horizon`, `lumon`, `lupine`, `matte-black`, `miasma`, `osaka-jade`,
+  `retro-82`, `ristretto`, `rose-pine-dawn`, `solitude`, `vantablack`, and
+  `white`. That makes 25, four of them light. The theme picker (`cmd-alt-t`)
+  now scrolls to fit them all.
+
 ## [0.5.3] - 2026-09-18
 
 ### Fixed

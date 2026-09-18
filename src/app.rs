@@ -305,6 +305,7 @@ enum FocusTarget {
 
 struct ThemePicker {
     selected: usize,
+    scroll: usize,
     /// Theme to restore on cancel.
     original: Rc<Theme>,
     return_focus: FocusTarget,
@@ -2545,6 +2546,7 @@ impl Oxide {
         let return_focus = self.current_focus_target(window, cx);
         self.overlay = Some(Overlay::ThemePicker(ThemePicker {
             selected,
+            scroll: (selected + 1).saturating_sub(PALETTE_ROWS),
             original: self.theme.clone(),
             return_focus,
         }));
@@ -2581,6 +2583,11 @@ impl Oxide {
         let count = config::theme::PRESET_NAMES.len() as isize;
         if let Some(Overlay::ThemePicker(picker)) = &mut self.overlay {
             picker.selected = (picker.selected as isize + delta).rem_euclid(count) as usize;
+            if picker.selected < picker.scroll {
+                picker.scroll = picker.selected;
+            } else if picker.selected >= picker.scroll + PALETTE_ROWS {
+                picker.scroll = picker.selected + 1 - PALETTE_ROWS;
+            }
             self.preview_selected(cx);
         }
     }
@@ -2630,7 +2637,13 @@ impl Oxide {
     fn render_theme_list(&self, picker: &ThemePicker, cx: &Context<Self>) -> gpui::Div {
         let theme = &self.theme;
         let mut list = div().flex().flex_col().p_1().gap(px(1.0));
-        for (ix, name) in config::theme::PRESET_NAMES.iter().enumerate() {
+        let end = (picker.scroll + PALETTE_ROWS).min(config::theme::PRESET_NAMES.len());
+        for (ix, name) in config::theme::PRESET_NAMES
+            .iter()
+            .enumerate()
+            .take(end)
+            .skip(picker.scroll)
+        {
             let preset_theme = Theme::from_config(&crate::config::schema::ColorsConfig {
                 preset: Some(name.to_string()),
                 ..Default::default()
