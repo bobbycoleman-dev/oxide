@@ -109,9 +109,15 @@ mod tests {
         let mut seen = HashSet::new();
         for meta in all() {
             assert!(seen.insert(meta.id), "duplicate action id {}", meta.id);
-            assert!(meta.id.contains("::"), "{} should be namespaced like `area::name`", meta.id);
             assert!(
-                meta.id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == ':'),
+                meta.id.contains("::"),
+                "{} should be namespaced like `area::name`",
+                meta.id
+            );
+            assert!(
+                meta.id
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == ':'),
                 "{} should be snake_case",
                 meta.id
             );
@@ -127,7 +133,11 @@ mod tests {
             // The registry row must build the action it claims to: the
             // action's own name ends with the struct name, and building a
             // second copy compares equal.
-            assert!(action.partial_eq(&*(meta.build)()), "{} builds inconsistently", meta.id);
+            assert!(
+                action.partial_eq(&*(meta.build)()),
+                "{} builds inconsistently",
+                meta.id
+            );
         }
         assert!(by_id("pane::no_such_thing").is_none());
     }
@@ -136,10 +146,17 @@ mod tests {
     fn every_action_type_has_a_row() {
         // gpui registers every `actions!` type by name; each must have a
         // registry row or the palette/keymap can't reach it.
-        let rows: HashSet<String> = all().iter().map(|m| (m.build)().name().to_string()).collect();
+        let rows: HashSet<String> = all()
+            .iter()
+            .map(|m| (m.build)().name().to_string())
+            .collect();
         for data in gpui::generate_list_of_all_registered_actions() {
             if data.name.starts_with("oxide::") {
-                assert!(rows.contains(data.name), "{} has no registry row", data.name);
+                assert!(
+                    rows.contains(data.name),
+                    "{} has no registry row",
+                    data.name
+                );
             }
         }
     }

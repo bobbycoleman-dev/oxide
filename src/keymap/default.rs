@@ -196,7 +196,11 @@ mod tests {
     fn every_default_keystroke_parses() {
         for d in DEFAULTS {
             for token in d.keys.split_whitespace() {
-                assert!(gpui::Keystroke::parse(token).is_ok(), "{:?} does not parse", d.keys);
+                assert!(
+                    gpui::Keystroke::parse(token).is_ok(),
+                    "{:?} does not parse",
+                    d.keys
+                );
             }
         }
     }

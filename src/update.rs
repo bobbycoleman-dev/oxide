@@ -16,7 +16,11 @@ pub struct ReleaseInfo {
 fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
     let v = v.trim().trim_start_matches('v');
     let mut parts = v.splitn(3, '.').map(|p| {
-        p.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse::<u64>().ok()
+        p.chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect::<String>()
+            .parse::<u64>()
+            .ok()
     });
     Some((parts.next()??, parts.next()??, parts.next()??))
 }
@@ -49,9 +53,16 @@ pub fn fetch_latest() -> Result<Option<ReleaseInfo>, String> {
     let json: serde_json::Value =
         serde_json::from_slice(&out.stdout).map_err(|e| format!("update check failed: {e}"))?;
     // A 404 body ({"message": "Not Found"}) means no releases yet — not an error.
-    let Some(tag) = json["tag_name"].as_str() else { return Ok(None) };
-    let Some(dmg_url) = dmg_url(&json) else { return Ok(None) };
-    Ok(Some(ReleaseInfo { version: tag.trim_start_matches('v').to_string(), dmg_url: dmg_url.to_string() }))
+    let Some(tag) = json["tag_name"].as_str() else {
+        return Ok(None);
+    };
+    let Some(dmg_url) = dmg_url(&json) else {
+        return Ok(None);
+    };
+    Ok(Some(ReleaseInfo {
+        version: tag.trim_start_matches('v').to_string(),
+        dmg_url: dmg_url.to_string(),
+    }))
 }
 
 /// Releases carry the same DMG twice: `Oxide-x.y.z-update.dmg` for the
@@ -61,7 +72,9 @@ pub fn fetch_latest() -> Result<Option<ReleaseInfo>, String> {
 fn dmg_url(release: &serde_json::Value) -> Option<&str> {
     let assets = release["assets"].as_array()?;
     let named = |suffix: &str| {
-        assets.iter().find(|a| a["name"].as_str().is_some_and(|n| n.ends_with(suffix)))
+        assets
+            .iter()
+            .find(|a| a["name"].as_str().is_some_and(|n| n.ends_with(suffix)))
     };
     named("-update.dmg").or_else(|| named(".dmg"))?["browser_download_url"].as_str()
 }
@@ -70,9 +83,13 @@ fn dmg_url(release: &serde_json::Value) -> Option<&str> {
 /// the first launch after an update. Records the current version either way,
 /// so a second window opened at startup sees nothing.
 pub fn note_launch_version() -> Option<String> {
-    let path = directories::BaseDirs::new()?.home_dir().join(".cache/oxide/last_version.txt");
+    let path = directories::BaseDirs::new()?
+        .home_dir()
+        .join(".cache/oxide/last_version.txt");
     let current = env!("CARGO_PKG_VERSION");
-    let previous = std::fs::read_to_string(&path).ok().map(|s| s.trim().to_string());
+    let previous = std::fs::read_to_string(&path)
+        .ok()
+        .map(|s| s.trim().to_string());
     if previous.as_deref() != Some(current) {
         let _ = std::fs::create_dir_all(path.parent()?);
         let _ = std::fs::write(&path, current);
@@ -81,11 +98,15 @@ pub fn note_launch_version() -> Option<String> {
 }
 
 fn updated_from(previous: Option<&str>, current: &str) -> Option<String> {
-    previous.filter(|p| is_newer(current, p)).map(str::to_string)
+    previous
+        .filter(|p| is_newer(current, p))
+        .map(str::to_string)
 }
 
 fn updates_dir() -> Option<PathBuf> {
-    let dir = directories::BaseDirs::new()?.home_dir().join(".cache/oxide/updates");
+    let dir = directories::BaseDirs::new()?
+        .home_dir()
+        .join(".cache/oxide/updates");
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir)
 }
@@ -129,7 +150,10 @@ pub fn install_and_restart(dmg: &Path) -> Result<(), String> {
     let Some(bundle) = installed_bundle() else {
         // Not running from an installed bundle (e.g. cargo run): hand the DMG
         // to the user for a drag install instead of guessing a destination.
-        Command::new("open").arg(dmg).status().map_err(|e| e.to_string())?;
+        Command::new("open")
+            .arg(dmg)
+            .status()
+            .map_err(|e| e.to_string())?;
         return Ok(());
     };
     let script = format!(
@@ -165,7 +189,11 @@ mod tests {
     fn updated_from_only_reports_upgrades() {
         assert_eq!(updated_from(Some("0.5.0"), "0.5.1"), Some("0.5.0".into()));
         assert_eq!(updated_from(Some("0.5.1"), "0.5.1"), None, "same version");
-        assert_eq!(updated_from(Some("0.6.0"), "0.5.1"), None, "dev build older than installed");
+        assert_eq!(
+            updated_from(Some("0.6.0"), "0.5.1"),
+            None,
+            "dev build older than installed"
+        );
         assert_eq!(updated_from(None, "0.5.1"), None, "fresh install");
     }
 

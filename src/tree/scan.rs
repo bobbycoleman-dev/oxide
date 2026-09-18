@@ -32,7 +32,9 @@ pub fn read_dir_sorted(dir: &Path, respect_gitignore: bool) -> ScanResult {
         if path == dir {
             continue;
         }
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
         if name == ".DS_Store" {
             continue;
         }

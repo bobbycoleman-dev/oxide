@@ -31,7 +31,9 @@ pub struct Command {
 
 impl Command {
     pub fn duration(&self) -> Duration {
-        self.finished.unwrap_or_else(Instant::now).duration_since(self.started)
+        self.finished
+            .unwrap_or_else(Instant::now)
+            .duration_since(self.started)
     }
 
     pub fn failed(&self) -> bool {
@@ -40,7 +42,11 @@ impl Command {
 
     /// First line of the command, trimmed, for one-line UI.
     pub fn label(&self) -> &str {
-        self.text.as_deref().and_then(|t| t.lines().next()).unwrap_or("command").trim()
+        self.text
+            .as_deref()
+            .and_then(|t| t.lines().next())
+            .unwrap_or("command")
+            .trim()
     }
 }
 
@@ -136,7 +142,10 @@ impl CommandLog {
                     && let Some(cmd) = self.get_mut(id)
                 {
                     cmd.finished = Some(now);
-                    cmd.output_rows = cmd.output_rows.take().map(|r| r.start..marker.row.max(r.start));
+                    cmd.output_rows = cmd
+                        .output_rows
+                        .take()
+                        .map(|r| r.start..marker.row.max(r.start));
                 }
                 None
             }
@@ -212,7 +221,12 @@ mod tests {
     use super::*;
 
     fn m(kind: MarkerKind, row: usize) -> Marker {
-        Marker { kind, row, column: 0, alt_screen: false }
+        Marker {
+            kind,
+            row,
+            column: 0,
+            alt_screen: false,
+        }
     }
 
     /// Prompt at `rows.0`; the command line is typed there, so C fires on
@@ -222,11 +236,24 @@ mod tests {
         log.on_marker(&m(MarkerKind::PromptStart, rows.0), t);
         log.on_marker(&m(MarkerKind::InputStart, rows.0), t);
         let started = log
-            .on_marker(&m(MarkerKind::CommandStart { cmdline: Some(text.into()) }, rows.0 + 1), t)
+            .on_marker(
+                &m(
+                    MarkerKind::CommandStart {
+                        cmdline: Some(text.into()),
+                    },
+                    rows.0 + 1,
+                ),
+                t,
+            )
             .unwrap();
-        let LogEvent::Started(id) = started else { panic!() };
+        let LogEvent::Started(id) = started else {
+            panic!()
+        };
         assert!(log.is_running());
-        assert_eq!(log.on_marker(&m(MarkerKind::CommandEnd { exit: Some(exit) }, rows.1), t), Some(LogEvent::Finished(id)));
+        assert_eq!(
+            log.on_marker(&m(MarkerKind::CommandEnd { exit: Some(exit) }, rows.1), t),
+            Some(LogEvent::Finished(id))
+        );
         id
     }
 
@@ -234,7 +261,10 @@ mod tests {
     fn a_full_cycle_records_text_exit_and_rows() {
         let mut log = CommandLog::new(10);
         assert!(!log.markers_seen);
-        log.on_marker(&m(MarkerKind::Cwd(PathBuf::from("/repo")), 0), Instant::now());
+        log.on_marker(
+            &m(MarkerKind::Cwd(PathBuf::from("/repo")), 0),
+            Instant::now(),
+        );
         let id = run(&mut log, "cargo build", 1, (5, 40));
         let cmd = log.get(id).unwrap();
         assert_eq!(cmd.text.as_deref(), Some("cargo build"));
@@ -258,7 +288,15 @@ mod tests {
         let mut log = CommandLog::new(10);
         let t = Instant::now();
         log.on_marker(&m(MarkerKind::PromptStart, 1), t);
-        log.on_marker(&m(MarkerKind::CommandStart { cmdline: Some("vim".into()) }, 2), t);
+        log.on_marker(
+            &m(
+                MarkerKind::CommandStart {
+                    cmdline: Some("vim".into()),
+                },
+                2,
+            ),
+            t,
+        );
         assert!(log.is_running());
         // ctrl-c'd before D: the next prompt arrives directly.
         log.on_marker(&m(MarkerKind::PromptStart, 9), t);
@@ -273,7 +311,10 @@ mod tests {
     fn stray_command_end_and_alt_screen_markers_are_ignored() {
         let mut log = CommandLog::new(10);
         let t = Instant::now();
-        assert_eq!(log.on_marker(&m(MarkerKind::CommandEnd { exit: Some(0) }, 3), t), None);
+        assert_eq!(
+            log.on_marker(&m(MarkerKind::CommandEnd { exit: Some(0) }, 3), t),
+            None
+        );
         let mut alt = m(MarkerKind::CommandStart { cmdline: None }, 3);
         alt.alt_screen = true;
         assert_eq!(log.on_marker(&alt, t), None);
@@ -286,7 +327,10 @@ mod tests {
         for i in 0..5 {
             run(&mut log, &format!("cmd{i}"), 0, (i, i + 1));
         }
-        assert_eq!(log.entries().map(|c| c.label()).collect::<Vec<_>>(), vec!["cmd2", "cmd3", "cmd4"]);
+        assert_eq!(
+            log.entries().map(|c| c.label()).collect::<Vec<_>>(),
+            vec!["cmd2", "cmd3", "cmd4"]
+        );
     }
 
     #[test]

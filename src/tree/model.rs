@@ -62,7 +62,9 @@ fn walk(
         return;
     };
     for child_path in children {
-        let Some(child) = nodes.get(child_path) else { continue };
+        let Some(child) = nodes.get(child_path) else {
+            continue;
+        };
         if child.is_hidden && !show_hidden {
             continue;
         }
@@ -127,11 +129,17 @@ mod tests {
             node("a", true, true, Some(vec!["/r/a/x".into()])),
         );
         nodes.insert("/r/a/x".into(), node("x", false, false, None));
-        nodes.insert("/r/b".into(), node("b", true, false, Some(vec!["/r/b/y".into()])));
+        nodes.insert(
+            "/r/b".into(),
+            node("b", true, false, Some(vec!["/r/b/y".into()])),
+        );
         nodes.insert("/r/b/y".into(), node("y", false, false, None));
 
         let visible = rebuild_visible(&root, &nodes, true);
-        let paths: Vec<_> = visible.iter().map(|r| r.path.to_string_lossy().to_string()).collect();
+        let paths: Vec<_> = visible
+            .iter()
+            .map(|r| r.path.to_string_lossy().to_string())
+            .collect();
         // b is collapsed, so y is not visible.
         assert_eq!(paths, vec!["/r/a", "/r/a/x", "/r/b"]);
         assert_eq!(visible[1].depth, 1);
@@ -143,7 +151,12 @@ mod tests {
         let root = PathBuf::from("/r");
         nodes.insert(
             root.clone(),
-            node("r", true, true, Some(vec!["/r/.git".into(), "/r/src".into()])),
+            node(
+                "r",
+                true,
+                true,
+                Some(vec!["/r/.git".into(), "/r/src".into()]),
+            ),
         );
         nodes.insert("/r/.git".into(), node(".git", true, false, None));
         nodes.insert("/r/src".into(), node("src", true, false, None));

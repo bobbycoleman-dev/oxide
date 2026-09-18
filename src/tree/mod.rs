@@ -32,7 +32,10 @@ pub enum TreeEvent {
     RootChanged(PathBuf),
     /// Type the quoted path at the prompt, relative to the pane's cwd when
     /// it's beneath it unless `absolute`.
-    InsertPath { path: PathBuf, absolute: bool },
+    InsertPath {
+        path: PathBuf,
+        absolute: bool,
+    },
     /// `cd` the shell to a directory without re-rooting the tree.
     CdShell(PathBuf),
     FocusTerminal,
@@ -114,7 +117,12 @@ impl Focusable for FileTree {
 }
 
 impl FileTree {
-    pub fn new(root: PathBuf, config: Rc<Config>, theme: Rc<Theme>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        root: PathBuf,
+        config: Rc<Config>,
+        theme: Rc<Theme>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let show_hidden = config.tree.show_hidden;
         let mut this = Self {
             root: root.clone(),
@@ -172,7 +180,9 @@ impl FileTree {
         // stashes, checkouts under .git, which isn't watched).
         cx.spawn(async move |tree, cx| {
             loop {
-                let timer = match tree.update(cx, |_, cx| cx.background_executor().timer(GIT_REFRESH_INTERVAL)) {
+                let timer = match tree.update(cx, |_, cx| {
+                    cx.background_executor().timer(GIT_REFRESH_INTERVAL)
+                }) {
                     Ok(timer) => timer,
                     Err(_) => break,
                 };
@@ -259,13 +269,19 @@ impl FileTree {
             return;
         }
         if !path.starts_with(&self.root) {
-            let new_root = if path.is_dir() { path.clone() } else { path.parent().map(Path::to_path_buf).unwrap_or(path.clone()) };
+            let new_root = if path.is_dir() {
+                path.clone()
+            } else {
+                path.parent().map(Path::to_path_buf).unwrap_or(path.clone())
+            };
             self.set_root(new_root, cx);
         }
         self.filter.clear();
         // Walk root → path, expanding each directory on the way.
         let mut cursor = self.root.clone();
-        let Ok(rest) = path.strip_prefix(&self.root) else { return };
+        let Ok(rest) = path.strip_prefix(&self.root) else {
+            return;
+        };
         for component in rest.components() {
             cursor = cursor.join(component);
             if cursor == path && !path.is_dir() {
@@ -302,30 +318,50 @@ impl FileTree {
 
     fn on_yank_path(&mut self, _: &TreeYankPath, _w: &mut Window, cx: &mut Context<Self>) {
         if let Some(row) = self.selected_row().filter(|r| r.kind == RowKind::Entry) {
-            cx.emit(TreeEvent::InsertPath { path: row.path.clone(), absolute: false });
+            cx.emit(TreeEvent::InsertPath {
+                path: row.path.clone(),
+                absolute: false,
+            });
         }
     }
 
     fn on_yank_absolute(&mut self, _: &TreeYankAbsolute, _w: &mut Window, cx: &mut Context<Self>) {
         if let Some(row) = self.selected_row().filter(|r| r.kind == RowKind::Entry) {
-            cx.emit(TreeEvent::InsertPath { path: row.path.clone(), absolute: true });
+            cx.emit(TreeEvent::InsertPath {
+                path: row.path.clone(),
+                absolute: true,
+            });
         }
     }
 
     fn on_copy_path(&mut self, _: &TreeCopyPath, _w: &mut Window, cx: &mut Context<Self>) {
         if let Some(row) = self.selected_row().filter(|r| r.kind == RowKind::Entry) {
-            cx.write_to_clipboard(gpui::ClipboardItem::new_string(row.path.to_string_lossy().to_string()));
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                row.path.to_string_lossy().to_string(),
+            ));
         }
     }
 
     fn on_cd_here(&mut self, _: &TreeCdHere, _w: &mut Window, cx: &mut Context<Self>) {
         if let Some(row) = self.selected_row().filter(|r| r.kind == RowKind::Entry) {
-            let dir = if row.is_dir { row.path.clone() } else { row.path.parent().map(Path::to_path_buf).unwrap_or(row.path.clone()) };
+            let dir = if row.is_dir {
+                row.path.clone()
+            } else {
+                row.path
+                    .parent()
+                    .map(Path::to_path_buf)
+                    .unwrap_or(row.path.clone())
+            };
             cx.emit(TreeEvent::CdShell(dir));
         }
     }
 
-    fn on_reveal_in_finder(&mut self, _: &TreeRevealFinder, _w: &mut Window, _cx: &mut Context<Self>) {
+    fn on_reveal_in_finder(
+        &mut self,
+        _: &TreeRevealFinder,
+        _w: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
         if let Some(row) = self.selected_row().filter(|r| r.kind == RowKind::Entry) {
             reveal_in_finder(&row.path);
         }
@@ -466,7 +502,8 @@ impl FileTree {
             return;
         }
         self.selected = index.min(self.visible.len() - 1);
-        self.scroll.scroll_to_item(self.selected, ScrollStrategy::Center);
+        self.scroll
+            .scroll_to_item(self.selected, ScrollStrategy::Center);
         cx.notify();
     }
 
@@ -511,7 +548,9 @@ impl FileTree {
     }
 
     fn open_row(&mut self, cx: &mut Context<Self>) {
-        let Some(row) = self.selected_row().cloned() else { return };
+        let Some(row) = self.selected_row().cloned() else {
+            return;
+        };
         if row.kind != RowKind::Entry {
             return;
         }
@@ -591,7 +630,9 @@ impl FileTree {
 
     /// `l`: collapsed dir -> expand; expanded dir -> first child; file -> open.
     fn on_expand(&mut self, _: &TreeExpand, _w: &mut Window, cx: &mut Context<Self>) {
-        let Some(row) = self.selected_row().cloned() else { return };
+        let Some(row) = self.selected_row().cloned() else {
+            return;
+        };
         if row.kind != RowKind::Entry {
             return;
         }
@@ -610,7 +651,9 @@ impl FileTree {
 
     /// `h`: expanded dir -> collapse; else -> parent row; top-level -> no-op.
     fn on_collapse(&mut self, _: &TreeCollapse, _w: &mut Window, cx: &mut Context<Self>) {
-        let Some(row) = self.selected_row().cloned() else { return };
+        let Some(row) = self.selected_row().cloned() else {
+            return;
+        };
         if row.is_dir && row.expanded && row.kind == RowKind::Entry {
             self.collapse_dir(&row.path, cx);
         } else if row.depth > 0 {
@@ -631,18 +674,26 @@ impl FileTree {
 
     /// `c`: re-root at the selection (or its parent for files); cd the shell.
     fn on_set_root(&mut self, _: &TreeSetRoot, _w: &mut Window, cx: &mut Context<Self>) {
-        let Some(row) = self.selected_row().cloned() else { return };
-        let target = if row.is_dir { row.path } else { match row.path.parent() {
-            Some(p) => p.to_path_buf(),
-            None => return,
-        }};
+        let Some(row) = self.selected_row().cloned() else {
+            return;
+        };
+        let target = if row.is_dir {
+            row.path
+        } else {
+            match row.path.parent() {
+                Some(p) => p.to_path_buf(),
+                None => return,
+            }
+        };
         self.set_root(target.clone(), cx);
         cx.emit(TreeEvent::ChangedRoot(target));
     }
 
     fn on_root_up(&mut self, _: &TreeRootUp, _w: &mut Window, cx: &mut Context<Self>) {
         let old_root = self.root.clone();
-        let Some(parent) = old_root.parent().map(Path::to_path_buf) else { return };
+        let Some(parent) = old_root.parent().map(Path::to_path_buf) else {
+            return;
+        };
         // Keep the old root expanded so re-rooting upward feels like zooming out.
         self.set_root(parent.clone(), cx);
         if let Some(node) = self.nodes.get_mut(&old_root) {
@@ -685,12 +736,18 @@ impl FileTree {
                 if row.is_dir {
                     row.path.clone()
                 } else {
-                    row.path.parent().map(Path::to_path_buf).unwrap_or_else(|| self.root.clone())
+                    row.path
+                        .parent()
+                        .map(Path::to_path_buf)
+                        .unwrap_or_else(|| self.root.clone())
                 }
             }
             _ => self.root.clone(),
         };
-        self.input = Some(InputMode::Add { parent, buffer: String::new() });
+        self.input = Some(InputMode::Add {
+            parent,
+            buffer: String::new(),
+        });
         cx.notify();
     }
 
@@ -698,8 +755,15 @@ impl FileTree {
         if let Some(row) = self.selected_row()
             && row.kind == RowKind::Entry
         {
-            let buffer = row.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-            self.input = Some(InputMode::Rename { target: row.path.clone(), buffer });
+            let buffer = row
+                .path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            self.input = Some(InputMode::Rename {
+                target: row.path.clone(),
+                buffer,
+            });
             cx.notify();
         }
     }
@@ -709,7 +773,9 @@ impl FileTree {
             && row.kind == RowKind::Entry
             && row.path != self.root
         {
-            self.input = Some(InputMode::ConfirmDelete { target: row.path.clone() });
+            self.input = Some(InputMode::ConfirmDelete {
+                target: row.path.clone(),
+            });
             cx.notify();
         }
     }
@@ -728,7 +794,9 @@ impl FileTree {
     }
 
     fn on_key_down(&mut self, event: &gpui::KeyDownEvent, _w: &mut Window, cx: &mut Context<Self>) {
-        let Some(mut input) = self.input.take() else { return };
+        let Some(mut input) = self.input.take() else {
+            return;
+        };
         let ks = &event.keystroke;
         let key_char = ks.key_char.clone();
         let plain = !ks.modifiers.platform && !ks.modifiers.control;
@@ -811,9 +879,17 @@ impl FileTree {
         let result = if is_dir {
             std::fs::create_dir_all(&path)
         } else {
-            path.parent().map(std::fs::create_dir_all).transpose().map(|_| ()).and_then(|_| {
-                std::fs::OpenOptions::new().write(true).create_new(true).open(&path).map(|_| ())
-            })
+            path.parent()
+                .map(std::fs::create_dir_all)
+                .transpose()
+                .map(|_| ())
+                .and_then(|_| {
+                    std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&path)
+                        .map(|_| ())
+                })
         };
         match result {
             Ok(()) => {
@@ -830,7 +906,9 @@ impl FileTree {
     }
 
     fn rename_entry(&mut self, target: PathBuf, name: String, cx: &mut Context<Self>) {
-        let Some(parent) = target.parent().map(Path::to_path_buf) else { return };
+        let Some(parent) = target.parent().map(Path::to_path_buf) else {
+            return;
+        };
         let new_path = parent.join(&name);
         match std::fs::rename(&target, &new_path) {
             Ok(()) => {
@@ -845,7 +923,9 @@ impl FileTree {
     /// Move to ~/.Trash when possible (recoverable); hard-delete only as a
     /// cross-volume fallback.
     fn delete_entry(&mut self, target: PathBuf, cx: &mut Context<Self>) {
-        let Some(parent) = target.parent().map(Path::to_path_buf) else { return };
+        let Some(parent) = target.parent().map(Path::to_path_buf) else {
+            return;
+        };
         let trashed = directories::BaseDirs::new().and_then(|dirs| {
             let name = target.file_name()?.to_string_lossy().to_string();
             let trash = dirs.home_dir().join(".Trash");
@@ -882,7 +962,10 @@ impl FileTree {
             Some(InputMode::Rename { buffer, .. }) => Some(format!("rename: {buffer}▏")),
             Some(InputMode::ConfirmDelete { target }) => Some(format!(
                 "delete {}? (y/n)",
-                target.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+                target
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default()
             )),
             None if !self.filter.is_empty() => {
                 Some(format!("filter: {}   (esc clears)", self.filter))
@@ -903,7 +986,9 @@ impl FileTree {
         let icons = self.config.tree.icons;
         let mut rows = Vec::new();
         for ix in range {
-            let Some(row) = self.visible.get(ix) else { continue };
+            let Some(row) = self.visible.get(ix) else {
+                continue;
+            };
             let is_selected = ix == self.selected;
             let mut selection_bg = theme.selection_bg;
             if !focused {
@@ -978,14 +1063,20 @@ impl FileTree {
                         cx.listener(move |tree, event: &gpui::MouseDownEvent, window, cx| {
                             window.focus(&tree.focus_handle);
                             tree.select(ix, cx);
-                            tree.context_menu = Some(TreeContextMenu { ix, position: event.position });
+                            tree.context_menu = Some(TreeContextMenu {
+                                ix,
+                                position: event.position,
+                            });
                             cx.notify();
                         }),
                     )
                     .when(row.kind == RowKind::Entry, |d| {
-                        d.on_drag(TreeDrag { path: drag_path.clone() }, move |_, _, _window, cx| {
-                            cx.new(|_| DragLabel(drag_name.clone()))
-                        })
+                        d.on_drag(
+                            TreeDrag {
+                                path: drag_path.clone(),
+                            },
+                            move |_, _, _window, cx| cx.new(|_| DragLabel(drag_name.clone())),
+                        )
                     })
                     .child(div().w(px(12.0)).flex_none().text_color(dim).child(chevron))
                     .when(icons, |d| {
@@ -1007,14 +1098,24 @@ impl FileTree {
 
 /// Show a path in Finder, selected.
 fn reveal_in_finder(path: &Path) {
-    let _ = std::process::Command::new("/usr/bin/open").arg("-R").arg(path).spawn();
+    let _ = std::process::Command::new("/usr/bin/open")
+        .arg("-R")
+        .arg(path)
+        .spawn();
 }
 
 impl FileTree {
-    fn render_context_menu(&self, window: &Window, cx: &Context<Self>) -> gpui::Div {
-        let Some(menu) = &self.context_menu else { return div() };
-        let Some(row) = self.visible.get(menu.ix).filter(|r| r.kind == RowKind::Entry).cloned() else {
-            return div();
+    fn render_context_menu(&self, window: &Window, cx: &Context<Self>) -> impl IntoElement {
+        let Some(menu) = &self.context_menu else {
+            return div().into_any_element();
+        };
+        let Some(row) = self
+            .visible
+            .get(menu.ix)
+            .filter(|r| r.kind == RowKind::Entry)
+            .cloned()
+        else {
+            return div().into_any_element();
         };
         let theme = &self.theme;
         let panel_bg = blend(theme.background, gpui::black(), 0.2);
@@ -1041,9 +1142,9 @@ impl FileTree {
         let path = row.path.clone();
         let is_dir = row.is_dir;
 
-        div()
-            .absolute()
-            .inset_0()
+        let backdrop = div()
+            .w(viewport.width)
+            .h(viewport.height)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|tree, _: &gpui::MouseDownEvent, _w, cx| {
@@ -1074,7 +1175,9 @@ impl FileTree {
                     .flex_col()
                     .text_size(px(13.0))
                     .text_color(theme.foreground)
-                    .on_mouse_down(MouseButton::Left, |_: &gpui::MouseDownEvent, _w, cx| cx.stop_propagation())
+                    .on_mouse_down(MouseButton::Left, |_: &gpui::MouseDownEvent, _w, cx| {
+                        cx.stop_propagation()
+                    })
                     // A directory's first item re-roots the tree, which (with
                     // follow_cwd) also cd's the shell — a separate "cd here"
                     // would be indistinguishable. `tree::cd` exists for
@@ -1105,24 +1208,31 @@ impl FileTree {
                             }),
                         ))
                     })
-                    .child(item("tree-menu-insert", "Insert path at prompt").on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener({
-                            let path = path.clone();
-                            move |tree, _: &gpui::MouseDownEvent, _w, cx| {
-                                tree.context_menu = None;
-                                cx.emit(TreeEvent::InsertPath { path: path.clone(), absolute: false });
-                                cx.notify();
-                            }
-                        }),
-                    ))
+                    .child(
+                        item("tree-menu-insert", "Insert path at prompt").on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener({
+                                let path = path.clone();
+                                move |tree, _: &gpui::MouseDownEvent, _w, cx| {
+                                    tree.context_menu = None;
+                                    cx.emit(TreeEvent::InsertPath {
+                                        path: path.clone(),
+                                        absolute: false,
+                                    });
+                                    cx.notify();
+                                }
+                            }),
+                        ),
+                    )
                     .child(item("tree-menu-copy", "Copy path").on_mouse_down(
                         MouseButton::Left,
                         cx.listener({
                             let path = path.clone();
                             move |tree, _: &gpui::MouseDownEvent, _w, cx| {
                                 tree.context_menu = None;
-                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(path.to_string_lossy().to_string()));
+                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                                    path.to_string_lossy().to_string(),
+                                ));
                                 cx.notify();
                             }
                         }),
@@ -1139,7 +1249,15 @@ impl FileTree {
                             }
                         }),
                     )),
-            )
+            );
+
+        gpui::deferred(
+            gpui::anchored()
+                .position(gpui::point(px(0.0), px(0.0)))
+                .child(backdrop),
+        )
+        .with_priority(1)
+        .into_any_element()
     }
 }
 
@@ -1172,7 +1290,10 @@ fn filter_rows(rows: Vec<VisibleRow>, filter: &str) -> Vec<VisibleRow> {
             ancestors.push(i);
         }
     }
-    rows.into_iter().zip(keep).filter_map(|(row, k)| k.then_some(row)).collect()
+    rows.into_iter()
+        .zip(keep)
+        .filter_map(|(row, k)| k.then_some(row))
+        .collect()
 }
 
 #[cfg(test)]
@@ -1181,7 +1302,13 @@ mod tests {
     use model::RowKind;
 
     fn row(path: &str, depth: usize, is_dir: bool) -> VisibleRow {
-        VisibleRow { path: path.into(), depth, is_dir, expanded: is_dir, kind: RowKind::Entry }
+        VisibleRow {
+            path: path.into(),
+            depth,
+            is_dir,
+            expanded: is_dir,
+            kind: RowKind::Entry,
+        }
     }
 
     #[test]
@@ -1222,7 +1349,11 @@ impl Render for FileTree {
         div()
             // Input modes switch context so bare-letter bindings don't fire
             // and keys fall through to the raw handler.
-            .key_context(if self.input.is_some() { "FileTreeInput" } else { "FileTree" })
+            .key_context(if self.input.is_some() {
+                "FileTreeInput"
+            } else {
+                "FileTree"
+            })
             .track_focus(&self.focus_handle)
             .size_full()
             .relative()
@@ -1284,6 +1415,8 @@ impl Render for FileTree {
                         .child(text),
                 )
             })
-            .when(self.context_menu.is_some(), |d| d.child(self.render_context_menu(window, cx)))
+            .when(self.context_menu.is_some(), |d| {
+                d.child(self.render_context_menu(window, cx))
+            })
     }
 }

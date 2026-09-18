@@ -94,10 +94,21 @@ impl ResolvedKeymap {
                 let predicate = predicates
                     .entry(e.ctx)
                     .or_insert_with(|| {
-                        Rc::new(KeyBindingContextPredicate::parse(e.ctx.gpui_name()).expect("static context name"))
+                        Rc::new(
+                            KeyBindingContextPredicate::parse(e.ctx.gpui_name())
+                                .expect("static context name"),
+                        )
                     })
                     .clone();
-                KeyBinding::load(&e.keys, (meta.build)(), Some(predicate), false, None, &DummyKeyboardMapper).ok()
+                KeyBinding::load(
+                    &e.keys,
+                    (meta.build)(),
+                    Some(predicate),
+                    false,
+                    None,
+                    &DummyKeyboardMapper,
+                )
+                .ok()
             })
             .collect()
     }
@@ -121,13 +132,18 @@ impl ResolvedKeymap {
 pub fn normalise_keys(keys: &str) -> Result<(String, Vec<Keystroke>), String> {
     let mut parsed = Vec::new();
     for token in keys.split_whitespace() {
-        let ks = Keystroke::parse(token).map_err(|_| format!("can't parse keystroke \"{keys}\""))?;
+        let ks =
+            Keystroke::parse(token).map_err(|_| format!("can't parse keystroke \"{keys}\""))?;
         parsed.push(ks);
     }
     if parsed.is_empty() {
         return Err("empty keystroke".into());
     }
-    let text = parsed.iter().map(|k| k.unparse()).collect::<Vec<_>>().join(" ");
+    let text = parsed
+        .iter()
+        .map(|k| k.unparse())
+        .collect::<Vec<_>>()
+        .join(" ");
     Ok((text, parsed))
 }
 
@@ -143,7 +159,12 @@ pub fn resolve(config: &KeymapConfig) -> ResolvedKeymap {
     if !config.replace_defaults {
         for d in DEFAULTS {
             let (keys, _) = normalise_keys(d.keys).expect("default keystrokes parse");
-            entries.push(Entry { keys, action: d.action, ctx: d.ctx, user: false });
+            entries.push(Entry {
+                keys,
+                action: d.action,
+                ctx: d.ctx,
+                user: false,
+            });
         }
     }
 
@@ -156,7 +177,11 @@ pub fn resolve(config: &KeymapConfig) -> ResolvedKeymap {
         (KeyCtx::Overlay, &config.overlay),
     ];
     for (ctx, table) in tables {
-        let section = if ctx == KeyCtx::Root { "[keymap]".to_string() } else { format!("[keymap.{}]", ctx.config_name()) };
+        let section = if ctx == KeyCtx::Root {
+            "[keymap]".to_string()
+        } else {
+            format!("[keymap.{}]", ctx.config_name())
+        };
         for (raw_keys, action) in table {
             let (keys, parsed) = match normalise_keys(raw_keys) {
                 Ok(v) => v,
@@ -181,30 +206,47 @@ pub fn resolve(config: &KeymapConfig) -> ResolvedKeymap {
                 continue;
             }
             match registry::by_id(action) {
-                Some(meta) => entries.push(Entry { keys, action: meta.id, ctx, user: true }),
+                Some(meta) => entries.push(Entry {
+                    keys,
+                    action: meta.id,
+                    ctx,
+                    user: true,
+                }),
                 None => {
                     let hint = registry::nearest_id(action)
                         .map(|n| format!(" — did you mean \"{n}\"?"))
                         .unwrap_or_default();
-                    errors.push(format!("unknown action \"{action}\" for \"{raw_keys}\" in {section}{hint}"));
+                    errors.push(format!(
+                        "unknown action \"{action}\" for \"{raw_keys}\" in {section}{hint}"
+                    ));
                 }
             }
         }
     }
 
     let mut by_action: HashMap<&'static str, Vec<Entry>> = HashMap::new();
-    for e in entries.iter().filter(|e| e.user).chain(entries.iter().filter(|e| !e.user)) {
+    for e in entries
+        .iter()
+        .filter(|e| e.user)
+        .chain(entries.iter().filter(|e| !e.user))
+    {
         by_action.entry(e.action).or_default().push(e.clone());
     }
 
-    ResolvedKeymap { entries, errors, by_action }
+    ResolvedKeymap {
+        entries,
+        errors,
+        by_action,
+    }
 }
 
 /// Human-readable keystrokes for UI: `"ctrl-w v"` → `"⌃W V"`.
 pub fn pretty_keys(keys: &str) -> String {
     keys.split_whitespace()
         .map(|token| {
-            let Ok(ks) = Keystroke::parse(token) else { return token.to_string() };
+            let Ok(ks) = Keystroke::parse(token) else {
+                return token.to_string();
+            };
             let mut out = String::new();
             let m = ks.modifiers;
             if m.control {
@@ -259,7 +301,9 @@ mod tests {
 
     fn has(r: &ResolvedKeymap, keys: &str, action: &str, ctx: KeyCtx) -> bool {
         let (keys, _) = normalise_keys(keys).unwrap();
-        r.entries.iter().any(|e| e.keys == keys && e.action == action && e.ctx == ctx)
+        r.entries
+            .iter()
+            .any(|e| e.keys == keys && e.action == action && e.ctx == ctx)
     }
 
     #[test]
@@ -302,10 +346,21 @@ mod tests {
 
     #[test]
     fn unknown_action_is_reported_and_the_rest_still_binds() {
-        let r = resolve(&cfg(&[("cmd-j", "pane::splitright"), ("cmd-shift-j", "pane::split_down")]));
+        let r = resolve(&cfg(&[
+            ("cmd-j", "pane::splitright"),
+            ("cmd-shift-j", "pane::split_down"),
+        ]));
         assert_eq!(r.errors.len(), 1);
-        assert!(r.errors[0].contains("unknown action \"pane::splitright\""), "{}", r.errors[0]);
-        assert!(r.errors[0].contains("did you mean \"pane::split_right\""), "{}", r.errors[0]);
+        assert!(
+            r.errors[0].contains("unknown action \"pane::splitright\""),
+            "{}",
+            r.errors[0]
+        );
+        assert!(
+            r.errors[0].contains("did you mean \"pane::split_right\""),
+            "{}",
+            r.errors[0]
+        );
         assert!(has(&r, "cmd-shift-j", "pane::split_down", KeyCtx::Root));
         assert!(r.error_banner().unwrap().starts_with("keymap: "));
     }
@@ -317,7 +372,11 @@ mod tests {
         // something that really doesn't parse.
         let r2 = resolve(&cfg(&[("ctrl-w -x", "tab::next")]));
         assert_eq!(r2.errors.len(), 1, "{:?}", r2.errors);
-        assert!(r2.errors[0].contains("can't parse keystroke"), "{}", r2.errors[0]);
+        assert!(
+            r2.errors[0].contains("can't parse keystroke"),
+            "{}",
+            r2.errors[0]
+        );
         assert!(has(&r, "cmd-shift-j", "tab::next", KeyCtx::Root));
     }
 
@@ -329,7 +388,12 @@ mod tests {
         c.root.insert("escape".into(), "tab::next".into());
         let r = resolve(&c);
         assert_eq!(r.errors.len(), 3, "{:?}", r.errors);
-        assert!(r.errors.iter().any(|e| e.contains("\"j\" in [keymap.terminal] would hide that key from your shell")));
+        assert!(
+            r.errors
+                .iter()
+                .any(|e| e
+                    .contains("\"j\" in [keymap.terminal] would hide that key from your shell"))
+        );
         assert!(!has(&r, "j", "tab::next", KeyCtx::Terminal));
         // ...but a ctrl-w prefix makes a bare second key fine.
         let mut c = KeymapConfig::default();
@@ -343,7 +407,8 @@ mod tests {
     fn bare_keys_are_fine_in_list_contexts() {
         let mut c = KeymapConfig::default();
         c.file_tree.insert("y".into(), "tree::refresh".into());
-        c.terminal_vi.insert("q".into(), "terminal::copy_mode".into());
+        c.terminal_vi
+            .insert("q".into(), "terminal::copy_mode".into());
         c.workspaces.insert("x".into(), "workspace::delete".into());
         c.overlay.insert("ctrl-j".into(), "overlay::next".into());
         let r = resolve(&c);

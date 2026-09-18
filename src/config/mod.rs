@@ -32,7 +32,10 @@ pub fn load() -> (Config, Option<String>) {
                 let warning = validate(&config);
                 (config, warning)
             }
-            Err(e) => (Config::default(), Some(format!("config error: {}", first_line(&e.to_string())))),
+            Err(e) => (
+                Config::default(),
+                Some(format!("config error: {}", first_line(&e.to_string()))),
+            ),
         },
         Err(_) => {
             // Missing file: write a fully-commented default on first run.
@@ -77,13 +80,19 @@ fn validate(config: &Config) -> Option<String> {
     }
     for host in &config.ssh.hosts {
         if theme::parse_hex(&host.accent).is_none() {
-            return Some(format!("ssh.hosts: bad accent \"{}\" for \"{}\" — use #rrggbb", host.accent, host.pattern));
+            return Some(format!(
+                "ssh.hosts: bad accent \"{}\" for \"{}\" — use #rrggbb",
+                host.accent, host.pattern
+            ));
         }
     }
     if !(0.05..=1.0).contains(&config.window.inactive_pane_opacity)
         || !(0.05..=1.0).contains(&config.window.inactive_window_opacity)
     {
-        return Some("window.inactive_pane_opacity / inactive_window_opacity must be between 0.05 and 1.0".into());
+        return Some(
+            "window.inactive_pane_opacity / inactive_window_opacity must be between 0.05 and 1.0"
+                .into(),
+        );
     }
     if !(0.0..=1.0).contains(&config.cursor.thickness) {
         return Some("cursor.thickness must be between 0 and 1 (a fraction of a cell)".into());
@@ -92,13 +101,20 @@ fn validate(config: &Config) -> Option<String> {
 }
 
 fn first_line(s: &str) -> String {
-    s.lines().find(|l| !l.trim().is_empty()).unwrap_or("parse failed").trim().to_string()
+    s.lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("parse failed")
+        .trim()
+        .to_string()
 }
 
 /// Watch the config file's parent directory (editors write-and-rename, so a
 /// direct file watch misses saves). Returns the watcher (keep it alive) and a
 /// receiver that fires on debounced changes to the config file itself.
-pub fn watch() -> Option<(Debouncer<notify::RecommendedWatcher, FileIdMap>, UnboundedReceiver<()>)> {
+pub fn watch() -> Option<(
+    Debouncer<notify::RecommendedWatcher, FileIdMap>,
+    UnboundedReceiver<()>,
+)> {
     let path = config_path();
     let dir = path.parent()?.to_path_buf();
     let (tx, rx) = futures::channel::mpsc::unbounded();
@@ -109,7 +125,9 @@ pub fn watch() -> Option<(Debouncer<notify::RecommendedWatcher, FileIdMap>, Unbo
         move |result: Result<Vec<DebouncedEvent>, Vec<notify::Error>>| {
             if let Ok(events) = result {
                 let relevant = events.iter().any(|e| {
-                    e.paths.iter().any(|p| p.file_name() == Some(file_name.as_os_str()))
+                    e.paths
+                        .iter()
+                        .any(|p| p.file_name() == Some(file_name.as_os_str()))
                 });
                 if relevant {
                     tx.unbounded_send(()).ok();
@@ -118,7 +136,10 @@ pub fn watch() -> Option<(Debouncer<notify::RecommendedWatcher, FileIdMap>, Unbo
         },
     )
     .ok()?;
-    debouncer.watcher().watch(&dir, RecursiveMode::NonRecursive).ok()?;
+    debouncer
+        .watcher()
+        .watch(&dir, RecursiveMode::NonRecursive)
+        .ok()?;
     Some((debouncer, rx))
 }
 

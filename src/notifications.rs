@@ -94,7 +94,11 @@ pub fn post(title: &str, body: &str, route: Option<RouteKey>) {
 fn post_via_osascript(title: &str, body: &str) {
     // AppleScript string literals: escape backslash and double quote.
     let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
-    let script = format!("display notification \"{}\" with title \"{}\"", esc(body), esc(title));
+    let script = format!(
+        "display notification \"{}\" with title \"{}\"",
+        esc(body),
+        esc(title)
+    );
     let _ = std::process::Command::new("/usr/bin/osascript")
         .arg("-e")
         .arg(script)
@@ -246,7 +250,10 @@ mod macos {
             install_delegate(center);
             if std::env::var_os("OXIDE_DEBUG_NOTIFY").is_some() {
                 let delegate: Id = msg_send![center, delegate];
-                eprintln!("oxide: posting notification; delegate set = {}", !delegate.is_null());
+                eprintln!(
+                    "oxide: posting notification; delegate set = {}",
+                    !delegate.is_null()
+                );
             }
 
             // UNAuthorizationOptionBadge (1<<0) | Sound (1<<1) | Alert (1<<2).
@@ -284,25 +291,44 @@ mod tests {
     }
 
     fn finished(secs: u64, exit: i32, focused: bool) -> Finished {
-        Finished { duration: Duration::from_secs(secs), exit: Some(exit), pane_focused: focused }
+        Finished {
+            duration: Duration::from_secs(secs),
+            exit: Some(exit),
+            pane_focused: focused,
+        }
     }
 
     #[test]
     fn long_commands_notify_only_when_unfocused() {
         assert!(should_notify(&cfg(), finished(45, 0, false)));
         assert!(!should_notify(&cfg(), finished(45, 0, true)));
-        assert!(!should_notify(&cfg(), finished(5, 0, false)), "under the threshold");
-        assert!(should_notify(&cfg(), finished(30, 0, false)), "threshold is inclusive");
+        assert!(
+            !should_notify(&cfg(), finished(5, 0, false)),
+            "under the threshold"
+        );
+        assert!(
+            should_notify(&cfg(), finished(30, 0, false)),
+            "threshold is inclusive"
+        );
     }
 
     #[test]
     fn failures_respect_on_failure_always() {
-        assert!(!should_notify(&cfg(), finished(2, 1, false)), "short failure, flag off");
+        assert!(
+            !should_notify(&cfg(), finished(2, 1, false)),
+            "short failure, flag off"
+        );
         let mut c = cfg();
         c.on_failure_always = true;
         assert!(should_notify(&c, finished(2, 1, false)));
-        assert!(!should_notify(&c, finished(2, 0, false)), "short success still quiet");
-        assert!(!should_notify(&c, finished(2, 1, true)), "focused pane still quiet");
+        assert!(
+            !should_notify(&c, finished(2, 0, false)),
+            "short success still quiet"
+        );
+        assert!(
+            !should_notify(&c, finished(2, 1, true)),
+            "focused pane still quiet"
+        );
     }
 
     #[test]
@@ -318,8 +344,17 @@ mod tests {
 
     #[test]
     fn summaries_read_like_the_plan() {
-        assert_eq!(command_summary("cargo build", Some(0), Duration::from_secs(134)), "✓ cargo build — 2m14s");
-        assert_eq!(command_summary("npm test", Some(1), Duration::from_millis(4200)), "✗ npm test — exit 1 · 4.2s");
-        assert_eq!(command_summary("vim", None, Duration::from_secs(61)), "• vim — 1m01s");
+        assert_eq!(
+            command_summary("cargo build", Some(0), Duration::from_secs(134)),
+            "✓ cargo build — 2m14s"
+        );
+        assert_eq!(
+            command_summary("npm test", Some(1), Duration::from_millis(4200)),
+            "✗ npm test — exit 1 · 4.2s"
+        );
+        assert_eq!(
+            command_summary("vim", None, Duration::from_secs(61)),
+            "• vim — 1m01s"
+        );
     }
 }

@@ -629,7 +629,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let zsh_path = dir.join("init.zsh");
         let bash_path = dir.join("init.bash");
-        std::fs::write(&zsh_path, generate_init(&PromptConfig::default(), true, true)).unwrap();
+        std::fs::write(
+            &zsh_path,
+            generate_init(&PromptConfig::default(), true, true),
+        )
+        .unwrap();
         std::fs::write(
             &bash_path,
             generate_init_bash(&PromptConfig::default(), true, true),
@@ -676,7 +680,11 @@ mod tests {
             args: vec![],
             working_directory: std::env::current_dir().ok(),
             scrollback: 100,
-            env: { let mut e = integration.env; e.insert("HISTFILE".into(), "/dev/null".into()); e },
+            env: {
+                let mut e = integration.env;
+                e.insert("HISTFILE".into(), "/dev/null".into());
+                e
+            },
         };
         let (session, _rx) = TerminalSession::spawn(options, size).expect("spawn zsh");
 
@@ -767,7 +775,11 @@ mod cd_tests {
             args,
             working_directory: Some(env!("CARGO_MANIFEST_DIR").into()),
             scrollback: 100,
-            env: { let mut e = integration.env.clone(); e.insert("HISTFILE".into(), "/dev/null".into()); e },
+            env: {
+                let mut e = integration.env.clone();
+                e.insert("HISTFILE".into(), "/dev/null".into());
+                e
+            },
         };
         let (session, _rx) = TerminalSession::spawn(options, size).expect("spawn bash");
         std::thread::sleep(Duration::from_millis(1500)); // let rc files load
@@ -883,7 +895,11 @@ mod run_tests {
             args,
             working_directory: Some(dir.clone()),
             scrollback: 100,
-            env: { let mut e = integration.env.clone(); e.insert("HISTFILE".into(), "/dev/null".into()); e },
+            env: {
+                let mut e = integration.env.clone();
+                e.insert("HISTFILE".into(), "/dev/null".into());
+                e
+            },
         };
         let (session, mut rx) = TerminalSession::spawn(options, size).expect("spawn shell");
         std::thread::sleep(Duration::from_millis(1500)); // let rc files load
@@ -908,15 +924,24 @@ mod run_tests {
             "{shell}: no C marker with the command line: {markers:?}"
         );
         assert!(
-            markers.iter().any(|m| m.kind == MarkerKind::CommandEnd { exit: Some(0) }),
+            markers
+                .iter()
+                .any(|m| m.kind == MarkerKind::CommandEnd { exit: Some(0) }),
             "{shell}: no D marker with the exit status: {markers:?}"
         );
 
         // A failing command reports its status too.
-        trigger(&session, "printf 'OXIDE_FAIL\\n'; false", "OXIDE_FAIL", shell);
+        trigger(
+            &session,
+            "printf 'OXIDE_FAIL\\n'; false",
+            "OXIDE_FAIL",
+            shell,
+        );
         let markers = drain_markers(&mut rx);
         assert!(
-            markers.iter().any(|m| m.kind == MarkerKind::CommandEnd { exit: Some(1) }),
+            markers
+                .iter()
+                .any(|m| m.kind == MarkerKind::CommandEnd { exit: Some(1) }),
             "{shell}: exit status 1 was not reported: {markers:?}"
         );
 
@@ -937,7 +962,9 @@ mod run_tests {
 
     /// Everything the shell has reported since the last drain: the markers
     /// arrive on the same channel as terminal events.
-    fn drain_markers(rx: &mut futures::channel::mpsc::UnboundedReceiver<SessionEvent>) -> Vec<Marker> {
+    fn drain_markers(
+        rx: &mut futures::channel::mpsc::UnboundedReceiver<SessionEvent>,
+    ) -> Vec<Marker> {
         let mut out = Vec::new();
         while let Ok(ev) = rx.try_recv() {
             if let SessionEvent::Marker(m) = ev {
@@ -950,7 +977,11 @@ mod run_tests {
     /// Hand the shell a command through its widget and wait for `expect` to
     /// show up on screen. Returns the rendered grid.
     fn trigger(session: &TerminalSession, command: &str, expect: &str, shell: &str) -> String {
-        assert!(write_channel(Channel::Run, session.id(), command.as_bytes()));
+        assert!(write_channel(
+            Channel::Run,
+            session.id(),
+            command.as_bytes()
+        ));
         session.write_input(b"\x1b[9002~".to_vec());
         wait_for(session, expect, &format!("{shell}: {command:?} never ran"))
     }
@@ -993,13 +1024,22 @@ mod run_tests {
             .args_override
             .clone()
             .unwrap_or_else(|| config.shell.args.clone());
-        let size = TermSize { columns: 100, screen_lines: 24, cell_width: 8.0, cell_height: 16.0 };
+        let size = TermSize {
+            columns: 100,
+            screen_lines: 24,
+            cell_width: 8.0,
+            cell_height: 16.0,
+        };
         let options = SessionOptions {
             program: shell.to_string(),
             args,
             working_directory: Some(std::env::temp_dir()),
             scrollback: 100,
-            env: { let mut e = integration.env.clone(); e.insert("HISTFILE".into(), "/dev/null".into()); e },
+            env: {
+                let mut e = integration.env.clone();
+                e.insert("HISTFILE".into(), "/dev/null".into());
+                e
+            },
         };
         let (session, mut rx) = TerminalSession::spawn(options, size).expect("spawn shell");
 
@@ -1010,18 +1050,34 @@ mod run_tests {
                 Ok(SessionEvent::Marker(m)) if m.kind == MarkerKind::PromptStart => break,
                 Ok(_) => continue,
                 Err(_) => {
-                    assert!(Instant::now() < deadline, "{shell} (styled prompt: {style_prompt}): no prompt marker within 8s");
+                    assert!(
+                        Instant::now() < deadline,
+                        "{shell} (styled prompt: {style_prompt}): no prompt marker within 8s"
+                    );
                     std::thread::sleep(Duration::from_millis(10));
                 }
             }
         }
-        assert!(write_channel(Channel::Run, session.id(), b"printf 'OXIDE_FIRST_OK\\n'"));
+        assert!(write_channel(
+            Channel::Run,
+            session.id(),
+            b"printf 'OXIDE_FIRST_OK\\n'"
+        ));
         session.write_input(b"\x1b[9002~".to_vec());
-        let grid = wait_for(&session, "OXIDE_FIRST_OK", &format!("{shell}: command sent on the first prompt never ran"));
-        assert!(!grid.contains("printf"), "{shell}: the command line was echoed:\n{grid}");
+        let grid = wait_for(
+            &session,
+            "OXIDE_FIRST_OK",
+            &format!("{shell}: command sent on the first prompt never ran"),
+        );
+        assert!(
+            !grid.contains("printf"),
+            "{shell}: the command line was echoed:\n{grid}"
+        );
         let markers = drain_markers(&mut rx);
         assert!(
-            markers.iter().any(|m| m.kind == MarkerKind::CommandEnd { exit: Some(0) }),
+            markers
+                .iter()
+                .any(|m| m.kind == MarkerKind::CommandEnd { exit: Some(0) }),
             "{shell}: the run wasn't reported: {markers:?}"
         );
     }
@@ -1041,16 +1097,27 @@ mod run_tests {
             .args_override
             .clone()
             .unwrap_or_else(|| config.shell.args.clone());
-        let size = TermSize { columns: 100, screen_lines: 24, cell_width: 8.0, cell_height: 16.0 };
+        let size = TermSize {
+            columns: 100,
+            screen_lines: 24,
+            cell_width: 8.0,
+            cell_height: 16.0,
+        };
         let spawn = || {
             let options = SessionOptions {
                 program: shell.to_string(),
                 args: args.clone(),
                 working_directory: Some(std::env::temp_dir()),
                 scrollback: 100,
-                env: { let mut e = integration.env.clone(); e.insert("HISTFILE".into(), "/dev/null".into()); e },
+                env: {
+                    let mut e = integration.env.clone();
+                    e.insert("HISTFILE".into(), "/dev/null".into());
+                    e
+                },
             };
-            TerminalSession::spawn(options, size).expect("spawn shell").0
+            TerminalSession::spawn(options, size)
+                .expect("spawn shell")
+                .0
         };
         let a = spawn();
         let b = spawn();
@@ -1059,14 +1126,28 @@ mod run_tests {
 
         // Both targets are written before either trigger is sent, which is
         // exactly the pattern that raced on a single shared file.
-        assert!(write_channel(Channel::Run, a.id(), b"printf 'OXIDE_A_RAN\\n'"));
-        assert!(write_channel(Channel::Run, b.id(), b"printf 'OXIDE_B_RAN\\n'"));
+        assert!(write_channel(
+            Channel::Run,
+            a.id(),
+            b"printf 'OXIDE_A_RAN\\n'"
+        ));
+        assert!(write_channel(
+            Channel::Run,
+            b.id(),
+            b"printf 'OXIDE_B_RAN\\n'"
+        ));
         a.write_input(b"\x1b[9002~".to_vec());
         b.write_input(b"\x1b[9002~".to_vec());
         let grid_a = wait_for(&a, "OXIDE_A_RAN", "session A's command never ran");
         let grid_b = wait_for(&b, "OXIDE_B_RAN", "session B's command never ran");
-        assert!(!grid_a.contains("OXIDE_B_RAN"), "A ran B's command:\n{grid_a}");
-        assert!(!grid_b.contains("OXIDE_A_RAN"), "B ran A's command:\n{grid_b}");
+        assert!(
+            !grid_a.contains("OXIDE_B_RAN"),
+            "A ran B's command:\n{grid_a}"
+        );
+        assert!(
+            !grid_b.contains("OXIDE_A_RAN"),
+            "B ran A's command:\n{grid_b}"
+        );
         assert!(!channel_path(Channel::Run, a.id()).unwrap().exists());
         assert!(!channel_path(Channel::Run, b.id()).unwrap().exists());
     }

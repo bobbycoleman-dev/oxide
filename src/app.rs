@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use futures::StreamExt;
-use gpui::prelude::FluentBuilder;
 use gpui::AppContext as _;
+use gpui::prelude::FluentBuilder;
 use gpui::{
     Context, FocusHandle, Focusable, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Subscription, Window, div, px,
@@ -15,19 +15,19 @@ use gpui::{
 use crate::config::schema::{ColorsConfig, StatusBarPosition, TitlebarMode};
 use crate::config::theme::parse_hex;
 use crate::config::{self, Config, Theme};
+use crate::git::{GitStatus, read_git_status};
 use crate::keymap::actions::*;
 use crate::keymap::registry::{self, ActionContext, ActionMeta};
 use crate::keymap::resolve::pretty_keys;
 use crate::keymap::{self, ResolvedKeymap};
-use crate::git::{GitStatus, read_git_status};
 use crate::notifications;
 use crate::palette::{self, PaletteItem};
+use crate::panes::{Axis, Direction, Node, NodePath};
+use crate::startup::{OnExit, StartupCommand};
 use crate::terminal::colors::blend;
 use crate::terminal::commands::format_duration;
 use crate::terminal::{LastLayout, TerminalEvent, TerminalPane};
-use crate::panes::{Axis, Direction, Node, NodePath};
 use crate::tree::{FileTree, TreeEvent};
-use crate::startup::{OnExit, StartupCommand};
 use crate::workspaces::{SavedPane, SavedTab, SavedWorkspace};
 
 pub type PaneId = u64;
@@ -49,7 +49,14 @@ struct TabState {
 
 impl TabState {
     fn new(layout: Node<PaneId>, active: PaneId) -> Self {
-        Self { layout, active, unread: false, zoomed: None, broadcast: false, title: None }
+        Self {
+            layout,
+            active,
+            unread: false,
+            zoomed: None,
+            broadcast: false,
+            title: None,
+        }
     }
 }
 
@@ -152,7 +159,12 @@ pub struct Oxide {
     /// unless this launch opted out (`--no-startup-commands`, or shift held).
     run_startup_commands: bool,
     startup_skipped_at_launch: bool,
-    _config_watcher: Option<notify_debouncer_full::Debouncer<notify::RecommendedWatcher, notify_debouncer_full::FileIdMap>>,
+    _config_watcher: Option<
+        notify_debouncer_full::Debouncer<
+            notify::RecommendedWatcher,
+            notify_debouncer_full::FileIdMap,
+        >,
+    >,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -212,7 +224,10 @@ struct ConfirmState {
 }
 
 fn appearance_is_dark(appearance: gpui::WindowAppearance) -> bool {
-    matches!(appearance, gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark)
+    matches!(
+        appearance,
+        gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
+    )
 }
 
 /// Every file under the tree root, as root-relative strings, walked once
@@ -354,18 +369,23 @@ enum UpdateState {
     Ready { version: String, dmg: PathBuf },
 }
 
-
 pub fn home_dir() -> Option<PathBuf> {
     directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf())
 }
 
 fn window_state_path() -> Option<PathBuf> {
-    Some(directories::BaseDirs::new()?.home_dir().join(".cache/oxide/window.txt"))
+    Some(
+        directories::BaseDirs::new()?
+            .home_dir()
+            .join(".cache/oxide/window.txt"),
+    )
 }
 
 pub fn load_window_bounds() -> Option<gpui::Bounds<gpui::Pixels>> {
     let text = std::fs::read_to_string(window_state_path()?).ok()?;
-    let mut parts = text.split_whitespace().filter_map(|p| p.parse::<f32>().ok());
+    let mut parts = text
+        .split_whitespace()
+        .filter_map(|p| p.parse::<f32>().ok());
     let (x, y, w, h) = (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
     if w < 200.0 || h < 200.0 {
         return None;
@@ -403,9 +423,15 @@ fn edit_file_command(path: &PathBuf, shell: &str) -> String {
 /// `"$1"`-style reference) in `$EDITOR`, jumping to a line when the editor
 /// is one whose flag we know. Only the shell knows what `$EDITOR` is, so the
 /// mapping happens there, on the program name.
-fn editor_snippet(path_expr: &str, at: Option<(u32, Option<u32>)>, override_cmd: Option<&str>) -> String {
+fn editor_snippet(
+    path_expr: &str,
+    at: Option<(u32, Option<u32>)>,
+    override_cmd: Option<&str>,
+) -> String {
     let Some((line, col)) = at else {
-        return format!("if [ -n \"${{EDITOR:-}}\" ]; then $EDITOR {path_expr}; else open -t {path_expr}; fi");
+        return format!(
+            "if [ -n \"${{EDITOR:-}}\" ]; then $EDITOR {path_expr}; else open -t {path_expr}; fi"
+        );
     };
     if let Some(template) = override_cmd {
         return template
@@ -429,7 +455,12 @@ fn editor_snippet(path_expr: &str, at: Option<(u32, Option<u32>)>, override_cmd:
 }
 
 /// Open a file in the user's editor, optionally at a line and column.
-fn editor_command(path: &PathBuf, at: Option<(u32, Option<u32>)>, shell: &str, override_cmd: Option<&str>) -> String {
+fn editor_command(
+    path: &PathBuf,
+    at: Option<(u32, Option<u32>)>,
+    shell: &str,
+    override_cmd: Option<&str>,
+) -> String {
     let quoted = shell_quote(path);
     if crate::terminal::session::is_posix_shell(shell) {
         return editor_snippet(&quoted, at, override_cmd);
@@ -483,7 +514,10 @@ impl Oxide {
         // working directory, which is a useless place to open a terminal.
         let cwd = cwd_override
             .or_else(|| {
-                std::env::args().nth(1).map(PathBuf::from).filter(|p| p.is_dir())
+                std::env::args()
+                    .nth(1)
+                    .map(PathBuf::from)
+                    .filter(|p| p.is_dir())
             })
             .or_else(home_dir)
             .unwrap_or_else(|| PathBuf::from("/"));
@@ -523,14 +557,18 @@ impl Oxide {
         // Periodic git refresh for the status bar.
         cx.spawn(async move |this, cx| {
             loop {
-                let timer = match this
-                    .update(cx, |_, cx| cx.background_executor().timer(std::time::Duration::from_secs(3)))
-                {
+                let timer = match this.update(cx, |_, cx| {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_secs(3))
+                }) {
                     Ok(timer) => timer,
                     Err(_) => break,
                 };
                 timer.await;
-                if this.update(cx, |this, cx| this.refresh_git_status(cx)).is_err() {
+                if this
+                    .update(cx, |this, cx| this.refresh_git_status(cx))
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -595,7 +633,11 @@ impl Oxide {
             this.sticky_toast(message);
         }
         if this.startup_skipped_at_launch && this.any_startup_commands(cx) {
-            this.toast(ToastKind::Info, "startup commands skipped for this launch".into(), cx);
+            this.toast(
+                ToastKind::Info,
+                "startup commands skipped for this launch".into(),
+                cx,
+            );
         }
         if let Some(previous) = crate::update::note_launch_version() {
             let current = env!("CARGO_PKG_VERSION");
@@ -614,17 +656,22 @@ impl Oxide {
             cx.spawn(async move |this, cx| {
                 loop {
                     let timer = match this.update(cx, |_, cx| {
-                        cx.background_executor().timer(std::time::Duration::from_secs(15))
+                        cx.background_executor()
+                            .timer(std::time::Duration::from_secs(15))
                     }) {
                         Ok(timer) => timer,
                         Err(_) => break,
                     };
                     timer.await;
-                    if this.update(cx, |this, cx| this.check_for_updates(false, cx)).is_err() {
+                    if this
+                        .update(cx, |this, cx| this.check_for_updates(false, cx))
+                        .is_err()
+                    {
                         break;
                     }
                     let timer = match this.update(cx, |_, cx| {
-                        cx.background_executor().timer(std::time::Duration::from_secs(6 * 3600))
+                        cx.background_executor()
+                            .timer(std::time::Duration::from_secs(6 * 3600))
                     }) {
                         Ok(timer) => timer,
                         Err(_) => break,
@@ -638,12 +685,19 @@ impl Oxide {
     }
 
     fn check_for_updates(&mut self, manual: bool, cx: &mut Context<Self>) {
-        if matches!(self.update, UpdateState::Checking | UpdateState::Downloading(_)) {
+        if matches!(
+            self.update,
+            UpdateState::Checking | UpdateState::Downloading(_)
+        ) {
             return;
         }
         if let UpdateState::Ready { .. } = self.update {
             if manual {
-                self.toast(ToastKind::Info, "update already downloaded — click the button to install".into(), cx);
+                self.toast(
+                    ToastKind::Info,
+                    "update already downloaded — click the button to install".into(),
+                    cx,
+                );
             }
             return;
         }
@@ -661,7 +715,8 @@ impl Oxide {
                     this.update(cx, |this, cx| {
                         this.update = UpdateState::Idle;
                         if manual {
-                            this.toast(ToastKind::Info, 
+                            this.toast(
+                                ToastKind::Info,
                                 format!("Oxide is up to date (v{})", env!("CARGO_PKG_VERSION")),
                                 cx,
                             );
@@ -692,11 +747,16 @@ impl Oxide {
                 return;
             }
             let bg2 = cx.background_executor().clone();
-            let downloaded = bg2.spawn(async move { crate::update::download(&info) }).await;
+            let downloaded = bg2
+                .spawn(async move { crate::update::download(&info) })
+                .await;
             this.update(cx, |this, cx| {
                 match downloaded {
                     Ok(dmg) => {
-                        this.update = UpdateState::Ready { version: version.clone(), dmg };
+                        this.update = UpdateState::Ready {
+                            version: version.clone(),
+                            dmg,
+                        };
                     }
                     Err(e) => {
                         // The check just succeeded, so this isn't "offline":
@@ -720,7 +780,8 @@ impl Oxide {
                     if crate::update::installed_bundle().is_some() {
                         cx.quit();
                     } else {
-                        self.toast(ToastKind::Info, 
+                        self.toast(
+                            ToastKind::Info,
                             "not running from an installed app — opened the DMG instead".into(),
                             cx,
                         );
@@ -830,9 +891,14 @@ impl Oxide {
             if id == self.active_id() {
                 continue;
             }
-            let Some(b) = self.pane_bounds(id, cx) else { continue };
+            let Some(b) = self.pane_bounds(id, cx) else {
+                continue;
+            };
             let (left, top) = (f32::from(b.origin.x), f32::from(b.origin.y));
-            let (right, bottom) = (left + f32::from(b.size.width), top + f32::from(b.size.height));
+            let (right, bottom) = (
+                left + f32::from(b.size.width),
+                top + f32::from(b.size.height),
+            );
             let (bx, by) = ((left + right) / 2.0, (top + bottom) / 2.0);
             let (cur_left, cur_top) = (f32::from(current.origin.x), f32::from(current.origin.y));
             let (cur_right, cur_bottom) = (
@@ -860,7 +926,9 @@ impl Oxide {
         if !self.config.tree.follow_cwd {
             return;
         }
-        let Some(cwd) = self.active_pane().read(cx).cwd.clone() else { return };
+        let Some(cwd) = self.active_pane().read(cx).cwd.clone() else {
+            return;
+        };
         let tree = self.tree.clone();
         // Deferred: this can run from render, where re-entrant entity updates
         // are not allowed.
@@ -918,7 +986,9 @@ impl Oxide {
         tab.layout.split(&target, direction, id);
         // A split while zoomed is a request to see both.
         tab.zoomed = None;
-        if tab.broadcast && let Some(pane) = self.panes.get(&id) {
+        if tab.broadcast
+            && let Some(pane) = self.panes.get(&id)
+        {
             pane.update(cx, |t, _| t.broadcast = true);
         }
         self.focus_pane(id, window, cx);
@@ -935,7 +1005,11 @@ impl Oxide {
         } else if tab.layout.len() > 1 {
             tab.zoomed = Some(tab.active);
         } else {
-            self.toast(ToastKind::Info, "zoom needs more than one pane in the tab".into(), cx);
+            self.toast(
+                ToastKind::Info,
+                "zoom needs more than one pane in the tab".into(),
+                cx,
+            );
             return;
         }
         cx.notify();
@@ -943,7 +1017,11 @@ impl Oxide {
 
     fn toggle_broadcast(&mut self, cx: &mut Context<Self>) {
         if self.tab().layout.len() < 2 {
-            self.toast(ToastKind::Info, "broadcast needs more than one pane in the tab".into(), cx);
+            self.toast(
+                ToastKind::Info,
+                "broadcast needs more than one pane in the tab".into(),
+                cx,
+            );
             return;
         }
         let on = !self.tab().broadcast;
@@ -956,7 +1034,13 @@ impl Oxide {
     /// Push the tab's broadcast flag down to its panes, switching it off
     /// first if the tab is down to one pane — nothing to broadcast to.
     fn sync_tab_broadcast(&mut self, wix: usize, tix: usize, cx: &mut Context<Self>) {
-        let Some(tab) = self.workspaces.get_mut(wix).and_then(|w| w.tabs.get_mut(tix)) else { return };
+        let Some(tab) = self
+            .workspaces
+            .get_mut(wix)
+            .and_then(|w| w.tabs.get_mut(tix))
+        else {
+            return;
+        };
         if tab.layout.len() < 2 {
             tab.broadcast = false;
         }
@@ -970,13 +1054,17 @@ impl Oxide {
 
     /// Input from one pane, echoed to the others in its tab.
     fn broadcast_input(&mut self, from: PaneId, bytes: &[u8], cx: &mut Context<Self>) {
-        let Some((wix, tix)) = self.locate_pane(from) else { return };
+        let Some((wix, tix)) = self.locate_pane(from) else {
+            return;
+        };
         let tab = &self.workspaces[wix].tabs[tix];
         if !tab.broadcast {
             return;
         }
         for id in tab.layout.leaves() {
-            if id != from && let Some(pane) = self.panes.get(&id) {
+            if id != from
+                && let Some(pane) = self.panes.get(&id)
+            {
                 pane.update(cx, |t, _| t.write_raw(bytes.to_vec()));
             }
         }
@@ -989,13 +1077,23 @@ impl Oxide {
         match others {
             0 => {}
             1 => self.close_other_panes(window, cx),
-            n => self.open_confirm(format!("Close the other {n} panes in this tab?"), window, cx),
+            n => self.open_confirm(
+                format!("Close the other {n} panes in this tab?"),
+                window,
+                cx,
+            ),
         }
     }
 
     fn close_other_panes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let keep = self.active_id();
-        let others: Vec<PaneId> = self.tab().layout.leaves().into_iter().filter(|id| *id != keep).collect();
+        let others: Vec<PaneId> = self
+            .tab()
+            .layout
+            .leaves()
+            .into_iter()
+            .filter(|id| *id != keep)
+            .collect();
         if others.is_empty() {
             return;
         }
@@ -1025,7 +1123,9 @@ impl Oxide {
     /// this was the last pane of the last tab of the last workspace — the
     /// caller decides whether that closes the window.
     fn close_pane(&mut self, id: PaneId, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let Some((wix, tix)) = self.locate_pane(id) else { return true };
+        let Some((wix, tix)) = self.locate_pane(id) else {
+            return true;
+        };
         let tab = &mut self.workspaces[wix].tabs[tix];
 
         if tab.layout.len() > 1 {
@@ -1066,7 +1166,13 @@ impl Oxide {
 
     /// Remove a whole tab (all its panes). Callers guarantee the workspace
     /// keeps at least one tab.
-    fn close_tab_at(&mut self, wix: usize, tix: usize, window: &mut Window, cx: &mut Context<Self>) {
+    fn close_tab_at(
+        &mut self,
+        wix: usize,
+        tix: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let was_active_tab = wix == self.active_ws && tix == self.workspaces[wix].active_tab;
         let tab = self.workspaces[wix].tabs.remove(tix);
         self.remember_closed_tab(&tab, cx);
@@ -1152,7 +1258,10 @@ impl Oxide {
                 let many = tab.layout.len() > 1;
                 // Only mark the active pane when there is a choice to make.
                 let show_ring = focused && (many || self.drawer_visible);
-                let flashing = self.fail_flash.get(id).is_some_and(|until| Instant::now() < *until);
+                let flashing = self
+                    .fail_flash
+                    .get(id)
+                    .is_some_and(|until| Instant::now() < *until);
                 // A pane ssh'd into a host with a configured accent wears it
                 // on its border, focused or not: "am I on prod?" at a glance.
                 let ssh_accent = pane
@@ -1164,9 +1273,17 @@ impl Oxide {
                     self.theme.ansi[1]
                 } else if tab.broadcast {
                     // Impossible to miss, on every pane that will receive input.
-                    if focused { self.theme.ansi[1] } else { blend(self.theme.ansi[1], self.theme.background, 0.4) }
+                    if focused {
+                        self.theme.ansi[1]
+                    } else {
+                        blend(self.theme.ansi[1], self.theme.background, 0.4)
+                    }
                 } else if let Some(color) = ssh_accent {
-                    if focused { color } else { blend(color, self.theme.background, 0.35) }
+                    if focused {
+                        color
+                    } else {
+                        blend(color, self.theme.background, 0.35)
+                    }
                 } else if show_ring {
                     accent
                 } else {
@@ -1189,18 +1306,30 @@ impl Oxide {
                     .when(dimmed, |d| d.child(div().absolute().inset_0().bg(shade)))
                     .into_any_element()
             }
-            Node::Split { axis, children, ratios } => {
+            Node::Split {
+                axis,
+                children,
+                ratios,
+            } => {
                 let horizontal = *axis == Axis::Horizontal;
                 let mut container = div().size_full().flex().min_w_0().min_h_0();
-                container = if horizontal { container.flex_row() } else { container.flex_col() };
+                container = if horizontal {
+                    container.flex_row()
+                } else {
+                    container.flex_col()
+                };
                 // A hairline between siblings; the focus ring stays the only
                 // coloured edge, so the active pane still reads at a glance.
                 let divider = blend(self.theme.foreground, self.theme.background, 0.72);
                 for (ix, child) in children.iter().enumerate() {
                     if ix > 0 {
-                        container = container.child(self.render_divider(path, ix - 1, *axis, divider, cx));
+                        container =
+                            container.child(self.render_divider(path, ix - 1, *axis, divider, cx));
                     }
-                    let ratio = ratios.get(ix).copied().unwrap_or(1.0 / children.len() as f32);
+                    let ratio = ratios
+                        .get(ix)
+                        .copied()
+                        .unwrap_or(1.0 / children.len() as f32);
                     let mut child_path = path.clone();
                     child_path.push(ix);
                     // Flex weights rather than percentages: taffy shares out
@@ -1213,9 +1342,13 @@ impl Oxide {
                         style.flex_shrink = Some(1.0);
                         style.flex_basis = Some(px(0.0).into());
                     }
-                    container = container.child(
-                        cell.child(self.render_pane_node(child, &child_path, accent, window, cx)),
-                    );
+                    container = container.child(cell.child(self.render_pane_node(
+                        child,
+                        &child_path,
+                        accent,
+                        window,
+                        cx,
+                    )));
                 }
                 container.into_any_element()
             }
@@ -1236,10 +1369,15 @@ impl Oxide {
         let horizontal = axis == Axis::Horizontal;
         // While a modal or a drag is up, the deferred grab areas would paint
         // above it; they aren't needed then anyway.
-        let interactive = self.overlay.is_none() && self.divider_drag.is_none() && self.ws_context_menu.is_none();
+        let interactive =
+            self.overlay.is_none() && self.divider_drag.is_none() && self.ws_context_menu.is_none();
         let path = path.clone();
         let line = div().flex_none().relative().bg(color);
-        let line = if horizontal { line.w(px(1.0)).h_full() } else { line.h(px(1.0)).w_full() };
+        let line = if horizontal {
+            line.w(px(1.0)).h_full()
+        } else {
+            line.h(px(1.0)).w_full()
+        };
         line.when(interactive, |line| {
             let hit = div()
                 .absolute()
@@ -1268,7 +1406,9 @@ impl Oxide {
         if !self.config.status_bar.enabled {
             return;
         }
-        let Some(cwd) = self.active_pane().read(cx).cwd.clone() else { return };
+        let Some(cwd) = self.active_pane().read(cx).cwd.clone() else {
+            return;
+        };
         let bg = cx.background_executor().clone();
         cx.spawn(async move |this, cx| {
             let status = bg.spawn(async move { read_git_status(&cwd) }).await;
@@ -1283,13 +1423,19 @@ impl Oxide {
         .detach();
     }
 
-    fn save_bounds_debounced(&mut self, bounds: gpui::Bounds<gpui::Pixels>, cx: &mut Context<Self>) {
+    fn save_bounds_debounced(
+        &mut self,
+        bounds: gpui::Bounds<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) {
         self.last_bounds = Some(bounds);
         if self.bounds_save_scheduled {
             return;
         }
         self.bounds_save_scheduled = true;
-        let timer = cx.background_executor().timer(std::time::Duration::from_millis(1000));
+        let timer = cx
+            .background_executor()
+            .timer(std::time::Duration::from_millis(1000));
         cx.spawn(async move |this, cx| {
             timer.await;
             this.update(cx, |this, _| {
@@ -1329,8 +1475,13 @@ impl Oxide {
                 let config = self.config.clone();
                 let theme = self.theme.clone();
                 self.for_each_pane(cx, |t, cx| t.set_config(config.clone(), theme.clone(), cx));
-                self.tree.update(cx, |t, cx| t.set_config(config, theme, cx));
-                let keymap_banner = if keymap_changed { self.rebind_keys(cx) } else { None };
+                self.tree
+                    .update(cx, |t, cx| t.set_config(config, theme, cx));
+                let keymap_banner = if keymap_changed {
+                    self.rebind_keys(cx)
+                } else {
+                    None
+                };
                 if let Some(message) = keymap_banner {
                     // Like a parse error: stays up until the next clean reload.
                     self.sticky_toast(message);
@@ -1363,7 +1514,9 @@ impl Oxide {
             return;
         }
         self.dark_appearance = dark;
-        if !self.config.colors.follow_system || matches!(self.overlay, Some(Overlay::ThemePicker(_))) {
+        if !self.config.colors.follow_system
+            || matches!(self.overlay, Some(Overlay::ThemePicker(_)))
+        {
             return;
         }
         let theme = Rc::new(Theme::resolve(&self.config.colors, dark));
@@ -1383,10 +1536,22 @@ impl Oxide {
         banner
     }
 
-    fn push_toast(&mut self, kind: ToastKind, message: String, opens_changelog: bool, sticky: bool) -> usize {
+    fn push_toast(
+        &mut self,
+        kind: ToastKind,
+        message: String,
+        opens_changelog: bool,
+        sticky: bool,
+    ) -> usize {
         let id = self.next_toast_id;
         self.next_toast_id += 1;
-        self.toasts.push(Toast { id, kind, message, opens_changelog, sticky });
+        self.toasts.push(Toast {
+            id,
+            kind,
+            message,
+            opens_changelog,
+            sticky,
+        });
         id
     }
 
@@ -1430,7 +1595,11 @@ impl Oxide {
     /// new tab of the current workspace. The tab closes when `less` quits.
     fn open_changelog_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(path) = crate::changelog::write_rendered() else {
-            self.toast(ToastKind::Error, "couldn't write the changelog to ~/.cache/oxide".into(), cx);
+            self.toast(
+                ToastKind::Error,
+                "couldn't write the changelog to ~/.cache/oxide".into(),
+                cx,
+            );
             return;
         };
         let cwd = self.new_tab_cwd(cx);
@@ -1438,11 +1607,20 @@ impl Oxide {
         let timeout = self.config.workspaces.startup_timeout.0;
         self.panes[&id].update(cx, |pane, cx| {
             let command = format!("less -R {}", shell_quote(&path));
-            pane.set_startup(Some(StartupCommand { command, on_exit: OnExit::Close }), cx);
+            pane.set_startup(
+                Some(StartupCommand {
+                    command,
+                    on_exit: OnExit::Close,
+                }),
+                cx,
+            );
             pane.arm_startup(timeout, cx);
         });
         let ws = self.ws_mut();
-        ws.tabs.push(TabState { title: Some("what's new".into()), ..TabState::new(Node::Leaf(id), id) });
+        ws.tabs.push(TabState {
+            title: Some("what's new".into()),
+            ..TabState::new(Node::Leaf(id), id)
+        });
         ws.active_tab = ws.tabs.len() - 1;
         self.focus_pane(id, window, cx);
     }
@@ -1461,7 +1639,10 @@ impl Oxide {
             .gap_1()
             .children(self.toasts.iter().map(|t| {
                 let (bg, fg) = match t.kind {
-                    ToastKind::Info => (blend(theme.background, theme.foreground, 0.12), theme.foreground),
+                    ToastKind::Info => (
+                        blend(theme.background, theme.foreground, 0.12),
+                        theme.foreground,
+                    ),
                     ToastKind::Error => (theme.ansi[1], theme.background),
                 };
                 let id = t.id;
@@ -1507,7 +1688,8 @@ impl Oxide {
             }
             TreeEvent::InsertPath { path, absolute } => {
                 let (path, absolute) = (path.clone(), *absolute);
-                self.active_pane().update(cx, |t, _| t.insert_path(&path, absolute));
+                self.active_pane()
+                    .update(cx, |t, _| t.insert_path(&path, absolute));
                 self.focus_terminal(Some(window), cx);
             }
             TreeEvent::FocusTerminal => self.focus_terminal(Some(window), cx),
@@ -1552,7 +1734,9 @@ impl Oxide {
             TerminalEvent::Output => {
                 // A background tab gets a dot; the active one is being
                 // watched already.
-                let Some(id) = self.pane_id_of(emitter) else { return };
+                let Some(id) = self.pane_id_of(emitter) else {
+                    return;
+                };
                 if let Some((wix, tix)) = self.locate_pane(id)
                     && !(wix == self.active_ws && tix == self.ws().active_tab)
                 {
@@ -1567,18 +1751,34 @@ impl Oxide {
                 self.start_ticker(cx);
                 cx.notify();
             }
-            TerminalEvent::CommandFinished { label, exit, duration } => {
-                let Some(id) = self.pane_id_of(emitter) else { return };
-                let pane_focused = window.is_window_active() && emitter.focus_handle(cx).is_focused(window);
-                let finished = notifications::Finished { duration: *duration, exit: *exit, pane_focused };
+            TerminalEvent::CommandFinished {
+                label,
+                exit,
+                duration,
+            } => {
+                let Some(id) = self.pane_id_of(emitter) else {
+                    return;
+                };
+                let pane_focused =
+                    window.is_window_active() && emitter.focus_handle(cx).is_focused(window);
+                let finished = notifications::Finished {
+                    duration: *duration,
+                    exit: *exit,
+                    pane_focused,
+                };
                 if notifications::should_notify(&self.config.notifications, finished) {
                     let route = self.route_for(id);
-                    notifications::post("Oxide", &notifications::command_summary(label, *exit, *duration), Some(route));
+                    notifications::post(
+                        "Oxide",
+                        &notifications::command_summary(label, *exit, *duration),
+                        Some(route),
+                    );
                 }
                 // A failure somewhere you weren't looking: flash that pane's
                 // ring so the eye lands on the right split.
                 if exit.is_some_and(|e| e != 0) && !emitter.focus_handle(cx).is_focused(window) {
-                    self.fail_flash.insert(id, Instant::now() + Duration::from_millis(1500));
+                    self.fail_flash
+                        .insert(id, Instant::now() + Duration::from_millis(1500));
                     let timer = cx.background_executor().timer(Duration::from_millis(1600));
                     cx.spawn(async move |this, cx| {
                         timer.await;
@@ -1666,8 +1866,12 @@ impl Oxide {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(id) = self.notification_routes.remove(&key) else { return false };
-        let Some((wix, tix)) = self.locate_pane(id) else { return true };
+        let Some(id) = self.notification_routes.remove(&key) else {
+            return false;
+        };
+        let Some((wix, tix)) = self.locate_pane(id) else {
+            return true;
+        };
         self.active_ws = wix;
         self.ws_selected = wix;
         self.workspaces[wix].active_tab = tix;
@@ -1687,7 +1891,9 @@ impl Oxide {
         self.ticking = true;
         cx.spawn(async move |this, cx| {
             loop {
-                let timer = match this.update(cx, |_, cx| cx.background_executor().timer(Duration::from_secs(1))) {
+                let timer = match this.update(cx, |_, cx| {
+                    cx.background_executor().timer(Duration::from_secs(1))
+                }) {
                     Ok(timer) => timer,
                     Err(_) => break,
                 };
@@ -1753,7 +1959,9 @@ impl Oxide {
     fn restore_focus(&mut self, target: FocusTarget, window: &mut Window, cx: &mut Context<Self>) {
         match target {
             FocusTarget::Tree if self.drawer_visible => self.focus_tree(Some(window), cx),
-            FocusTarget::Workspaces if self.drawer_visible => self.focus_workspaces_panel(window, cx),
+            FocusTarget::Workspaces if self.drawer_visible => {
+                self.focus_workspaces_panel(window, cx)
+            }
             FocusTarget::Pane(id) if self.panes.contains_key(&id) => {
                 if let Some(pane) = self.panes.get(&id) {
                     window.focus(&pane.focus_handle(cx));
@@ -1766,7 +1974,9 @@ impl Oxide {
 
     /// Dismiss whichever overlay is open and hand focus back to where it was.
     fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(overlay) = self.overlay.take() else { return };
+        let Some(overlay) = self.overlay.take() else {
+            return;
+        };
         let target = match &overlay {
             Overlay::Palette(p) => p.return_focus,
             Overlay::ThemePicker(t) => t.return_focus,
@@ -1788,7 +1998,8 @@ impl Oxide {
             Some(Overlay::History(_)) => self.history_move(delta, cx),
             Some(Overlay::FileFinder(_)) => self.finder_move(delta, cx),
             Some(Overlay::StartupEditor(_)) => self.startup_editor_move(delta, cx),
-            Some(Overlay::TabRename(_) | Overlay::Confirm(_) | Overlay::StartupCommand(_)) | None => {}
+            Some(Overlay::TabRename(_) | Overlay::Confirm(_) | Overlay::StartupCommand(_))
+            | None => {}
         }
     }
 
@@ -1860,7 +2071,9 @@ impl Oxide {
     /// feel like remembering rather than form-filling — the last command
     /// that ran in the pane.
     fn open_startup_command(&mut self, pane: PaneId, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(entity) = self.panes.get(&pane) else { return };
+        let Some(entity) = self.panes.get(&pane) else {
+            return;
+        };
         let (current, cwd, last) = {
             let p = entity.read(cx);
             let last = p.log.entries().rev().find_map(|c| c.text.clone());
@@ -1883,14 +2096,20 @@ impl Oxide {
     }
 
     fn startup_command_confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(Overlay::StartupCommand(s)) = &self.overlay else { return };
+        let Some(Overlay::StartupCommand(s)) = &self.overlay else {
+            return;
+        };
         let (pane, command, on_exit) = (s.pane, s.buffer.trim().to_string(), s.on_exit);
         let startup = (!command.is_empty()).then_some(StartupCommand { command, on_exit });
         if let Some(entity) = self.panes.get(&pane) {
             entity.update(cx, |p, cx| p.set_startup(startup.clone(), cx));
         }
         self.close_overlay(window, cx);
-        self.after_startup_edit(self.locate_pane(pane).map(|(w, _)| w), startup.is_some(), cx);
+        self.after_startup_edit(
+            self.locate_pane(pane).map(|(w, _)| w),
+            startup.is_some(),
+            cx,
+        );
     }
 
     /// Save, and nudge if the workspace isn't pinned — a startup command on
@@ -1898,8 +2117,11 @@ impl Oxide {
     /// intent.
     fn after_startup_edit(&mut self, wix: Option<usize>, any_set: bool, cx: &mut Context<Self>) {
         self.save_workspaces(cx);
-        if any_set && let Some(ws) = wix.and_then(|w| self.workspaces.get(w)) && !ws.persist {
-            self.toast(ToastKind::Info, 
+        if any_set
+            && let Some(ws) = wix.and_then(|w| self.workspaces.get(w))
+            && !ws.persist
+        {
+            self.toast(ToastKind::Info,
                 format!("startup command set — pin \"{}\" (p in the workspaces panel) to keep it across restarts", ws.name),
                 cx,
             );
@@ -1909,15 +2131,26 @@ impl Oxide {
 
     /// Every pane in a workspace with its command, editable in one place.
     fn open_startup_editor(&mut self, wix: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(ws) = self.workspaces.get(wix) else { return };
+        let Some(ws) = self.workspaces.get(wix) else {
+            return;
+        };
         let home = home_dir();
         let mut rows = Vec::new();
         for (tix, tab) in ws.tabs.iter().enumerate() {
             for (pix, id) in tab.layout.leaves().into_iter().enumerate() {
-                let Some(pane) = self.panes.get(&id) else { continue };
+                let Some(pane) = self.panes.get(&id) else {
+                    continue;
+                };
                 let p = pane.read(cx);
-                let dir = p.cwd.as_deref().map(|d| pretty_path(d, home.as_deref())).unwrap_or_default();
-                let tab_name = tab.title.clone().unwrap_or_else(|| format!("tab {}", tix + 1));
+                let dir = p
+                    .cwd
+                    .as_deref()
+                    .map(|d| pretty_path(d, home.as_deref()))
+                    .unwrap_or_default();
+                let tab_name = tab
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| format!("tab {}", tix + 1));
                 let label = if tab.layout.len() > 1 {
                     format!("{tab_name} · pane {} — {dir}", pix + 1)
                 } else {
@@ -1927,7 +2160,12 @@ impl Oxide {
                     Some(s) => (s.command.clone(), s.on_exit),
                     None => (String::new(), OnExit::default()),
                 };
-                rows.push(StartupRow { pane: id, label, command, on_exit });
+                rows.push(StartupRow {
+                    pane: id,
+                    label,
+                    command,
+                    on_exit,
+                });
             }
         }
         if rows.is_empty() {
@@ -1946,7 +2184,9 @@ impl Oxide {
     }
 
     fn startup_editor_move(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let Some(Overlay::StartupEditor(e)) = &mut self.overlay else { return };
+        let Some(Overlay::StartupEditor(e)) = &mut self.overlay else {
+            return;
+        };
         let n = e.rows.len() as isize;
         if n > 0 {
             e.selected = (e.selected as isize + delta).rem_euclid(n) as usize;
@@ -1955,14 +2195,22 @@ impl Oxide {
     }
 
     fn startup_editor_confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(Overlay::StartupEditor(e)) = &self.overlay else { return };
+        let Some(Overlay::StartupEditor(e)) = &self.overlay else {
+            return;
+        };
         let wix = e.ws;
         let edits: Vec<(PaneId, Option<StartupCommand>)> = e
             .rows
             .iter()
             .map(|r| {
                 let command = r.command.trim().to_string();
-                (r.pane, (!command.is_empty()).then_some(StartupCommand { command, on_exit: r.on_exit }))
+                (
+                    r.pane,
+                    (!command.is_empty()).then_some(StartupCommand {
+                        command,
+                        on_exit: r.on_exit,
+                    }),
+                )
             })
             .collect();
         let any_set = edits.iter().any(|(_, s)| s.is_some());
@@ -2010,7 +2258,11 @@ impl Oxide {
         let dim = blend(theme.foreground, theme.background, 0.45);
         let border = blend(theme.foreground, theme.background, 0.85);
         let home = home_dir();
-        let where_ = s.cwd.as_deref().map(|d| pretty_path(d, home.as_deref())).unwrap_or_default();
+        let where_ = s
+            .cwd
+            .as_deref()
+            .map(|d| pretty_path(d, home.as_deref()))
+            .unwrap_or_default();
         let header = div()
             .flex_none()
             .px_3()
@@ -2021,8 +2273,19 @@ impl Oxide {
             .flex_row()
             .items_center()
             .gap_2()
-            .child(div().text_color(blend(theme.foreground, theme.background, 0.3)).child("startup command"))
-            .child(div().flex_1().overflow_hidden().text_size(px(11.0)).text_color(dim).child(where_));
+            .child(
+                div()
+                    .text_color(blend(theme.foreground, theme.background, 0.3))
+                    .child("startup command"),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .overflow_hidden()
+                    .text_size(px(11.0))
+                    .text_color(dim)
+                    .child(where_),
+            );
         let input = div()
             .flex_none()
             .px_3()
@@ -2035,9 +2298,15 @@ impl Oxide {
             .gap_2()
             .child(div().text_color(accent).child("▸"))
             .child(if s.buffer.is_empty() {
-                div().flex_1().text_color(dim).child("▏nothing — just a shell")
+                div()
+                    .flex_1()
+                    .text_color(dim)
+                    .child("▏nothing — just a shell")
             } else {
-                div().flex_1().overflow_hidden().child(format!("{}▏", s.buffer))
+                div()
+                    .flex_1()
+                    .overflow_hidden()
+                    .child(format!("{}▏", s.buffer))
             })
             .child(self.on_exit_chip(s.on_exit, true));
         let footer = div()
@@ -2046,8 +2315,15 @@ impl Oxide {
             .py_1()
             .text_size(px(11.0))
             .text_color(dim)
-            .child("⏎ save · empty clears · tab cycles on-exit (shell / close / restart) · esc cancel");
-        div().flex().flex_col().child(header).child(input).child(footer)
+            .child(
+                "⏎ save · empty clears · tab cycles on-exit (shell / close / restart) · esc cancel",
+            );
+        div()
+            .flex()
+            .flex_col()
+            .child(header)
+            .child(input)
+            .child(footer)
     }
 
     fn render_startup_editor_body(&self, e: &StartupEditorState, cx: &Context<Self>) -> gpui::Div {
@@ -2085,19 +2361,38 @@ impl Oxide {
                             }
                         }),
                     )
-                    .child(div().text_size(px(11.0)).text_color(dim).child(row.label.clone()))
+                    .child(
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(dim)
+                            .child(row.label.clone()),
+                    )
                     .child(
                         div()
                             .flex()
                             .flex_row()
                             .items_center()
                             .gap_2()
-                            .child(div().text_color(if row.command.is_empty() { dim } else { accent }).child("▸"))
+                            .child(
+                                div()
+                                    .text_color(if row.command.is_empty() { dim } else { accent })
+                                    .child("▸"),
+                            )
                             .child(match (row.command.is_empty(), is_selected) {
-                                (true, true) => div().flex_1().text_color(dim).child("▏nothing — just a shell"),
-                                (true, false) => div().flex_1().text_color(dim).child("just a shell"),
-                                (false, true) => div().flex_1().overflow_hidden().child(format!("{}▏", row.command)),
-                                (false, false) => div().flex_1().overflow_hidden().child(row.command.clone()),
+                                (true, true) => div()
+                                    .flex_1()
+                                    .text_color(dim)
+                                    .child("▏nothing — just a shell"),
+                                (true, false) => {
+                                    div().flex_1().text_color(dim).child("just a shell")
+                                }
+                                (false, true) => div()
+                                    .flex_1()
+                                    .overflow_hidden()
+                                    .child(format!("{}▏", row.command)),
+                                (false, false) => {
+                                    div().flex_1().overflow_hidden().child(row.command.clone())
+                                }
                             })
                             .when(!row.command.is_empty() || is_selected, |d| {
                                 d.child(self.on_exit_chip(row.on_exit, is_selected))
@@ -2114,7 +2409,12 @@ impl Oxide {
             .text_size(px(11.0))
             .text_color(dim)
             .child("↑↓ pane · type to edit · tab cycles on-exit · ⏎ save all · esc cancel");
-        div().flex().flex_col().child(header).child(list).child(footer)
+        div()
+            .flex()
+            .flex_col()
+            .child(header)
+            .child(list)
+            .child(footer)
     }
 
     // --- Tab rename and confirmations ---
@@ -2125,14 +2425,20 @@ impl Oxide {
         }
         let return_focus = self.current_focus_target(window, cx);
         let buffer = self.ws().tabs[tab].title.clone().unwrap_or_default();
-        self.overlay = Some(Overlay::TabRename(TabRenameState { buffer, tab, return_focus }));
+        self.overlay = Some(Overlay::TabRename(TabRenameState {
+            buffer,
+            tab,
+            return_focus,
+        }));
         window.focus(&self.picker_focus);
         cx.notify();
     }
 
     /// Set the title; an empty name goes back to the automatic one.
     fn tab_rename_confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(Overlay::TabRename(r)) = &self.overlay else { return };
+        let Some(Overlay::TabRename(r)) = &self.overlay else {
+            return;
+        };
         let (tab, name) = (r.tab, r.buffer.trim().to_string());
         if let Some(t) = self.ws_mut().tabs.get_mut(tab) {
             t.title = (!name.is_empty()).then_some(name);
@@ -2144,7 +2450,10 @@ impl Oxide {
     /// The only confirmable action today is close-other-panes; `confirm_run` calls it directly.
     fn open_confirm(&mut self, message: String, window: &mut Window, cx: &mut Context<Self>) {
         let return_focus = self.current_focus_target(window, cx);
-        self.overlay = Some(Overlay::Confirm(ConfirmState { message, return_focus }));
+        self.overlay = Some(Overlay::Confirm(ConfirmState {
+            message,
+            return_focus,
+        }));
         window.focus(&self.picker_focus);
         cx.notify();
     }
@@ -2176,7 +2485,10 @@ impl Oxide {
             .child(if r.buffer.is_empty() {
                 div().flex_1().text_color(dim).child("▏automatic title…")
             } else {
-                div().flex_1().overflow_hidden().child(format!("{}▏", r.buffer))
+                div()
+                    .flex_1()
+                    .overflow_hidden()
+                    .child(format!("{}▏", r.buffer))
             });
         let footer = div()
             .flex_none()
@@ -2195,7 +2507,15 @@ impl Oxide {
         div()
             .flex()
             .flex_col()
-            .child(div().flex_none().px_3().py_2().border_b_1().border_color(border).child(c.message.clone()))
+            .child(
+                div()
+                    .flex_none()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(border)
+                    .child(c.message.clone()),
+            )
             .child(
                 div()
                     .flex_none()
@@ -2237,7 +2557,8 @@ impl Oxide {
         self.theme = theme.clone();
         let config = self.config.clone();
         self.for_each_pane(cx, |t, cx| t.set_config(config.clone(), theme.clone(), cx));
-        self.tree.update(cx, |t, cx| t.set_config(config, theme, cx));
+        self.tree
+            .update(cx, |t, cx| t.set_config(config, theme, cx));
         cx.notify();
     }
 
@@ -2245,7 +2566,9 @@ impl Oxide {
     /// means "I want this theme", so explicit color overrides (including the
     /// fully-pinned [colors] block older generated configs carry) don't apply.
     fn preview_selected(&mut self, cx: &mut Context<Self>) {
-        let Some(Overlay::ThemePicker(picker)) = &self.overlay else { return };
+        let Some(Overlay::ThemePicker(picker)) = &self.overlay else {
+            return;
+        };
         let name = config::theme::PRESET_NAMES[picker.selected];
         let colors = crate::config::schema::ColorsConfig {
             preset: Some(name.to_string()),
@@ -2263,7 +2586,9 @@ impl Oxide {
     }
 
     fn picker_confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(Overlay::ThemePicker(picker)) = &self.overlay else { return };
+        let Some(Overlay::ThemePicker(picker)) = &self.overlay else {
+            return;
+        };
         let name = config::theme::PRESET_NAMES[picker.selected].to_string();
         // Update in-memory config first so the file-watcher reload no-ops.
         // Committing a preset replaces the whole [colors] block — explicit
@@ -2280,7 +2605,10 @@ impl Oxide {
                 Some("preset_light")
             }
         } else {
-            config.colors = ColorsConfig { preset: Some(name.clone()), ..Default::default() };
+            config.colors = ColorsConfig {
+                preset: Some(name.clone()),
+                ..Default::default()
+            };
             None
         };
         self.config = Rc::new(config);
@@ -2319,8 +2647,13 @@ impl Oxide {
                     .border_color(preset_theme.ansi[8]),
             );
             for i in 1..7 {
-                swatches = swatches
-                    .child(div().w(px(8.0)).h(px(14.0)).rounded_sm().bg(preset_theme.ansi[i]));
+                swatches = swatches.child(
+                    div()
+                        .w(px(8.0))
+                        .h(px(14.0))
+                        .rounded_sm()
+                        .bg(preset_theme.ansi[i]),
+                );
             }
             list = list.child(
                 div()
@@ -2404,21 +2737,27 @@ impl Oxide {
     }
 
     fn palette_refresh(&mut self) {
-        let Some(Overlay::Palette(p)) = &self.overlay else { return };
+        let Some(Overlay::Palette(p)) = &self.overlay else {
+            return;
+        };
         let query = p.query.clone();
         let recent: Vec<&str> = self.palette_recent.iter().copied().collect();
         let keymap = self.keymap.clone();
         let items = palette::build_items(&query, self.palette_candidates(), &recent, |id| {
             keymap.display_for(id).map(|e| pretty_keys(&e.keys))
         });
-        let Some(Overlay::Palette(p)) = &mut self.overlay else { return };
+        let Some(Overlay::Palette(p)) = &mut self.overlay else {
+            return;
+        };
         p.matches = items;
         p.selected = 0;
         p.scroll = 0;
     }
 
     fn palette_move(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let Some(Overlay::Palette(p)) = &mut self.overlay else { return };
+        let Some(Overlay::Palette(p)) = &mut self.overlay else {
+            return;
+        };
         let n = p.matches.len();
         if n == 0 {
             return;
@@ -2436,9 +2775,15 @@ impl Oxide {
     /// action belongs to, or to wherever it was — so the action dispatches
     /// into a live element rather than the overlay we're tearing down.
     fn palette_confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(Overlay::Palette(p)) = &self.overlay else { return };
-        let Some(item) = p.matches.get(p.selected) else { return };
-        let Some(meta) = registry::by_id(item.action_id) else { return };
+        let Some(Overlay::Palette(p)) = &self.overlay else {
+            return;
+        };
+        let Some(item) = p.matches.get(p.selected) else {
+            return;
+        };
+        let Some(meta) = registry::by_id(item.action_id) else {
+            return;
+        };
         let return_focus = p.return_focus;
         self.overlay = None;
 
@@ -2473,13 +2818,18 @@ impl Oxide {
             return;
         }
         if ks.key == "tab"
-            && matches!(self.overlay, Some(Overlay::StartupCommand(_) | Overlay::StartupEditor(_)))
+            && matches!(
+                self.overlay,
+                Some(Overlay::StartupCommand(_) | Overlay::StartupEditor(_))
+            )
         {
             self.startup_cycle_on_exit(cx);
             cx.stop_propagation();
             return;
         }
-        let Some(query) = self.overlay_query_mut() else { return };
+        let Some(query) = self.overlay_query_mut() else {
+            return;
+        };
         match ks.key.as_str() {
             "backspace" => {
                 query.pop();
@@ -2555,7 +2905,12 @@ impl Oxide {
                 .await;
             this.update(cx, |this, cx| {
                 this.finder_indexing = false;
-                this.finder_index = Some(FinderIndex { root, entries: Rc::new(entries), truncated, built: Instant::now() });
+                this.finder_index = Some(FinderIndex {
+                    root,
+                    entries: Rc::new(entries),
+                    truncated,
+                    built: Instant::now(),
+                });
                 this.finder_refresh();
                 cx.notify();
             })
@@ -2574,7 +2929,9 @@ impl Oxide {
         };
         let root = index.root.clone();
         let entries = index.entries.clone();
-        let Some(Overlay::FileFinder(f)) = &mut self.overlay else { return };
+        let Some(Overlay::FileFinder(f)) = &mut self.overlay else {
+            return;
+        };
         let query = f.query.trim().to_string();
         let mut matches: Vec<FinderMatch> = entries
             .iter()
@@ -2591,10 +2948,18 @@ impl Oxide {
                     }
                     score -= rel.matches('/').count() as i32;
                 }
-                if let Some(pos) = recent.iter().position(|r| r.strip_prefix(&root).map(|p| p.to_string_lossy() == *rel).unwrap_or(false)) {
+                if let Some(pos) = recent.iter().position(|r| {
+                    r.strip_prefix(&root)
+                        .map(|p| p.to_string_lossy() == *rel)
+                        .unwrap_or(false)
+                }) {
                     score += 20 - pos.min(10) as i32;
                 }
-                Some(FinderMatch { entry: ix, highlights: m.positions, score })
+                Some(FinderMatch {
+                    entry: ix,
+                    highlights: m.positions,
+                    score,
+                })
             })
             .collect();
         matches.sort_by(|a, b| b.score.cmp(&a.score).then(a.entry.cmp(&b.entry)));
@@ -2605,7 +2970,9 @@ impl Oxide {
     }
 
     fn finder_move(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let Some(Overlay::FileFinder(f)) = &mut self.overlay else { return };
+        let Some(Overlay::FileFinder(f)) = &mut self.overlay else {
+            return;
+        };
         let n = f.matches.len();
         if n == 0 {
             return;
@@ -2619,16 +2986,28 @@ impl Oxide {
         cx.notify();
     }
 
-    fn finder_confirm(&mut self, action: FinderAction, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(Overlay::FileFinder(f)) = &self.overlay else { return };
-        let Some(index) = &self.finder_index else { return };
-        let Some(m) = f.matches.get(f.selected) else { return };
+    fn finder_confirm(
+        &mut self,
+        action: FinderAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(Overlay::FileFinder(f)) = &self.overlay else {
+            return;
+        };
+        let Some(index) = &self.finder_index else {
+            return;
+        };
+        let Some(m) = f.matches.get(f.selected) else {
+            return;
+        };
         let path = index.root.join(&index.entries[m.entry]);
         self.close_overlay(window, cx);
         match action {
             FinderAction::Open => self.open_in_editor(&path, None, window, cx),
             FinderAction::Insert => {
-                self.active_pane().update(cx, |t, _| t.insert_path(&path, false));
+                self.active_pane()
+                    .update(cx, |t, _| t.insert_path(&path, false));
                 self.focus_terminal(Some(window), cx);
             }
             FinderAction::Reveal => {
@@ -2664,12 +3043,23 @@ impl Oxide {
             .child(if f.query.is_empty() {
                 div().flex_1().text_color(dim).child("▏find a file…")
             } else {
-                div().flex_1().overflow_hidden().child(format!("{}▏", f.query))
+                div()
+                    .flex_1()
+                    .overflow_hidden()
+                    .child(format!("{}▏", f.query))
             });
 
         let mut list = div().flex().flex_col().p_1().gap(px(1.0));
         if self.finder_indexing && self.finder_index.is_none() {
-            list = list.child(div().mx_2().my_1().px_3().py_1().text_color(dim).child("indexing…"));
+            list = list.child(
+                div()
+                    .mx_2()
+                    .my_1()
+                    .px_3()
+                    .py_1()
+                    .text_color(dim)
+                    .child("indexing…"),
+            );
         } else if f.matches.is_empty() {
             list = list.child(
                 div()
@@ -2700,14 +3090,16 @@ impl Oxide {
                         .items_center()
                         .gap_2()
                         .when(is_selected, |d| d.bg(theme.selection_bg))
-                        .on_mouse_move(cx.listener(move |this, _: &gpui::MouseMoveEvent, _w, cx| {
-                            if let Some(Overlay::FileFinder(f)) = &mut this.overlay
-                                && f.selected != ix
-                            {
-                                f.selected = ix;
-                                cx.notify();
-                            }
-                        }))
+                        .on_mouse_move(cx.listener(
+                            move |this, _: &gpui::MouseMoveEvent, _w, cx| {
+                                if let Some(Overlay::FileFinder(f)) = &mut this.overlay
+                                    && f.selected != ix
+                                {
+                                    f.selected = ix;
+                                    cx.notify();
+                                }
+                            },
+                        ))
                         .on_mouse_down(
                             gpui::MouseButton::Left,
                             cx.listener(move |this, ev: &gpui::MouseDownEvent, window, cx| {
@@ -2724,7 +3116,11 @@ impl Oxide {
                                 this.finder_confirm(action, window, cx);
                             }),
                         )
-                        .child(div().flex_1().overflow_hidden().child(highlighted_text(rel, &m.highlights, accent))),
+                        .child(div().flex_1().overflow_hidden().child(highlighted_text(
+                            rel,
+                            &m.highlights,
+                            accent,
+                        ))),
                 );
             }
             if f.matches.len() > PALETTE_ROWS {
@@ -2751,15 +3147,28 @@ impl Oxide {
             .border_color(border)
             .text_size(px(11.0))
             .text_color(dim)
-            .child(format!("↑↓ move · ⏎ open · ⌘⏎ insert path · ⌥⏎ reveal in tree · esc close{note}"));
+            .child(format!(
+                "↑↓ move · ⏎ open · ⌘⏎ insert path · ⌥⏎ reveal in tree · esc close{note}"
+            ));
 
-        div().flex().flex_col().child(input).child(list).child(footer)
+        div()
+            .flex()
+            .flex_col()
+            .child(input)
+            .child(list)
+            .child(footer)
     }
 
     /// Open a file in `$EDITOR` through the shell, at a line when given.
     /// Without shell integration there's no silent channel to the shell, so
     /// the tree reveals the file instead and says why.
-    fn open_in_editor(&mut self, path: &Path, at: Option<(u32, Option<u32>)>, window: &mut Window, cx: &mut Context<Self>) {
+    fn open_in_editor(
+        &mut self,
+        path: &Path,
+        at: Option<(u32, Option<u32>)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.recent_files.retain(|p| p != path);
         self.recent_files.push_front(path.to_path_buf());
         self.recent_files.truncate(30);
@@ -2768,15 +3177,22 @@ impl Oxide {
         let widgets = name.starts_with("zsh") || name.starts_with("bash");
         if !(self.config.shell.integration && widgets) {
             self.drawer_visible = true;
-            self.tree.update(cx, |tree, cx| tree.reveal(path.to_path_buf(), cx));
-            self.toast(ToastKind::Info, 
+            self.tree
+                .update(cx, |tree, cx| tree.reveal(path.to_path_buf(), cx));
+            self.toast(ToastKind::Info,
                 "shell integration is off, so Oxide can't ask the shell for $EDITOR — revealed in the tree instead".into(),
                 cx,
             );
             return;
         }
-        let command = editor_command(&path.to_path_buf(), at, &shell, self.config.editor.open_at_line.as_deref());
-        self.active_pane().update(cx, |t, _| t.run_command(&command));
+        let command = editor_command(
+            &path.to_path_buf(),
+            at,
+            &shell,
+            self.config.editor.open_at_line.as_deref(),
+        );
+        self.active_pane()
+            .update(cx, |t, _| t.run_command(&command));
         self.focus_terminal(Some(window), cx);
     }
 
@@ -2837,7 +3253,9 @@ impl Oxide {
 
     fn history_refresh(&mut self, cx: &Context<Self>) {
         let here = self.active_pane().read(cx).cwd.clone();
-        let Some(Overlay::History(h)) = &mut self.overlay else { return };
+        let Some(Overlay::History(h)) = &mut self.overlay else {
+            return;
+        };
         let query = h.query.trim().to_string();
         let mut matches: Vec<HistoryMatch> = h
             .items
@@ -2847,8 +3265,16 @@ impl Oxide {
                 let m = palette::fuzzy_match(&query, &item.text)?;
                 // Commands run in the directory you're in now are the ones
                 // you most likely want again.
-                let local = if item.cwd.is_some() && item.cwd == here { 1 } else { 0 };
-                Some(HistoryMatch { item: ix, highlights: m.positions, score: m.score * 2 + local })
+                let local = if item.cwd.is_some() && item.cwd == here {
+                    1
+                } else {
+                    0
+                };
+                Some(HistoryMatch {
+                    item: ix,
+                    highlights: m.positions,
+                    score: m.score * 2 + local,
+                })
             })
             .collect();
         // Best match first; equal scores keep newest-first order. With no
@@ -2860,7 +3286,9 @@ impl Oxide {
     }
 
     fn history_move(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let Some(Overlay::History(h)) = &mut self.overlay else { return };
+        let Some(Overlay::History(h)) = &mut self.overlay else {
+            return;
+        };
         let n = h.matches.len();
         if n == 0 {
             return;
@@ -2877,8 +3305,12 @@ impl Oxide {
     /// Insert the command at the prompt, or (`run`) execute it through the
     /// silent-run channel so it lands in shell history exactly once.
     fn history_confirm(&mut self, run: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(Overlay::History(h)) = &self.overlay else { return };
-        let Some(m) = h.matches.get(h.selected) else { return };
+        let Some(Overlay::History(h)) = &self.overlay else {
+            return;
+        };
+        let Some(m) = h.matches.get(h.selected) else {
+            return;
+        };
         let text = h.items[m.item].text.clone();
         self.close_overlay(window, cx);
         let pane = self.active_pane();
@@ -2911,9 +3343,15 @@ impl Oxide {
             .gap_2()
             .child(div().text_color(accent).child("history"))
             .child(if h.query.is_empty() {
-                div().flex_1().text_color(dim).child("▏search commands you've run…")
+                div()
+                    .flex_1()
+                    .text_color(dim)
+                    .child("▏search commands you've run…")
             } else {
-                div().flex_1().overflow_hidden().child(format!("{}▏", h.query))
+                div()
+                    .flex_1()
+                    .overflow_hidden()
+                    .child(format!("{}▏", h.query))
             });
 
         let mut list = div().flex().flex_col().p_1().gap(px(1.0));
@@ -2945,7 +3383,11 @@ impl Oxide {
                 Some(_) => ("✗", theme.ansi[1]),
                 None => ("•", dim),
             };
-            let where_ = item.cwd.as_ref().map(|p| pretty_path(p, home.as_deref())).unwrap_or_default();
+            let where_ = item
+                .cwd
+                .as_ref()
+                .map(|p| pretty_path(p, home.as_deref()))
+                .unwrap_or_default();
             list = list.child(
                 div()
                     .id(("history-item", ix))
@@ -2974,14 +3416,25 @@ impl Oxide {
                             this.history_confirm(ev.modifiers.platform, window, cx);
                         }),
                     )
-                    .child(div().flex_none().w(px(14.0)).text_color(mark_color).child(mark))
                     .child(
                         div()
-                            .flex_1()
-                            .overflow_hidden()
-                            .child(highlighted_text(&item.text, &m.highlights, accent)),
+                            .flex_none()
+                            .w(px(14.0))
+                            .text_color(mark_color)
+                            .child(mark),
                     )
-                    .child(div().flex_none().text_size(px(11.0)).text_color(dim).child(where_)),
+                    .child(div().flex_1().overflow_hidden().child(highlighted_text(
+                        &item.text,
+                        &m.highlights,
+                        accent,
+                    )))
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(px(11.0))
+                            .text_color(dim)
+                            .child(where_),
+                    ),
             );
         }
         if h.matches.len() > PALETTE_ROWS {
@@ -3005,7 +3458,12 @@ impl Oxide {
             .text_color(dim)
             .child("↑↓ move · ⏎ insert at prompt · ⌘⏎ run · esc close");
 
-        div().flex().flex_col().child(input).child(list).child(footer)
+        div()
+            .flex()
+            .flex_col()
+            .child(input)
+            .child(list)
+            .child(footer)
     }
 
     fn render_palette_body(&self, p: &PaletteState, cx: &Context<Self>) -> gpui::Div {
@@ -3028,7 +3486,10 @@ impl Oxide {
             .child(if p.query.is_empty() {
                 div().flex_1().text_color(dim).child("▏type a command…")
             } else {
-                div().flex_1().overflow_hidden().child(format!("{}▏", p.query))
+                div()
+                    .flex_1()
+                    .overflow_hidden()
+                    .child(format!("{}▏", p.query))
             });
 
         let mut list = div().flex().flex_col().p_1().gap(px(1.0));
@@ -3079,9 +3540,19 @@ impl Oxide {
                     )
                     .child(div().flex_none().text_color(dim).child(item.category))
                     .child(div().flex_none().text_color(dim).child("›"))
-                    .child(div().flex_1().overflow_hidden().child(highlighted_text(item.title, &item.highlights, accent)))
+                    .child(div().flex_1().overflow_hidden().child(highlighted_text(
+                        item.title,
+                        &item.highlights,
+                        accent,
+                    )))
                     .when_some(item.binding.clone(), |d, keys| {
-                        d.child(div().flex_none().text_size(px(11.0)).text_color(dim).child(keys))
+                        d.child(
+                            div()
+                                .flex_none()
+                                .text_size(px(11.0))
+                                .text_color(dim)
+                                .child(keys),
+                        )
                     }),
             );
         }
@@ -3106,11 +3577,18 @@ impl Oxide {
             .text_color(dim)
             .child("↑↓ move · ⏎ run · esc close");
 
-        div().flex().flex_col().child(input).child(list).child(footer)
+        div()
+            .flex()
+            .flex_col()
+            .child(input)
+            .child(list)
+            .child(footer)
     }
 
     fn render_overlay(&self, cx: &Context<Self>) -> gpui::Div {
-        let Some(overlay) = &self.overlay else { return div() };
+        let Some(overlay) = &self.overlay else {
+            return div();
+        };
         let theme = &self.theme;
         let panel_bg = blend(theme.background, gpui::black(), 0.2);
         let mut backdrop = gpui::black();
@@ -3233,10 +3711,12 @@ impl Oxide {
     /// A pane's on-screen extent along `axis`, including its focus ring.
     fn pane_extent(&self, id: PaneId, axis: Axis, cx: &Context<Self>) -> Option<f32> {
         let bounds = self.pane_bounds(id, cx)?;
-        Some(match axis {
-            Axis::Horizontal => f32::from(bounds.size.width),
-            Axis::Vertical => f32::from(bounds.size.height),
-        } + 2.0)
+        Some(
+            match axis {
+                Axis::Horizontal => f32::from(bounds.size.width),
+                Axis::Vertical => f32::from(bounds.size.height),
+            } + 2.0,
+        )
     }
 
     fn start_divider_drag(
@@ -3248,16 +3728,27 @@ impl Oxide {
         cx: &mut Context<Self>,
     ) {
         let layout = &self.tab().layout;
-        let Some(Node::Split { ratios, children, .. }) = layout.at_path(&path) else { return };
+        let Some(Node::Split {
+            ratios, children, ..
+        }) = layout.at_path(&path)
+        else {
+            return;
+        };
         if divider + 1 >= children.len() || ratios.len() != children.len() {
             return;
         }
         // Measure the split through a pane inside the child before the
         // divider: that child spans the split's full extent along the axis
         // scaled by its ratio, since nested splits always alternate axes.
-        let Some(leaf) = children[divider].leaves().first().copied() else { return };
-        let Some(extent_child) = self.pane_extent(leaf, axis, cx) else { return };
-        let Some(pane_layout) = self.panes.get(&leaf).and_then(|p| p.read(cx).last_layout) else { return };
+        let Some(leaf) = children[divider].leaves().first().copied() else {
+            return;
+        };
+        let Some(extent_child) = self.pane_extent(leaf, axis, cx) else {
+            return;
+        };
+        let Some(pane_layout) = self.panes.get(&leaf).and_then(|p| p.read(cx).last_layout) else {
+            return;
+        };
         let extent = extent_child / ratios[divider];
         if !extent.is_finite() || extent <= 0.0 {
             return;
@@ -3280,14 +3771,20 @@ impl Oxide {
     }
 
     fn update_divider_drag(&mut self, position: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
-        let Some(drag) = &self.divider_drag else { return };
+        let Some(drag) = &self.divider_drag else {
+            return;
+        };
         let pos = match drag.axis {
             Axis::Horizontal => f32::from(position.x),
             Axis::Vertical => f32::from(position.y),
         };
         let delta = (pos - drag.start_pos) / drag.extent;
-        let (path, divider, start, min) =
-            (drag.path.clone(), drag.divider, drag.start_ratios.clone(), drag.min_ratio);
+        let (path, divider, start, min) = (
+            drag.path.clone(),
+            drag.divider,
+            drag.start_ratios.clone(),
+            drag.min_ratio,
+        );
         let layout = &mut self.tab_mut().layout;
         // Always move relative to where the drag began, so the divider tracks
         // the pointer instead of accumulating rounding from each event.
@@ -3310,15 +3807,23 @@ impl Oxide {
     /// Grow or shrink the focused pane along `axis` by a number of cells.
     fn resize_active(&mut self, axis: Axis, cells: f32, cx: &mut Context<Self>) {
         let id = self.active_id();
-        let Some(pane_extent) = self.pane_extent(id, axis, cx) else { return };
-        let Some(pane_layout) = self.panes.get(&id).and_then(|p| p.read(cx).last_layout) else { return };
+        let Some(pane_extent) = self.pane_extent(id, axis, cx) else {
+            return;
+        };
+        let Some(pane_layout) = self.panes.get(&id).and_then(|p| p.read(cx).last_layout) else {
+            return;
+        };
         let layout = &self.tab().layout;
-        let Some(path) = layout.path_to(&id) else { return };
+        let Some(path) = layout.path_to(&id) else {
+            return;
+        };
         // The nearest enclosing split that runs along `axis` is the one the
         // resize applies to; the pane's own extent equals its child's there.
         let mut share = None;
         for depth in (0..path.len()).rev() {
-            if let Some(Node::Split { axis: a, ratios, .. }) = layout.at_path(&path[..depth])
+            if let Some(Node::Split {
+                axis: a, ratios, ..
+            }) = layout.at_path(&path[..depth])
                 && *a == axis
             {
                 share = ratios.get(path[depth]).copied();
@@ -3349,7 +3854,9 @@ impl Oxide {
     }
 
     fn render_drag_overlay(&self, cx: &Context<Self>) -> gpui::Div {
-        let Some(drag) = &self.divider_drag else { return div() };
+        let Some(drag) = &self.divider_drag else {
+            return div();
+        };
         let cursor = match drag.axis {
             Axis::Horizontal => gpui::CursorStyle::ResizeLeftRight,
             Axis::Vertical => gpui::CursorStyle::ResizeUpDown,
@@ -3383,7 +3890,9 @@ impl Oxide {
         if let Some(title) = &tab.title {
             return title.clone();
         }
-        let Some(pane) = self.panes.get(&tab.active) else { return "shell".into() };
+        let Some(pane) = self.panes.get(&tab.active) else {
+            return "shell".into();
+        };
         let pane = pane.read(cx);
         if let Some(fg) = &pane.foreground
             && !fg.is_shell()
@@ -3471,8 +3980,17 @@ impl Oxide {
     /// command) in place of pane ids.
     fn saved_tab(&self, t: &TabState, cx: &Context<Self>) -> SavedTab {
         let layout = t.layout.map(&mut |id| self.saved_pane(*id, cx));
-        let active = t.layout.leaves().iter().position(|l| *l == t.active).unwrap_or(0);
-        SavedTab { layout, active, title: t.title.clone() }
+        let active = t
+            .layout
+            .leaves()
+            .iter()
+            .position(|l| *l == t.active)
+            .unwrap_or(0);
+        SavedTab {
+            layout,
+            active,
+            title: t.title.clone(),
+        }
     }
 
     fn saved_pane(&self, id: PaneId, cx: &Context<Self>) -> SavedPane {
@@ -3491,7 +4009,13 @@ impl Oxide {
 
     /// A fresh shell from a saved pane. With `run`, its startup command is
     /// queued to fire once the shell is ready.
-    fn create_pane_from(&mut self, saved: &SavedPane, run: bool, window: &mut Window, cx: &mut Context<Self>) -> PaneId {
+    fn create_pane_from(
+        &mut self,
+        saved: &SavedPane,
+        run: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> PaneId {
         let id = self.create_pane(saved.cwd.clone(), window, cx);
         if let Some(startup) = saved.startup() {
             let timeout = self.config.workspaces.startup_timeout.0;
@@ -3518,7 +4042,9 @@ impl Oxide {
     }
 
     fn any_startup_commands(&self, cx: &Context<Self>) -> bool {
-        self.workspaces.iter().any(|w| self.workspace_has_startup(w, cx))
+        self.workspaces
+            .iter()
+            .any(|w| self.workspace_has_startup(w, cx))
     }
 
     /// Keep a closed tab's shape and directories so cmd-shift-t can bring
@@ -3535,7 +4061,9 @@ impl Oxide {
             return;
         };
         let run = self.run_startup_commands;
-        let layout = saved.layout.map(&mut |pane| self.create_pane_from(pane, run, window, cx));
+        let layout = saved
+            .layout
+            .map(&mut |pane| self.create_pane_from(pane, run, window, cx));
         let leaves = layout.leaves();
         let active = leaves.get(saved.active).copied().unwrap_or(leaves[0]);
         let mut tab = TabState::new(layout, active);
@@ -3582,7 +4110,9 @@ impl Oxide {
             let mut running = false;
             let mut latest_failed: Option<(Instant, bool)> = None;
             for id in tab.layout.leaves() {
-                let Some(pane) = self.panes.get(&id) else { continue };
+                let Some(pane) = self.panes.get(&id) else {
+                    continue;
+                };
                 let log = &pane.read(cx).log;
                 running |= log.is_running();
                 if let Some(cmd) = log.last_finished()
@@ -3614,7 +4144,9 @@ impl Oxide {
                     .border_r_1()
                     .border_color(border)
                     .cursor_pointer()
-                    .when(is_active, |d| d.bg(theme.background).text_color(theme.foreground))
+                    .when(is_active, |d| {
+                        d.bg(theme.background).text_color(theme.foreground)
+                    })
                     .when(!is_active, |d| d.text_color(dim))
                     // Double-click renames; a single click selects.
                     .on_mouse_down(
@@ -3628,12 +4160,21 @@ impl Oxide {
                         }),
                     )
                     // Drag a tab onto another to reorder.
-                    .on_drag(TabDrag { ix }, move |_, _, _window, cx| cx.new(|_| TabDragLabel(drag_title.clone())))
+                    .on_drag(TabDrag { ix }, move |_, _, _window, cx| {
+                        cx.new(|_| TabDragLabel(drag_title.clone()))
+                    })
                     .on_drop(cx.listener(move |this, drag: &TabDrag, _window, cx| {
                         this.move_tab(drag.ix, ix, cx);
                     }))
                     .when_some(indicator, |d, color| {
-                        d.child(div().flex_none().w(px(6.0)).h(px(6.0)).rounded_full().bg(color))
+                        d.child(
+                            div()
+                                .flex_none()
+                                .w(px(6.0))
+                                .h(px(6.0))
+                                .rounded_full()
+                                .bg(color),
+                        )
                     })
                     .child(title)
                     .child(
@@ -3749,7 +4290,9 @@ impl Oxide {
             for saved in crate::workspaces::load() {
                 let mut tabs = Vec::new();
                 for st in &saved.tabs {
-                    let layout = st.layout.map(&mut |pane| self.create_pane_from(pane, run, window, cx));
+                    let layout = st
+                        .layout
+                        .map(&mut |pane| self.create_pane_from(pane, run, window, cx));
                     let leaves = layout.leaves();
                     let active = leaves.get(st.active).copied().unwrap_or(leaves[0]);
                     let mut tab = TabState::new(layout, active);
@@ -3765,7 +4308,11 @@ impl Oxide {
                 });
             }
             for w in &self.workspaces {
-                if let Some(n) = w.name.strip_prefix("workspace ").and_then(|r| r.parse::<usize>().ok()) {
+                if let Some(n) = w
+                    .name
+                    .strip_prefix("workspace ")
+                    .and_then(|r| r.parse::<usize>().ok())
+                {
                     self.next_ws_number = self.next_ws_number.max(n + 1);
                 }
             }
@@ -3793,8 +4340,15 @@ impl Oxide {
         cx.notify();
     }
 
-    fn on_ws_key_down(&mut self, event: &gpui::KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(mut input) = self.ws_input.take() else { return };
+    fn on_ws_key_down(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mut input) = self.ws_input.take() else {
+            return;
+        };
         let ks = &event.keystroke;
         let key_char = ks.key_char.clone();
         let plain = !ks.modifiers.platform && !ks.modifiers.control;
@@ -3914,8 +4468,10 @@ impl Oxide {
                         gpui::MouseButton::Right,
                         cx.listener(move |this, ev: &gpui::MouseDownEvent, _w, cx| {
                             this.ws_selected = ix;
-                            this.ws_context_menu =
-                                Some(WsContextMenu { ix, position: ev.position });
+                            this.ws_context_menu = Some(WsContextMenu {
+                                ix,
+                                position: ev.position,
+                            });
                             cx.notify();
                         }),
                     )
@@ -3932,7 +4488,11 @@ impl Oxide {
         }
 
         div()
-            .key_context(if self.ws_input.is_some() { "WorkspacesInput" } else { "Workspaces" })
+            .key_context(if self.ws_input.is_some() {
+                "WorkspacesInput"
+            } else {
+                "Workspaces"
+            })
             .track_focus(&self.ws_focus)
             .flex_1()
             .min_h_0()
@@ -3955,7 +4515,9 @@ impl Oxide {
                 this.select_workspace(ix, window, cx);
             }))
             .on_action(cx.listener(|this, _: &WsAdd, _w, cx| {
-                this.ws_input = Some(WsInput::Add { buffer: String::new() });
+                this.ws_input = Some(WsInput::Add {
+                    buffer: String::new(),
+                });
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &WsDelete, _w, cx| {
@@ -4034,8 +4596,12 @@ impl Oxide {
     }
 
     fn render_ws_context_menu(&self, window: &Window, cx: &Context<Self>) -> gpui::Div {
-        let Some(menu) = &self.ws_context_menu else { return div() };
-        let Some(ws) = self.workspaces.get(menu.ix) else { return div() };
+        let Some(menu) = &self.ws_context_menu else {
+            return div();
+        };
+        let Some(ws) = self.workspaces.get(menu.ix) else {
+            return div();
+        };
         let theme = &self.theme;
         let ix = menu.ix;
         let panel_bg = blend(theme.background, gpui::black(), 0.2);
@@ -4098,28 +4664,30 @@ impl Oxide {
                         gpui::MouseButton::Left,
                         |_: &gpui::MouseDownEvent, _w, cx| cx.stop_propagation(),
                     )
-                    .child(
-                        item("ws-menu-rename", "Rename".into()).on_mouse_down(
-                            gpui::MouseButton::Left,
-                            cx.listener(move |this, _: &gpui::MouseDownEvent, window, cx| {
-                                this.ws_context_menu = None;
-                                this.ws_selected = ix;
-                                let buffer = this
-                                    .workspaces
-                                    .get(ix)
-                                    .map(|w| w.name.clone())
-                                    .unwrap_or_default();
-                                this.ws_input = Some(WsInput::Rename { buffer });
-                                // Typing goes through the panel's key handler.
-                                window.focus(&this.ws_focus);
-                                cx.notify();
-                            }),
-                        ),
-                    )
+                    .child(item("ws-menu-rename", "Rename".into()).on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _: &gpui::MouseDownEvent, window, cx| {
+                            this.ws_context_menu = None;
+                            this.ws_selected = ix;
+                            let buffer = this
+                                .workspaces
+                                .get(ix)
+                                .map(|w| w.name.clone())
+                                .unwrap_or_default();
+                            this.ws_input = Some(WsInput::Rename { buffer });
+                            // Typing goes through the panel's key handler.
+                            window.focus(&this.ws_focus);
+                            cx.notify();
+                        }),
+                    ))
                     .child(
                         item(
                             "ws-menu-pin",
-                            if ws.persist { "Unpin".into() } else { "Pin".into() },
+                            if ws.persist {
+                                "Unpin".into()
+                            } else {
+                                "Pin".into()
+                            },
                         )
                         .on_mouse_down(
                             gpui::MouseButton::Left,
@@ -4253,50 +4821,59 @@ impl Oxide {
                         .child(kind.label()),
                 )
             })
-            .when_some(self.active_pane().read(cx).ssh_host().map(str::to_string), |d, host| {
-                // Where you are, when it isn't this machine. A configured
-                // host accent colours the chip too.
-                let color = self
-                    .config
-                    .ssh
-                    .accent_for(&host)
-                    .and_then(parse_hex)
-                    .unwrap_or(theme.ansi[5]);
-                let mut chip_bg = color;
-                chip_bg.a = 0.18;
-                d.child(
-                    div()
-                        .flex_none()
-                        .px_2()
-                        .py_0p5()
-                        .rounded_sm()
-                        .bg(chip_bg)
-                        .text_color(color)
-                        .child(format!("ssh: {host}")),
-                )
-            })
+            .when_some(
+                self.active_pane().read(cx).ssh_host().map(str::to_string),
+                |d, host| {
+                    // Where you are, when it isn't this machine. A configured
+                    // host accent colours the chip too.
+                    let color = self
+                        .config
+                        .ssh
+                        .accent_for(&host)
+                        .and_then(parse_hex)
+                        .unwrap_or(theme.ansi[5]);
+                    let mut chip_bg = color;
+                    chip_bg.a = 0.18;
+                    d.child(
+                        div()
+                            .flex_none()
+                            .px_2()
+                            .py_0p5()
+                            .rounded_sm()
+                            .bg(chip_bg)
+                            .text_color(color)
+                            .child(format!("ssh: {host}")),
+                    )
+                },
+            )
             .child({
                 // What the focused pane is doing: elapsed time while a
                 // command runs; the last failure once it's done. Success is
                 // silent, like the prompt's exit segment.
                 let log = &self.active_pane().read(cx).log;
                 if let Some(cmd) = log.running() {
-                    div()
-                        .flex_none()
-                        .text_color(theme.ansi[4])
-                        .child(format!("⟳ {}  {}", cmd.label(), format_duration(cmd.duration())))
+                    div().flex_none().text_color(theme.ansi[4]).child(format!(
+                        "⟳ {}  {}",
+                        cmd.label(),
+                        format_duration(cmd.duration())
+                    ))
                 } else if let Some(cmd) = log.last_finished().filter(|c| c.failed()) {
-                    div()
-                        .flex_none()
-                        .text_color(theme.ansi[1])
-                        .child(format!("✗ {} · {}", cmd.exit.unwrap_or(1), format_duration(cmd.duration())))
+                    div().flex_none().text_color(theme.ansi[1]).child(format!(
+                        "✗ {} · {}",
+                        cmd.exit.unwrap_or(1),
+                        format_duration(cmd.duration())
+                    ))
                 } else {
                     div().flex_none()
                 }
             })
             .child(div().flex_1())
             .when_some(git.branch.clone(), |d, branch| {
-                let branch_color = if git.dirty { theme.ansi[3] } else { theme.ansi[2] };
+                let branch_color = if git.dirty {
+                    theme.ansi[3]
+                } else {
+                    theme.ansi[2]
+                };
                 let mut label = format!("\u{e0a0} {branch}");
                 if git.dirty {
                     label.push_str(" ●");
@@ -4330,7 +4907,9 @@ fn walk_files(root: &Path, respect_gitignore: bool, show_hidden: bool) -> (Vec<S
         if !entry.file_type().is_some_and(|t| t.is_file()) {
             continue;
         }
-        let Ok(rel) = entry.path().strip_prefix(root) else { continue };
+        let Ok(rel) = entry.path().strip_prefix(root) else {
+            continue;
+        };
         if rel.file_name().is_some_and(|n| n == ".DS_Store") {
             continue;
         }
@@ -4340,7 +4919,12 @@ fn walk_files(root: &Path, respect_gitignore: bool, show_hidden: bool) -> (Vec<S
         }
         out.push(rel.to_string_lossy().to_string());
     }
-    out.sort_by(|a, b| a.matches('/').count().cmp(&b.matches('/').count()).then_with(|| a.cmp(b)));
+    out.sort_by(|a, b| {
+        a.matches('/')
+            .count()
+            .cmp(&b.matches('/').count())
+            .then_with(|| a.cmp(b))
+    });
     (out, truncated)
 }
 
@@ -4357,9 +4941,14 @@ fn pretty_path(path: &Path, home: Option<&Path>) -> String {
 /// Text with the matched character positions picked out in the accent.
 fn highlighted_text(text: &str, highlights: &[usize], accent: gpui::Hsla) -> gpui::StyledText {
     let mut ranges: Vec<(std::ops::Range<usize>, gpui::HighlightStyle)> = Vec::new();
-    let byte_offsets: Vec<(usize, usize)> = text.char_indices().map(|(b, c)| (b, b + c.len_utf8())).collect();
+    let byte_offsets: Vec<(usize, usize)> = text
+        .char_indices()
+        .map(|(b, c)| (b, b + c.len_utf8()))
+        .collect();
     for &pos in highlights {
-        let Some(&(start, end)) = byte_offsets.get(pos) else { continue };
+        let Some(&(start, end)) = byte_offsets.get(pos) else {
+            continue;
+        };
         // Merge with the previous range when adjacent, so a run is one span.
         if let Some((last, _)) = ranges.last_mut()
             && last.end == start
@@ -4502,7 +5091,9 @@ impl Render for Oxide {
             self.save_bounds_debounced(bounds, cx);
         }
 
-        let status_bar = self.status_bar_override.unwrap_or(self.config.status_bar.enabled);
+        let status_bar = self
+            .status_bar_override
+            .unwrap_or(self.config.status_bar.enabled);
         let bar_on_top = self.config.status_bar.position == StatusBarPosition::Top;
 
         let tree_focused = self.tree_focus(cx).is_focused(window);
@@ -4592,15 +5183,33 @@ impl Render for Oxide {
             .on_action(cx.listener(|this, _: &SelectPreviousTab, window, cx| {
                 this.cycle_tab(-1, window, cx);
             }))
-            .on_action(cx.listener(|this, _: &SelectTab1, window, cx| this.select_tab(0, window, cx)))
-            .on_action(cx.listener(|this, _: &SelectTab2, window, cx| this.select_tab(1, window, cx)))
-            .on_action(cx.listener(|this, _: &SelectTab3, window, cx| this.select_tab(2, window, cx)))
-            .on_action(cx.listener(|this, _: &SelectTab4, window, cx| this.select_tab(3, window, cx)))
-            .on_action(cx.listener(|this, _: &SelectTab5, window, cx| this.select_tab(4, window, cx)))
-            .on_action(cx.listener(|this, _: &SelectTab6, window, cx| this.select_tab(5, window, cx)))
-            .on_action(cx.listener(|this, _: &SelectTab7, window, cx| this.select_tab(6, window, cx)))
-            .on_action(cx.listener(|this, _: &SelectTab8, window, cx| this.select_tab(7, window, cx)))
-            .on_action(cx.listener(|this, _: &SelectTab9, window, cx| this.select_tab(8, window, cx)))
+            .on_action(
+                cx.listener(|this, _: &SelectTab1, window, cx| this.select_tab(0, window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &SelectTab2, window, cx| this.select_tab(1, window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &SelectTab3, window, cx| this.select_tab(2, window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &SelectTab4, window, cx| this.select_tab(3, window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &SelectTab5, window, cx| this.select_tab(4, window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &SelectTab6, window, cx| this.select_tab(5, window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &SelectTab7, window, cx| this.select_tab(6, window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &SelectTab8, window, cx| this.select_tab(7, window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &SelectTab9, window, cx| this.select_tab(8, window, cx)),
+            )
             .on_action(cx.listener(|this, _: &SplitRight, window, cx| {
                 this.split_active(Direction::Right, window, cx);
             }))
@@ -4643,13 +5252,16 @@ impl Render for Oxide {
             .on_action(|_: &Zoom, window, _cx| window.zoom_window())
             .on_action(|_: &ToggleFullscreen, window, _cx| window.toggle_fullscreen())
             .on_action(cx.listener(|this, _: &ToggleStatusBar, _w, cx| {
-                let current = this.status_bar_override.unwrap_or(this.config.status_bar.enabled);
+                let current = this
+                    .status_bar_override
+                    .unwrap_or(this.config.status_bar.enabled);
                 this.status_bar_override = Some(!current);
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &OpenSettings, window, cx| {
                 let command = edit_file_command(&config::config_path(), &this.shell_program());
-                this.active_pane().update(cx, |t, _| t.run_command(&command));
+                this.active_pane()
+                    .update(cx, |t, _| t.run_command(&command));
                 this.focus_terminal(Some(window), cx);
             }))
             .on_action(cx.listener(|this, _: &SelectTheme, window, cx| {
@@ -4665,7 +5277,9 @@ impl Render for Oxide {
                 this.toggle_finder(window, cx);
             }))
             .on_action(cx.listener(|this, _: &RevealInTree, window, cx| {
-                let Some(cwd) = this.active_pane().read(cx).cwd.clone() else { return };
+                let Some(cwd) = this.active_pane().read(cx).cwd.clone() else {
+                    return;
+                };
                 this.drawer_visible = true;
                 this.tree.update(cx, |tree, cx| tree.reveal(cwd, cx));
                 this.focus_tree(Some(window), cx);
@@ -4715,7 +5329,9 @@ impl Render for Oxide {
             .on_action(cx.listener(|this, _: &InstallUpdate, _w, cx| {
                 this.install_update(cx);
             }))
-            .when(status_bar && bar_on_top, |d| d.child(self.render_status_bar(cx)))
+            .when(status_bar && bar_on_top, |d| {
+                d.child(self.render_status_bar(cx))
+            })
             .child(
                 div()
                     .flex_1()
@@ -4727,7 +5343,11 @@ impl Render for Oxide {
                             .flex_none()
                             .h_full()
                             .overflow_hidden()
-                            .w(if self.drawer_visible { px(config.tree.width) } else { px(0.0) })
+                            .w(if self.drawer_visible {
+                                px(config.tree.width)
+                            } else {
+                                px(0.0)
+                            })
                             .when(self.drawer_visible, |d| {
                                 let drawer_focused =
                                     tree_focused || self.ws_focus.is_focused(window);
@@ -4768,15 +5388,15 @@ impl Render for Oxide {
                                     Some(id) if tab.layout.leaves().contains(&id) => Node::Leaf(id),
                                     _ => tab.layout.clone(),
                                 };
-                                div()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .overflow_hidden()
-                                    .child(self.render_pane_node(&layout, &Vec::new(), accent, window, cx))
+                                div().flex_1().min_h_0().overflow_hidden().child(
+                                    self.render_pane_node(&layout, &Vec::new(), accent, window, cx),
+                                )
                             }),
                     ),
             )
-            .when(status_bar && !bar_on_top, |d| d.child(self.render_status_bar(cx)))
+            .when(status_bar && !bar_on_top, |d| {
+                d.child(self.render_status_bar(cx))
+            })
             .child(self.render_toasts(status_bar && !bar_on_top, cx))
             .map(|d| match &self.update {
                 UpdateState::Downloading(version) => d.child(
@@ -4818,16 +5438,21 @@ impl Render for Oxide {
             .when(self.ws_context_menu.is_some(), |d| {
                 d.child(self.render_ws_context_menu(window, cx))
             })
-            .when(self.divider_drag.is_some(), |d| d.child(self.render_drag_overlay(cx)))
+            .when(self.divider_drag.is_some(), |d| {
+                d.child(self.render_drag_overlay(cx))
+            })
             .when(self.overlay.is_some(), |d| d.child(self.render_overlay(cx)))
             // Another app is frontmost: the same shade as inactive panes,
             // over the whole window. Takes no mouse events, so the first
             // click still lands where it was aimed.
-            .when(!self.window_active && config.window.inactive_window_opacity < 1.0, |d| {
-                let mut shade = theme.background;
-                shade.a = 1.0 - config.window.inactive_window_opacity.clamp(0.05, 1.0);
-                d.child(div().absolute().inset_0().bg(shade))
-            })
+            .when(
+                !self.window_active && config.window.inactive_window_opacity < 1.0,
+                |d| {
+                    let mut shade = theme.background;
+                    shade.a = 1.0 - config.window.inactive_window_opacity.clamp(0.05, 1.0);
+                    d.child(div().absolute().inset_0().bg(shade))
+                },
+            )
     }
 }
 
@@ -4869,7 +5494,11 @@ mod edit_command_tests {
             format!("#!/bin/sh\nprintf '%s' \"$1\" > {}\n", record.display()),
         )
         .unwrap();
-        Command::new("/bin/chmod").arg("+x").arg(&recorder).status().unwrap();
+        Command::new("/bin/chmod")
+            .arg("+x")
+            .arg(&recorder)
+            .status()
+            .unwrap();
         let _ = std::fs::remove_file(&record);
 
         let command = edit_file_command(&target.to_path_buf(), shell);
@@ -4891,7 +5520,11 @@ mod edit_command_tests {
     }
 
     fn installed_shells() -> Vec<&'static str> {
-        CANDIDATES.iter().copied().filter(|s| Path::new(s).exists()).collect()
+        CANDIDATES
+            .iter()
+            .copied()
+            .filter(|s| Path::new(s).exists())
+            .collect()
     }
 
     /// The core guarantee: whatever Oxide types has to parse in the shell that
@@ -4901,13 +5534,18 @@ mod edit_command_tests {
     #[test]
     fn edit_command_opens_the_right_path_in_every_installed_shell() {
         let shells = installed_shells();
-        assert!(shells.len() >= 3, "expected several shells to test against, found {shells:?}");
+        assert!(
+            shells.len() >= 3,
+            "expected several shells to test against, found {shells:?}"
+        );
         // A space is the everyday hard case — "Application Support" and the
         // like show up in real paths constantly.
         let target = std::env::temp_dir().join("oxide-edit-command-test/a config file.toml");
         for shell in shells {
             match opened_path(shell, &target, "spaces") {
-                Ok(opened) => assert_eq!(opened, target.to_string_lossy(), "{shell} mangled the path"),
+                Ok(opened) => {
+                    assert_eq!(opened, target.to_string_lossy(), "{shell} mangled the path")
+                }
                 Err(e) => panic!("{e}"),
             }
         }
@@ -4929,14 +5567,14 @@ mod edit_command_tests {
             ("all-three", "it's a bang!back\\slash.toml"),
         ];
         for (label, name) in cases {
-            let target = std::env::temp_dir().join("oxide-edit-command-test").join(name);
+            let target = std::env::temp_dir()
+                .join("oxide-edit-command-test")
+                .join(name);
             for shell in installed_shells() {
                 match opened_path(shell, &target, label) {
-                    Ok(opened) => assert_eq!(
-                        opened,
-                        target.to_string_lossy(),
-                        "{shell} mangled {name:?}"
-                    ),
+                    Ok(opened) => {
+                        assert_eq!(opened, target.to_string_lossy(), "{shell} mangled {name:?}")
+                    }
                     Err(e) => panic!("{e}"),
                 }
             }
@@ -4960,7 +5598,11 @@ mod edit_command_tests {
             .home_dir()
             .join(".cache/oxide/edit")
             .join(&name);
-        assert!(file.exists(), "the path was never written to {}", file.display());
+        assert!(
+            file.exists(),
+            "the path was never written to {}",
+            file.display()
+        );
 
         let out = Command::new("/bin/sh")
             .arg("-c")
@@ -4985,7 +5627,12 @@ mod edit_command_tests {
             "/tmp/plain.toml",
             "/tmp/a space.toml",
         ];
-        for shell in ["/opt/homebrew/bin/fish", "/bin/tcsh", "/opt/homebrew/bin/nu", "/usr/bin/elvish"] {
+        for shell in [
+            "/opt/homebrew/bin/fish",
+            "/bin/tcsh",
+            "/opt/homebrew/bin/nu",
+            "/usr/bin/elvish",
+        ] {
             for hazard in hazards {
                 let command = edit_file_command(&PathBuf::from(hazard), shell);
                 assert!(
@@ -5007,8 +5654,16 @@ mod edit_command_tests {
         let record = dir.join("args.txt");
         for name in ["nvim", "code", "emacs", "hx", "ed"] {
             let script = dir.join(name);
-            std::fs::write(&script, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\n", record.display())).unwrap();
-            Command::new("/bin/chmod").arg("+x").arg(&script).status().unwrap();
+            std::fs::write(
+                &script,
+                format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\n", record.display()),
+            )
+            .unwrap();
+            Command::new("/bin/chmod")
+                .arg("+x")
+                .arg(&script)
+                .status()
+                .unwrap();
         }
         let target = dir.join("a file.rs");
         let expected = |editor: &str, at: Option<(u32, Option<u32>)>| -> Vec<String> {
@@ -5033,7 +5688,13 @@ mod edit_command_tests {
             ("ed", Some((42, Some(8)))),
             ("nvim", None),
         ];
-        for shell in ["/bin/sh", "/bin/zsh", "/bin/bash", "/opt/homebrew/bin/fish", "/bin/tcsh"] {
+        for shell in [
+            "/bin/sh",
+            "/bin/zsh",
+            "/bin/bash",
+            "/opt/homebrew/bin/fish",
+            "/bin/tcsh",
+        ] {
             if !Path::new(shell).exists() {
                 continue;
             }
@@ -5046,20 +5707,34 @@ mod edit_command_tests {
                     .env("EDITOR", dir.join(editor))
                     .output()
                     .unwrap();
-                assert!(out.status.success(), "{shell} {editor} {at:?}: {command}\n{}", String::from_utf8_lossy(&out.stderr));
+                assert!(
+                    out.status.success(),
+                    "{shell} {editor} {at:?}: {command}\n{}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
                 let got: Vec<String> = std::fs::read_to_string(&record)
-                    .unwrap_or_else(|e| panic!("{shell} {editor} {at:?}: editor never ran ({e}): {command}"))
+                    .unwrap_or_else(|e| {
+                        panic!("{shell} {editor} {at:?}: editor never ran ({e}): {command}")
+                    })
                     .lines()
                     .map(str::to_string)
                     .collect();
-                assert_eq!(got, expected(editor, *at), "{shell} {editor} {at:?}: {command}");
+                assert_eq!(
+                    got,
+                    expected(editor, *at),
+                    "{shell} {editor} {at:?}: {command}"
+                );
             }
         }
     }
 
     #[test]
     fn open_at_line_override_substitutes_placeholders() {
-        let snippet = editor_snippet("'p q'", Some((3, None)), Some("my --line {line} --col {col} {path}"));
+        let snippet = editor_snippet(
+            "'p q'",
+            Some((3, None)),
+            Some("my --line {line} --col {col} {path}"),
+        );
         assert_eq!(snippet, "my --line 3 --col 1 'p q'");
         let snippet = editor_snippet("'p'", Some((3, Some(7))), Some("my {path}:{line}:{col}"));
         assert_eq!(snippet, "my 'p':3:7");
@@ -5071,18 +5746,30 @@ mod edit_command_tests {
     #[test]
     fn only_non_posix_shells_are_delegated_to_sh() {
         let path = PathBuf::from("/tmp/config.toml");
-        for direct in ["/bin/sh", "/bin/bash", "/bin/zsh", "/bin/dash", "/bin/ksh", "/opt/homebrew/bin/bash-5.2"] {
+        for direct in [
+            "/bin/sh",
+            "/bin/bash",
+            "/bin/zsh",
+            "/bin/dash",
+            "/bin/ksh",
+            "/opt/homebrew/bin/bash-5.2",
+        ] {
             assert!(
                 !edit_file_command(&path, direct).starts_with("/bin/sh -c"),
                 "{direct} understands the snippet directly and should not pay for a subshell"
             );
         }
-        for delegated in ["/opt/homebrew/bin/fish", "/bin/tcsh", "/bin/csh", "/opt/homebrew/bin/nu", "/usr/bin/elvish"] {
+        for delegated in [
+            "/opt/homebrew/bin/fish",
+            "/bin/tcsh",
+            "/bin/csh",
+            "/opt/homebrew/bin/nu",
+            "/usr/bin/elvish",
+        ] {
             assert!(
                 edit_file_command(&path, delegated).starts_with("/bin/sh -c"),
                 "{delegated} cannot parse the snippet and must go through /bin/sh"
             );
         }
     }
-
 }

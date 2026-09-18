@@ -22,7 +22,10 @@ pub struct GitStatus {
 pub fn git_usable() -> bool {
     static USABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *USABLE.get_or_init(|| {
-        let Ok(out) = Command::new("/bin/sh").args(["-c", "command -v git"]).output() else {
+        let Ok(out) = Command::new("/bin/sh")
+            .args(["-c", "command -v git"])
+            .output()
+        else {
             return false;
         };
         if !out.status.success() {
@@ -40,8 +43,15 @@ pub fn git_usable() -> bool {
 }
 
 fn git_text(cwd: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git").arg("-C").arg(cwd).args(args).output().ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(args)
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
 pub fn read_git_status(cwd: &PathBuf) -> GitStatus {
@@ -64,7 +74,12 @@ pub fn read_git_status(cwd: &PathBuf) -> GitStatus {
             Some((a.parse().ok()?, b.parse().ok()?))
         })
         .unwrap_or((0, 0));
-    GitStatus { branch: Some(branch), dirty, ahead, behind }
+    GitStatus {
+        branch: Some(branch),
+        dirty,
+        ahead,
+        behind,
+    }
 }
 
 /// The repository root containing `cwd`, or `None` outside a repo.
@@ -107,7 +122,13 @@ pub fn file_statuses(root: &Path) -> Result<HashMap<PathBuf, GitFileStatus>, Sta
     let out = Command::new("git")
         .arg("-C")
         .arg(root)
-        .args(["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=no"])
+        .args([
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--ignored=no",
+        ])
         .output()
         .map_err(|_| StatusError::NotARepo)?;
     if !out.status.success() {
@@ -120,7 +141,10 @@ pub fn file_statuses(root: &Path) -> Result<HashMap<PathBuf, GitFileStatus>, Sta
 /// Parse `git status --porcelain=v1 -z`. Records are `XY path\0`, with a
 /// second `orig\0` record following renames and copies. NUL separation is
 /// what makes filenames with spaces and newlines safe.
-pub fn parse_porcelain_z(bytes: &[u8], root: &Path) -> Result<HashMap<PathBuf, GitFileStatus>, StatusError> {
+pub fn parse_porcelain_z(
+    bytes: &[u8],
+    root: &Path,
+) -> Result<HashMap<PathBuf, GitFileStatus>, StatusError> {
     use std::os::unix::ffi::OsStrExt;
     let mut map = HashMap::new();
     let mut records = bytes.split(|&b| b == 0).filter(|r| !r.is_empty());
@@ -162,7 +186,10 @@ fn classify(x: char, y: char) -> Option<GitFileStatus> {
 
 /// Mark every ancestor of a changed path (up to `root`) with the most urgent
 /// state beneath it, so a collapsed directory still shows something changed.
-pub fn rollup(mut map: HashMap<PathBuf, GitFileStatus>, root: &Path) -> HashMap<PathBuf, GitFileStatus> {
+pub fn rollup(
+    mut map: HashMap<PathBuf, GitFileStatus>,
+    root: &Path,
+) -> HashMap<PathBuf, GitFileStatus> {
     let files: Vec<(PathBuf, GitFileStatus)> = map.iter().map(|(p, s)| (p.clone(), *s)).collect();
     for (path, status) in files {
         let mut dir = path.parent();
@@ -190,13 +217,19 @@ mod tests {
 
     #[test]
     fn parses_common_statuses() {
-        let m = parse(b" M src/a.rs\0A  src/new.rs\0?? notes.txt\0 D gone.rs\0UU merge.rs\0MM both.rs\0");
+        let m = parse(
+            b" M src/a.rs\0A  src/new.rs\0?? notes.txt\0 D gone.rs\0UU merge.rs\0MM both.rs\0",
+        );
         assert_eq!(m[Path::new("/r/src/a.rs")], GitFileStatus::Modified);
         assert_eq!(m[Path::new("/r/src/new.rs")], GitFileStatus::Added);
         assert_eq!(m[Path::new("/r/notes.txt")], GitFileStatus::Untracked);
         assert_eq!(m[Path::new("/r/gone.rs")], GitFileStatus::Deleted);
         assert_eq!(m[Path::new("/r/merge.rs")], GitFileStatus::Conflicted);
-        assert_eq!(m[Path::new("/r/both.rs")], GitFileStatus::Modified, "staged and modified");
+        assert_eq!(
+            m[Path::new("/r/both.rs")],
+            GitFileStatus::Modified,
+            "staged and modified"
+        );
     }
 
     #[test]
@@ -221,20 +254,33 @@ mod tests {
         for i in 0..=MAX_STATUS_ENTRIES {
             big.extend_from_slice(format!("?? f{i}\0").as_bytes());
         }
-        assert_eq!(parse_porcelain_z(&big, Path::new("/r")), Err(StatusError::TooLarge));
+        assert_eq!(
+            parse_porcelain_z(&big, Path::new("/r")),
+            Err(StatusError::TooLarge)
+        );
     }
 
     #[test]
     fn rollup_marks_every_ancestor_with_the_worst_state() {
         let mut m = HashMap::new();
-        m.insert(PathBuf::from("/r/src/tree/deep/x.rs"), GitFileStatus::Untracked);
+        m.insert(
+            PathBuf::from("/r/src/tree/deep/x.rs"),
+            GitFileStatus::Untracked,
+        );
         m.insert(PathBuf::from("/r/src/tree/y.rs"), GitFileStatus::Modified);
         m.insert(PathBuf::from("/r/src/z.rs"), GitFileStatus::Conflicted);
         let m = rollup(m, Path::new("/r"));
         assert_eq!(m[Path::new("/r/src/tree/deep")], GitFileStatus::Untracked);
-        assert_eq!(m[Path::new("/r/src/tree")], GitFileStatus::Modified, "modified outranks untracked");
+        assert_eq!(
+            m[Path::new("/r/src/tree")],
+            GitFileStatus::Modified,
+            "modified outranks untracked"
+        );
         assert_eq!(m[Path::new("/r/src")], GitFileStatus::Conflicted);
-        assert!(!m.contains_key(Path::new("/r")), "the root itself isn't decorated");
+        assert!(
+            !m.contains_key(Path::new("/r")),
+            "the root itself isn't decorated"
+        );
         assert!(!m.contains_key(Path::new("/")));
     }
 }

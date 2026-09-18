@@ -63,7 +63,11 @@ fn is_default_on_exit(on_exit: &OnExit) -> bool {
 
 impl SavedPane {
     pub fn shell(cwd: PathBuf) -> Self {
-        Self { cwd, command: None, on_exit: OnExit::default() }
+        Self {
+            cwd,
+            command: None,
+            on_exit: OnExit::default(),
+        }
     }
 
     /// The startup command, as the app holds it.
@@ -71,7 +75,10 @@ impl SavedPane {
         self.command
             .as_ref()
             .filter(|c| !c.trim().is_empty())
-            .map(|c| crate::startup::StartupCommand { command: c.clone(), on_exit: self.on_exit })
+            .map(|c| crate::startup::StartupCommand {
+                command: c.clone(),
+                on_exit: self.on_exit,
+            })
     }
 }
 
@@ -143,7 +150,11 @@ impl From<RawWorkspace> for SavedWorkspace {
                         SavedPaneCompat::Current(pane) => pane.clone(),
                     });
                     layout.normalise();
-                    SavedTab { layout, active: t.active, title: t.title }
+                    SavedTab {
+                        layout,
+                        active: t.active,
+                        title: t.title,
+                    }
                 })
                 .collect(),
         }
@@ -211,12 +222,16 @@ fn restrict_permissions(path: &Path) {
 }
 
 pub fn load() -> Vec<SavedWorkspace> {
-    let Some(path) = state_path() else { return Vec::new() };
+    let Some(path) = state_path() else {
+        return Vec::new();
+    };
     load_from(&path)
 }
 
 pub fn load_from(path: &Path) -> Vec<SavedWorkspace> {
-    let Ok(text) = std::fs::read_to_string(path) else { return Vec::new() };
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
     let saved: Vec<SavedWorkspace> = match parse(&text) {
         Ok((version, saved)) => {
             backup_older_format(path, version);
@@ -251,8 +266,13 @@ pub fn save_to(path: &Path, workspaces: &[SavedWorkspace]) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let file = SavedFile { version: FORMAT_VERSION, workspaces };
-    let Ok(json) = serde_json::to_string_pretty(&file) else { return };
+    let file = SavedFile {
+        version: FORMAT_VERSION,
+        workspaces,
+    };
+    let Ok(json) = serde_json::to_string_pretty(&file) else {
+        return;
+    };
     // Write-then-rename so a crash or kill mid-write can never leave a
     // truncated file behind (fs::write truncates before writing). The temp
     // file is created owner-only so the commands inside are never readable
@@ -281,7 +301,9 @@ mod tests {
     use crate::panes::{Axis, Node};
 
     fn has_startup_commands(ws: &SavedWorkspace) -> bool {
-        ws.tabs.iter().any(|t| t.layout.leaves().iter().any(|p| p.startup().is_some()))
+        ws.tabs
+            .iter()
+            .any(|t| t.layout.leaves().iter().any(|p| p.startup().is_some()))
     }
 
     fn temp_dir(name: &str) -> PathBuf {
@@ -335,13 +357,22 @@ mod tests {
     #[test]
     fn v3_round_trips_through_json() {
         let ws = sample();
-        let file = SavedFile { version: FORMAT_VERSION, workspaces: &ws };
+        let file = SavedFile {
+            version: FORMAT_VERSION,
+            workspaces: &ws,
+        };
         let json = serde_json::to_string(&file).unwrap();
         assert!(json.contains("\"version\":3"));
         let (version, back) = parse(&json).unwrap();
         assert_eq!(version, 3);
-        assert_eq!(ws, back, "ratios, titles, commands and on_exit must survive the round trip");
-        assert!(!json.contains("\"title\":null"), "unset titles stay out of the file");
+        assert_eq!(
+            ws, back,
+            "ratios, titles, commands and on_exit must survive the round trip"
+        );
+        assert!(
+            !json.contains("\"title\":null"),
+            "unset titles stay out of the file"
+        );
         // A plain shell pane is still compact: no command, no on_exit noise.
         assert!(json.contains(r#"{"leaf":{"cwd":"/tmp"}}"#), "{json}");
         assert!(json.contains(r#""on_exit":"restart""#));
@@ -364,7 +395,11 @@ mod tests {
         let layout = &saved[0].tabs[1].layout;
         assert_eq!(layout.len(), 4);
         assert_eq!(
-            layout.leaves().iter().map(|p| p.cwd.clone()).collect::<Vec<_>>(),
+            layout
+                .leaves()
+                .iter()
+                .map(|p| p.cwd.clone())
+                .collect::<Vec<_>>(),
             vec![
                 PathBuf::from("/Users/x/dev"),
                 PathBuf::from("/Users/x/dev/a"),
@@ -372,13 +407,23 @@ mod tests {
                 PathBuf::from("/Users/x/dev/c"),
             ]
         );
-        assert!(layout.leaves().iter().all(|p| p.command.is_none() && p.on_exit == OnExit::Shell));
-        assert_eq!(saved[1].tabs[0].layout, Node::Leaf(SavedPane::shell(PathBuf::from("/Users/x/notes"))));
+        assert!(
+            layout
+                .leaves()
+                .iter()
+                .all(|p| p.command.is_none() && p.on_exit == OnExit::Shell)
+        );
+        assert_eq!(
+            saved[1].tabs[0].layout,
+            Node::Leaf(SavedPane::shell(PathBuf::from("/Users/x/notes")))
+        );
         assert!(saved[0].tabs.iter().all(|t| t.title.is_none()));
         assert!(!has_startup_commands(&saved[0]));
         // No ratios in the file → even splits after normalisation.
         match layout {
-            Node::Split { ratios, children, .. } => {
+            Node::Split {
+                ratios, children, ..
+            } => {
                 assert_eq!(ratios, &vec![0.5, 0.5]);
                 match &children[1] {
                     Node::Split { ratios, .. } => {
@@ -423,10 +468,15 @@ mod tests {
         let json = r#"{"version":3,"workspaces":[{"name":"w","active_tab":0,"tabs":[{"layout":{"split":{"axis":"horizontal","children":[{"leaf":{"cwd":"/a"}},{"leaf":"/b"}],"ratios":[9.0]}},"active":0}]}]}"#;
         let (_, saved) = parse(json).unwrap();
         match &saved[0].tabs[0].layout {
-            Node::Split { ratios, children, .. } => {
+            Node::Split {
+                ratios, children, ..
+            } => {
                 assert_eq!(ratios, &vec![0.5, 0.5]);
                 // Mixed leaf shapes in one file are fine too.
-                assert_eq!(children[1], Node::Leaf(SavedPane::shell(PathBuf::from("/b"))));
+                assert_eq!(
+                    children[1],
+                    Node::Leaf(SavedPane::shell(PathBuf::from("/b")))
+                );
             }
             other => panic!("expected a split, got {other:?}"),
         }
@@ -451,10 +501,17 @@ mod tests {
         assert!(path.with_extension("json.corrupt").exists());
 
         // A v1 file is a format we know, not corruption.
-        std::fs::write(&path, include_str!("../tests/fixtures/workspaces-v0.3.2.json")).unwrap();
+        std::fs::write(
+            &path,
+            include_str!("../tests/fixtures/workspaces-v0.3.2.json"),
+        )
+        .unwrap();
         let saved = load_from(&path);
         assert_eq!(saved.len(), 2);
-        assert!(path.exists(), "an older format must never be moved to .corrupt");
+        assert!(
+            path.exists(),
+            "an older format must never be moved to .corrupt"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -476,8 +533,15 @@ mod tests {
         assert!(written.contains("\"version\": 3"));
         let again = load_from(&path);
         assert_eq!(again, saved);
-        assert_eq!(std::fs::read_to_string(&backup).unwrap(), v2, "a later save must not overwrite the backup");
-        assert!(!path.with_extension("json.v3.bak").exists(), "the current format is never backed up");
+        assert_eq!(
+            std::fs::read_to_string(&backup).unwrap(),
+            v2,
+            "a later save must not overwrite the backup"
+        );
+        assert!(
+            !path.with_extension("json.v3.bak").exists(),
+            "the current format is never backed up"
+        );
 
         // Even a second v2 file (say, restored by hand) doesn't clobber it.
         std::fs::write(&path, v2.replace("build", "other")).unwrap();
@@ -493,7 +557,10 @@ mod tests {
         let path = dir.join("workspaces.json");
         save_to(&path, &sample());
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600, "workspaces.json holds commands and must be private");
+        assert_eq!(
+            mode, 0o600,
+            "workspaces.json holds commands and must be private"
+        );
         // Saving with nothing pinned removes the file.
         save_to(&path, &[]);
         assert!(!path.exists());
@@ -522,7 +589,11 @@ mod tests {
 
     #[test]
     fn blank_commands_count_as_no_command() {
-        let pane = SavedPane { cwd: "/".into(), command: Some("   ".into()), on_exit: OnExit::Restart };
+        let pane = SavedPane {
+            cwd: "/".into(),
+            command: Some("   ".into()),
+            on_exit: OnExit::Restart,
+        };
         assert_eq!(pane.startup(), None);
     }
 }

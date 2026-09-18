@@ -67,7 +67,11 @@ impl<T: PartialEq + Clone> Node<T> {
     /// An evenly divided split.
     pub fn split_even(axis: Axis, children: Vec<Node<T>>) -> Self {
         let ratios = even(children.len());
-        Node::Split { axis, children, ratios }
+        Node::Split {
+            axis,
+            children,
+            ratios,
+        }
     }
 
     pub fn leaves(&self) -> Vec<T> {
@@ -96,7 +100,11 @@ impl<T: PartialEq + Clone> Node<T> {
     pub fn map<U: PartialEq + Clone>(&self, f: &mut impl FnMut(&T) -> U) -> Node<U> {
         match self {
             Node::Leaf(id) => Node::Leaf(f(id)),
-            Node::Split { axis, children, ratios } => Node::Split {
+            Node::Split {
+                axis,
+                children,
+                ratios,
+            } => Node::Split {
                 axis: *axis,
                 children: children.iter().map(|c| c.map(f)).collect(),
                 ratios: ratios.clone(),
@@ -109,7 +117,12 @@ impl<T: PartialEq + Clone> Node<T> {
     /// inconsistent (a hand-edited file, an older format) becomes an even
     /// split rather than an error.
     pub fn normalise(&mut self) {
-        let Node::Split { children, ratios, .. } = self else { return };
+        let Node::Split {
+            children, ratios, ..
+        } = self
+        else {
+            return;
+        };
         let n = children.len();
         let usable = ratios.len() == n && ratios.iter().all(|r| r.is_finite() && *r > 0.0);
         if !usable {
@@ -131,7 +144,9 @@ impl<T: PartialEq + Clone> Node<T> {
     pub fn at_path(&self, path: &[usize]) -> Option<&Node<T>> {
         let mut node = self;
         for &ix in path {
-            let Node::Split { children, .. } = node else { return None };
+            let Node::Split { children, .. } = node else {
+                return None;
+            };
             node = children.get(ix)?;
         }
         Some(node)
@@ -140,7 +155,9 @@ impl<T: PartialEq + Clone> Node<T> {
     pub fn at_path_mut(&mut self, path: &[usize]) -> Option<&mut Node<T>> {
         let mut node = self;
         for &ix in path {
-            let Node::Split { children, .. } = node else { return None };
+            let Node::Split { children, .. } = node else {
+                return None;
+            };
             node = children.get_mut(ix)?;
         }
         Some(node)
@@ -169,7 +186,11 @@ impl<T: PartialEq + Clone> Node<T> {
         let before = direction.is_before();
 
         // Sibling insertion when this split already runs along `axis`.
-        if let Node::Split { axis: my_axis, children, ratios } = self
+        if let Node::Split {
+            axis: my_axis,
+            children,
+            ratios,
+        } = self
             && *my_axis == axis
             && let Some(ix) = children
                 .iter()
@@ -188,8 +209,11 @@ impl<T: PartialEq + Clone> Node<T> {
             Node::Leaf(id) if id == target => {
                 let existing = Node::Leaf(id.clone());
                 let fresh = Node::Leaf(new_leaf);
-                let children =
-                    if before { vec![fresh, existing] } else { vec![existing, fresh] };
+                let children = if before {
+                    vec![fresh, existing]
+                } else {
+                    vec![existing, fresh]
+                };
                 *self = Node::split_even(axis, children);
                 true
             }
@@ -209,7 +233,10 @@ impl<T: PartialEq + Clone> Node<T> {
     /// surviving siblings. A split left with a single child collapses into
     /// it, so the tree never keeps pointless one-way nodes.
     pub fn remove(&mut self, target: &T) -> bool {
-        let Node::Split { children, ratios, .. } = self else {
+        let Node::Split {
+            children, ratios, ..
+        } = self
+        else {
             // A lone root leaf cannot be removed; the caller decides what
             // closing the last pane means.
             return false;
@@ -233,7 +260,9 @@ impl<T: PartialEq + Clone> Node<T> {
 
         for child in children.iter_mut() {
             if child.remove(target) {
-                if let Node::Split { children: inner, .. } = child
+                if let Node::Split {
+                    children: inner, ..
+                } = child
                     && inner.len() == 1
                 {
                     *child = inner.remove(0);
@@ -249,7 +278,9 @@ impl<T: PartialEq + Clone> Node<T> {
     /// divider). Only the two neighbouring children change. Clamped so
     /// neither drops below `min`; returns whether anything moved.
     pub fn resize_divider(&mut self, path: &[usize], divider: usize, delta: f32, min: f32) -> bool {
-        let Some(Node::Split { ratios, .. }) = self.at_path_mut(path) else { return false };
+        let Some(Node::Split { ratios, .. }) = self.at_path_mut(path) else {
+            return false;
+        };
         if divider + 1 >= ratios.len() || !delta.is_finite() {
             return false;
         }
@@ -262,7 +293,9 @@ impl<T: PartialEq + Clone> Node<T> {
         }
         ratios[divider] = a + delta;
         ratios[divider + 1] = b - delta;
-        self.at_path_mut(path).expect("path still valid").normalise();
+        self.at_path_mut(path)
+            .expect("path still valid")
+            .normalise();
         true
     }
 
@@ -271,11 +304,18 @@ impl<T: PartialEq + Clone> Node<T> {
     /// space comes from the next sibling, or the previous one for the last
     /// child — so the pane's own edge moves, never a far-away one.
     pub fn resize_leaf(&mut self, target: &T, axis: Axis, delta: f32, min: f32) -> bool {
-        let Some(path) = self.path_to(target) else { return false };
+        let Some(path) = self.path_to(target) else {
+            return false;
+        };
         for depth in (0..path.len()).rev() {
             let parent = &path[..depth];
             let ix = path[depth];
-            let Some(Node::Split { axis: a, children, .. }) = self.at_path(parent) else { continue };
+            let Some(Node::Split {
+                axis: a, children, ..
+            }) = self.at_path(parent)
+            else {
+                continue;
+            };
             if *a != axis {
                 continue;
             }
@@ -293,7 +333,10 @@ impl<T: PartialEq + Clone> Node<T> {
 
     /// Reset every split, at every depth, to even shares.
     pub fn equalise(&mut self) {
-        if let Node::Split { children, ratios, .. } = self {
+        if let Node::Split {
+            children, ratios, ..
+        } = self
+        {
             *ratios = even(children.len());
             for c in children.iter_mut() {
                 c.equalise();
@@ -306,9 +349,15 @@ impl<T: PartialEq + Clone> Node<T> {
     /// subtree; both keep their shares, so only the order changes. Returns
     /// false for a lone root leaf.
     pub fn swap_with_neighbour(&mut self, target: &T) -> bool {
-        let Some(path) = self.path_to(target) else { return false };
-        let Some((&ix, parent)) = path.split_last() else { return false };
-        let Some(Node::Split { children, .. }) = self.at_path_mut(parent) else { return false };
+        let Some(path) = self.path_to(target) else {
+            return false;
+        };
+        let Some((&ix, parent)) = path.split_last() else {
+            return false;
+        };
+        let Some(Node::Split { children, .. }) = self.at_path_mut(parent) else {
+            return false;
+        };
         let other = if ix + 1 < children.len() {
             ix + 1
         } else if ix > 0 {
@@ -345,10 +394,16 @@ mod tests {
 
     /// Walk every split and check the parallel-vec invariant.
     fn check_invariants(node: &Node<u32>) {
-        if let Node::Split { children, ratios, .. } = node {
+        if let Node::Split {
+            children, ratios, ..
+        } = node
+        {
             assert_eq!(children.len(), ratios.len());
             assert!(ratios.iter().all(|r| *r > 0.0));
-            assert!((ratios.iter().sum::<f32>() - 1.0).abs() < 1e-4, "{ratios:?}");
+            assert!(
+                (ratios.iter().sum::<f32>() - 1.0).abs() < 1e-4,
+                "{ratios:?}"
+            );
             for c in children {
                 check_invariants(c);
             }
@@ -365,13 +420,21 @@ mod tests {
 
         assert!(tree.split(&2, Direction::Down, 3));
         match &tree {
-            Node::Split { axis, children, ratios } => {
+            Node::Split {
+                axis,
+                children,
+                ratios,
+            } => {
                 assert_eq!(*axis, Axis::Horizontal);
                 assert_eq!(children.len(), 2, "left pane must stay a single child");
                 assert_close(ratios, &[0.5, 0.5]);
                 assert_eq!(children[0], Node::Leaf(1));
                 match &children[1] {
-                    Node::Split { axis, children, ratios } => {
+                    Node::Split {
+                        axis,
+                        children,
+                        ratios,
+                    } => {
                         assert_eq!(*axis, Axis::Vertical);
                         assert_eq!(children, &vec![Node::Leaf(2), Node::Leaf(3)]);
                         assert_close(ratios, &[0.5, 0.5]);
@@ -392,7 +455,11 @@ mod tests {
         // Three columns, not nested halves. The last split halves pane 2's
         // share, so the shape is 1/2, 1/4, 1/4 — like vim.
         match &tree {
-            Node::Split { axis, children, ratios } => {
+            Node::Split {
+                axis,
+                children,
+                ratios,
+            } => {
                 assert_eq!(*axis, Axis::Horizontal);
                 assert_eq!(children.len(), 3);
                 assert_close(ratios, &[0.5, 0.25, 0.25]);
@@ -405,10 +472,16 @@ mod tests {
 
     #[test]
     fn splitting_in_a_three_way_split_halves_only_the_target() {
-        let mut tree = Node::split_even(Axis::Horizontal, vec![Node::Leaf(1u32), Node::Leaf(2), Node::Leaf(3)]);
+        let mut tree = Node::split_even(
+            Axis::Horizontal,
+            vec![Node::Leaf(1u32), Node::Leaf(2), Node::Leaf(3)],
+        );
         assert!(tree.split(&2, Direction::Right, 4));
         assert_eq!(ids(&tree), vec![1, 2, 4, 3]);
-        assert_close(&ratios_of(&tree, &[]), &[1.0 / 3.0, 1.0 / 6.0, 1.0 / 6.0, 1.0 / 3.0]);
+        assert_close(
+            &ratios_of(&tree, &[]),
+            &[1.0 / 3.0, 1.0 / 6.0, 1.0 / 6.0, 1.0 / 3.0],
+        );
         check_invariants(&tree);
     }
 
@@ -431,7 +504,10 @@ mod tests {
 
         assert!(tree.remove(&3));
         // The right side collapses back to a plain leaf.
-        assert_eq!(tree, Node::split_even(Axis::Horizontal, vec![Node::Leaf(1), Node::Leaf(2)]));
+        assert_eq!(
+            tree,
+            Node::split_even(Axis::Horizontal, vec![Node::Leaf(1), Node::Leaf(2)])
+        );
 
         assert!(tree.remove(&2));
         assert_eq!(tree, Node::Leaf(1), "root collapses to the survivor");
@@ -488,12 +564,24 @@ mod tests {
 
     #[test]
     fn dragging_a_divider_moves_only_its_neighbours() {
-        let mut tree = Node::split_even(Axis::Horizontal, vec![Node::Leaf(1u32), Node::Leaf(2), Node::Leaf(3)]);
+        let mut tree = Node::split_even(
+            Axis::Horizontal,
+            vec![Node::Leaf(1u32), Node::Leaf(2), Node::Leaf(3)],
+        );
         assert!(tree.resize_divider(&[], 0, 0.1, 0.05));
-        assert_close(&ratios_of(&tree, &[]), &[1.0 / 3.0 + 0.1, 1.0 / 3.0 - 0.1, 1.0 / 3.0]);
+        assert_close(
+            &ratios_of(&tree, &[]),
+            &[1.0 / 3.0 + 0.1, 1.0 / 3.0 - 0.1, 1.0 / 3.0],
+        );
         check_invariants(&tree);
-        assert!(!tree.resize_divider(&[], 2, 0.1, 0.05), "no divider after the last child");
-        assert!(!tree.resize_divider(&[0], 0, 0.1, 0.05), "leaves have no dividers");
+        assert!(
+            !tree.resize_divider(&[], 2, 0.1, 0.05),
+            "no divider after the last child"
+        );
+        assert!(
+            !tree.resize_divider(&[0], 0, 0.1, 0.05),
+            "leaves have no dividers"
+        );
     }
 
     #[test]
@@ -580,7 +668,10 @@ mod tests {
         assert!(matches!(tree.at_path(&[0]), Some(Node::Split { .. })));
         check_invariants(&tree);
 
-        assert!(!Node::Leaf(7u32).swap_with_neighbour(&7), "nothing to swap with");
+        assert!(
+            !Node::Leaf(7u32).swap_with_neighbour(&7),
+            "nothing to swap with"
+        );
         assert!(!tree.swap_with_neighbour(&99));
     }
 
@@ -602,7 +693,12 @@ mod tests {
         tree.normalise();
         assert_close(&ratios_of(&tree, &[]), &[0.75, 0.25]);
 
-        for bad in [vec![0.5], vec![0.0, 1.0], vec![f32::NAN, 0.5], vec![-1.0, 2.0]] {
+        for bad in [
+            vec![0.5],
+            vec![0.0, 1.0],
+            vec![f32::NAN, 0.5],
+            vec![-1.0, 2.0],
+        ] {
             let mut tree: Node<u32> = Node::Split {
                 axis: Axis::Horizontal,
                 children: vec![Node::Leaf(1), Node::Leaf(2)],
@@ -632,7 +728,8 @@ mod tests {
 
     #[test]
     fn v1_json_without_ratios_loads_as_even() {
-        let json = r#"{"split":{"axis":"horizontal","children":[{"leaf":1},{"leaf":2},{"leaf":3}]}}"#;
+        let json =
+            r#"{"split":{"axis":"horizontal","children":[{"leaf":1},{"leaf":2},{"leaf":3}]}}"#;
         let mut tree: Node<u32> = serde_json::from_str(json).unwrap();
         assert_eq!(ids(&tree), vec![1, 2, 3]);
         tree.normalise();

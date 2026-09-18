@@ -40,13 +40,24 @@ pub fn create() -> Option<(TreeWatcher, UnboundedReceiver<Vec<PathBuf>>)> {
         },
     )
     .ok()?;
-    Some((TreeWatcher { debouncer, watched: HashSet::new() }, rx))
+    Some((
+        TreeWatcher {
+            debouncer,
+            watched: HashSet::new(),
+        },
+        rx,
+    ))
 }
 
 impl TreeWatcher {
     pub fn watch(&mut self, dir: &PathBuf) {
         if self.watched.insert(dir.clone()) {
-            if self.debouncer.watcher().watch(dir, RecursiveMode::NonRecursive).is_err() {
+            if self
+                .debouncer
+                .watcher()
+                .watch(dir, RecursiveMode::NonRecursive)
+                .is_err()
+            {
                 self.watched.remove(dir);
             }
         }

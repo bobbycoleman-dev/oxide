@@ -14,7 +14,9 @@ const RESET: &str = "\x1b[0m";
 
 /// Write the rendered changelog to the cache and return its path.
 pub fn write_rendered() -> Option<PathBuf> {
-    let dir = directories::BaseDirs::new()?.home_dir().join(".cache/oxide");
+    let dir = directories::BaseDirs::new()?
+        .home_dir()
+        .join(".cache/oxide");
     std::fs::create_dir_all(&dir).ok()?;
     let path = dir.join("changelog.txt");
     std::fs::write(&path, render_ansi(CHANGELOG)).ok()?;
@@ -82,10 +84,19 @@ mod tests {
     fn renders_headings_bullets_and_inline() {
         let md = "# Changelog\n\npreamble\n\n## [Unreleased]\n\n- pending\n\n## [0.5.1] - 2026-09-13\n\n### Fixed\n- `ls` and **bold** and [docs](https://x)\n";
         let out = render_ansi(md);
-        assert!(!out.contains("preamble") && !out.contains("pending"), "skips preamble and Unreleased");
-        assert!(out.contains("\x1b[1m\x1b[36m0.5.1 - 2026-09-13\x1b[0m"), "version heading, brackets dropped");
+        assert!(
+            !out.contains("preamble") && !out.contains("pending"),
+            "skips preamble and Unreleased"
+        );
+        assert!(
+            out.contains("\x1b[1m\x1b[36m0.5.1 - 2026-09-13\x1b[0m"),
+            "version heading, brackets dropped"
+        );
         assert!(out.contains("\x1b[1m\x1b[33mFixed\x1b[0m"));
-        assert!(out.contains("  • \x1b[36mls\x1b[0m and \x1b[1mbold\x1b[0m and \x1b[4mdocs\x1b[0m"), "{out}");
+        assert!(
+            out.contains("  • \x1b[36mls\x1b[0m and \x1b[1mbold\x1b[0m and \x1b[4mdocs\x1b[0m"),
+            "{out}"
+        );
     }
 
     #[test]

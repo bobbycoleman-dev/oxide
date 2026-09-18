@@ -95,7 +95,9 @@ impl OscScanner {
                 }
                 State::Osc | State::Overflow => match b {
                     0x07 => {
-                        if let (State::Osc, Some(kind)) = (&self.state, parse_payload(&self.payload)) {
+                        if let (State::Osc, Some(kind)) =
+                            (&self.state, parse_payload(&self.payload))
+                        {
                             out.push((i + 1, kind));
                         }
                         self.state = State::Ground;
@@ -158,7 +160,10 @@ pub fn parse_payload(payload: &[u8]) -> Option<MarkerKind> {
             if rest.is_empty() || rest.starts_with("4;") {
                 return None;
             }
-            Some(MarkerKind::Notify { title: None, body: rest.to_string() })
+            Some(MarkerKind::Notify {
+                title: None,
+                body: rest.to_string(),
+            })
         }
         "777" => {
             let mut parts = rest.splitn(3, ';');
@@ -268,11 +273,26 @@ mod tests {
     #[test]
     fn recognises_each_marker_with_both_terminators() {
         let mut s = OscScanner::new();
-        assert_eq!(kinds(&mut s, b"\x1b]133;A\x1b\\"), vec![MarkerKind::PromptStart]);
-        assert_eq!(kinds(&mut s, b"\x1b]133;B\x07"), vec![MarkerKind::InputStart]);
-        assert_eq!(kinds(&mut s, b"\x1b]133;C\x1b\\"), vec![MarkerKind::CommandStart { cmdline: None }]);
-        assert_eq!(kinds(&mut s, b"\x1b]133;D;0\x07"), vec![MarkerKind::CommandEnd { exit: Some(0) }]);
-        assert_eq!(kinds(&mut s, b"\x1b]133;D;127\x1b\\"), vec![MarkerKind::CommandEnd { exit: Some(127) }]);
+        assert_eq!(
+            kinds(&mut s, b"\x1b]133;A\x1b\\"),
+            vec![MarkerKind::PromptStart]
+        );
+        assert_eq!(
+            kinds(&mut s, b"\x1b]133;B\x07"),
+            vec![MarkerKind::InputStart]
+        );
+        assert_eq!(
+            kinds(&mut s, b"\x1b]133;C\x1b\\"),
+            vec![MarkerKind::CommandStart { cmdline: None }]
+        );
+        assert_eq!(
+            kinds(&mut s, b"\x1b]133;D;0\x07"),
+            vec![MarkerKind::CommandEnd { exit: Some(0) }]
+        );
+        assert_eq!(
+            kinds(&mut s, b"\x1b]133;D;127\x1b\\"),
+            vec![MarkerKind::CommandEnd { exit: Some(127) }]
+        );
     }
 
     #[test]
@@ -295,16 +315,29 @@ mod tests {
             let mut s = OscScanner::new();
             let mut got = kinds(&mut s, &seq[..split]);
             got.extend(kinds(&mut s, &seq[split..]));
-            assert_eq!(got, vec![MarkerKind::CommandEnd { exit: Some(1) }], "split at {split}");
+            assert_eq!(
+                got,
+                vec![MarkerKind::CommandEnd { exit: Some(1) }],
+                "split at {split}"
+            );
         }
     }
 
     #[test]
     fn missing_or_bad_exit_code_is_none_not_a_panic() {
         let mut s = OscScanner::new();
-        assert_eq!(kinds(&mut s, b"\x1b]133;D\x07"), vec![MarkerKind::CommandEnd { exit: None }]);
-        assert_eq!(kinds(&mut s, b"\x1b]133;D;\x07"), vec![MarkerKind::CommandEnd { exit: None }]);
-        assert_eq!(kinds(&mut s, b"\x1b]133;D;abc\x07"), vec![MarkerKind::CommandEnd { exit: None }]);
+        assert_eq!(
+            kinds(&mut s, b"\x1b]133;D\x07"),
+            vec![MarkerKind::CommandEnd { exit: None }]
+        );
+        assert_eq!(
+            kinds(&mut s, b"\x1b]133;D;\x07"),
+            vec![MarkerKind::CommandEnd { exit: None }]
+        );
+        assert_eq!(
+            kinds(&mut s, b"\x1b]133;D;abc\x07"),
+            vec![MarkerKind::CommandEnd { exit: None }]
+        );
     }
 
     #[test]
@@ -312,7 +345,9 @@ mod tests {
         let mut s = OscScanner::new();
         assert_eq!(
             kinds(&mut s, b"\x1b]133;C;cmdline=cargo build; echo done\x07"),
-            vec![MarkerKind::CommandStart { cmdline: Some("cargo build; echo done".into()) }]
+            vec![MarkerKind::CommandStart {
+                cmdline: Some("cargo build; echo done".into())
+            }]
         );
         assert_eq!(
             kinds(&mut s, b"\x1b]133;C;cmdline=\x07"),
@@ -327,13 +362,21 @@ mod tests {
         assert!(kinds(&mut s, b"\x1b]133;Z\x07").is_empty());
         assert!(kinds(&mut s, b"\x1b[31mred\x1b[0m").is_empty());
         // CAN aborts; the next real marker still parses.
-        assert_eq!(kinds(&mut s, b"\x1b]133;A\x18\x1b]133;B\x07"), vec![MarkerKind::InputStart]);
+        assert_eq!(
+            kinds(&mut s, b"\x1b]133;A\x18\x1b]133;B\x07"),
+            vec![MarkerKind::InputStart]
+        );
         // An unterminated OSC followed by a fresh `ESC ]` starts over.
-        assert_eq!(kinds(&mut s, b"\x1b]133;A\x1b]133;B\x07"), vec![MarkerKind::InputStart]);
+        assert_eq!(
+            kinds(&mut s, b"\x1b]133;A\x1b]133;B\x07"),
+            vec![MarkerKind::InputStart]
+        );
         // A control character inside the payload is dropped, like vte does.
         assert_eq!(
             kinds(&mut s, b"\x1b]133;C;cmdline=a\nb\x07"),
-            vec![MarkerKind::CommandStart { cmdline: Some("ab".into()) }]
+            vec![MarkerKind::CommandStart {
+                cmdline: Some("ab".into())
+            }]
         );
     }
 
@@ -348,10 +391,19 @@ mod tests {
 
     #[test]
     fn cwd_accepts_local_hosts_and_decodes_percent_escapes() {
-        assert_eq!(parse_payload(b"7;file:///Users/x/a%20b"), Some(MarkerKind::Cwd(PathBuf::from("/Users/x/a b"))));
-        assert_eq!(parse_payload(b"7;file://localhost/tmp"), Some(MarkerKind::Cwd(PathBuf::from("/tmp"))));
+        assert_eq!(
+            parse_payload(b"7;file:///Users/x/a%20b"),
+            Some(MarkerKind::Cwd(PathBuf::from("/Users/x/a b")))
+        );
+        assert_eq!(
+            parse_payload(b"7;file://localhost/tmp"),
+            Some(MarkerKind::Cwd(PathBuf::from("/tmp")))
+        );
         let mine = hostname().unwrap();
-        assert_eq!(parse_payload(format!("7;file://{mine}/tmp").as_bytes()), Some(MarkerKind::Cwd(PathBuf::from("/tmp"))));
+        assert_eq!(
+            parse_payload(format!("7;file://{mine}/tmp").as_bytes()),
+            Some(MarkerKind::Cwd(PathBuf::from("/tmp")))
+        );
         assert_eq!(parse_payload(b"7;file://build-box.example.com/srv"), None);
         assert_eq!(parse_payload(b"7;/no/scheme"), None);
     }
@@ -360,12 +412,22 @@ mod tests {
     fn notifications_from_osc_9_and_777() {
         assert_eq!(
             parse_payload(b"9;Build finished"),
-            Some(MarkerKind::Notify { title: None, body: "Build finished".into() })
+            Some(MarkerKind::Notify {
+                title: None,
+                body: "Build finished".into()
+            })
         );
-        assert_eq!(parse_payload(b"9;4;1;50"), None, "progress reports are not notifications");
+        assert_eq!(
+            parse_payload(b"9;4;1;50"),
+            None,
+            "progress reports are not notifications"
+        );
         assert_eq!(
             parse_payload(b"777;notify;Deploy;All green"),
-            Some(MarkerKind::Notify { title: Some("Deploy".into()), body: "All green".into() })
+            Some(MarkerKind::Notify {
+                title: Some("Deploy".into()),
+                body: "All green".into()
+            })
         );
         assert_eq!(parse_payload(b"777;other;x;y"), None);
     }

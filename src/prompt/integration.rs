@@ -32,8 +32,12 @@ pub fn channel_path(channel: Channel, session: &str) -> Option<PathBuf> {
 /// Hand a target to one shell session's widget. The file is consumed by the
 /// handler that reads it, so nothing is left behind on the normal path.
 pub fn write_channel(channel: Channel, session: &str, payload: &[u8]) -> bool {
-    let Some(path) = channel_path(channel, session) else { return false };
-    let Some(dir) = path.parent() else { return false };
+    let Some(path) = channel_path(channel, session) else {
+        return false;
+    };
+    let Some(dir) = path.parent() else {
+        return false;
+    };
     if std::fs::create_dir_all(dir).is_err() {
         return false;
     }
@@ -47,7 +51,9 @@ pub fn clean_stale_channels() {
     let Some(cache) = cache_dir() else { return };
     let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
     for channel in [Channel::Cd, Channel::Run] {
-        let Ok(entries) = std::fs::read_dir(cache.join(channel.dir_name())) else { continue };
+        let Ok(entries) = std::fs::read_dir(cache.join(channel.dir_name())) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let stale = entry
                 .metadata()
@@ -83,7 +89,11 @@ pub fn write_edit_target(path: &Path) -> Option<String> {
 
     let dir = cache_dir()?.join("edit");
     std::fs::create_dir_all(&dir).ok()?;
-    let name = format!("{}-{}.path", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed));
+    let name = format!(
+        "{}-{}.path",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    );
     // Raw bytes, not a lossy string: a path is not required to be UTF-8.
     std::fs::write(dir.join(&name), path.as_os_str().as_bytes()).ok()?;
     Some(name)
@@ -115,7 +125,9 @@ pub fn setup(config: &Config, shell_program: &str) -> ShellIntegration {
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("");
-    let Some(cache) = cache_dir() else { return integration };
+    let Some(cache) = cache_dir() else {
+        return integration;
+    };
     if std::fs::create_dir_all(&cache).is_err() {
         return integration;
     }
@@ -125,18 +137,33 @@ pub fn setup(config: &Config, shell_program: &str) -> ShellIntegration {
         if std::fs::create_dir_all(&zdotdir).is_err() {
             return integration;
         }
-        if write_zsh_shim(&cache, &zdotdir, &config.prompt, style_prompt, config.commands.emit_cmdline).is_err() {
+        if write_zsh_shim(
+            &cache,
+            &zdotdir,
+            &config.prompt,
+            style_prompt,
+            config.commands.emit_cmdline,
+        )
+        .is_err()
+        {
             return integration;
         }
         if let Ok(user_zdotdir) = std::env::var("ZDOTDIR") {
-            integration.env.insert("_OXIDE_USER_ZDOTDIR".into(), user_zdotdir);
+            integration
+                .env
+                .insert("_OXIDE_USER_ZDOTDIR".into(), user_zdotdir);
         }
         integration
             .env
             .insert("ZDOTDIR".into(), zdotdir.to_string_lossy().to_string());
     } else if shell_name.starts_with("bash") {
         let init_path = cache.join("init.bash");
-        if std::fs::write(&init_path, super::generate_init_bash(&config.prompt, style_prompt, config.commands.emit_cmdline)).is_err() {
+        if std::fs::write(
+            &init_path,
+            super::generate_init_bash(&config.prompt, style_prompt, config.commands.emit_cmdline),
+        )
+        .is_err()
+        {
             return integration;
         }
         let mut args: Vec<String> = config
@@ -161,7 +188,10 @@ fn write_zsh_shim(
     emit_cmdline: bool,
 ) -> std::io::Result<()> {
     let init_path = cache.join("init.zsh");
-    std::fs::write(&init_path, super::generate_init(prompt, style_prompt, emit_cmdline))?;
+    std::fs::write(
+        &init_path,
+        super::generate_init(prompt, style_prompt, emit_cmdline),
+    )?;
 
     let sandwich = |file: &str, extra: &str| -> String {
         format!(

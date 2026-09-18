@@ -45,7 +45,11 @@ pub fn to_bytes(ks: &Keystroke, mode: &TermMode, option_as_meta: OptionAsMeta) -
             return Some(if mods.control { vec![0x08] } else { vec![0x7f] });
         }
         "tab" => {
-            return Some(if mods.shift { b"\x1b[Z".to_vec() } else { b"\t".to_vec() });
+            return Some(if mods.shift {
+                b"\x1b[Z".to_vec()
+            } else {
+                b"\t".to_vec()
+            });
         }
         "escape" => return Some(vec![0x1b]),
         "up" => return Some(csi_cursor('A')),
@@ -96,7 +100,11 @@ pub fn to_bytes(ks: &Keystroke, mode: &TermMode, option_as_meta: OptionAsMeta) -
             '?' | '/' => 0x7f,
             _ => return None,
         };
-        return Some(if mods.alt && alt_is_meta { vec![0x1b, byte] } else { vec![byte] });
+        return Some(if mods.alt && alt_is_meta {
+            vec![0x1b, byte]
+        } else {
+            vec![byte]
+        });
     }
 
     // Option-as-Meta: ESC prefix + the base key, not the composed character.
@@ -121,7 +129,11 @@ pub fn to_bytes(ks: &Keystroke, mode: &TermMode, option_as_meta: OptionAsMeta) -
 fn single_char(key: &str) -> Option<char> {
     let mut chars = key.chars();
     let ch = chars.next()?;
-    if chars.next().is_some() { None } else { Some(ch) }
+    if chars.next().is_some() {
+        None
+    } else {
+        Some(ch)
+    }
 }
 
 /// Best-effort US-layout shift mapping, used only when the platform did not
@@ -185,14 +197,26 @@ mod tests {
     #[test]
     fn ctrl_letters() {
         let mode = TermMode::empty();
-        assert_eq!(to_bytes(&ks("ctrl-c"), &mode, OptionAsMeta::None), Some(vec![0x03]));
-        assert_eq!(to_bytes(&ks("ctrl-a"), &mode, OptionAsMeta::None), Some(vec![0x01]));
-        assert_eq!(to_bytes(&ks("ctrl-["), &mode, OptionAsMeta::None), Some(vec![0x1b]));
+        assert_eq!(
+            to_bytes(&ks("ctrl-c"), &mode, OptionAsMeta::None),
+            Some(vec![0x03])
+        );
+        assert_eq!(
+            to_bytes(&ks("ctrl-a"), &mode, OptionAsMeta::None),
+            Some(vec![0x01])
+        );
+        assert_eq!(
+            to_bytes(&ks("ctrl-["), &mode, OptionAsMeta::None),
+            Some(vec![0x1b])
+        );
     }
 
     #[test]
     fn enter_is_cr() {
-        assert_eq!(to_bytes(&ks("enter"), &TermMode::empty(), OptionAsMeta::None), Some(vec![b'\r']));
+        assert_eq!(
+            to_bytes(&ks("enter"), &TermMode::empty(), OptionAsMeta::None),
+            Some(vec![b'\r'])
+        );
     }
 
     #[test]
@@ -207,14 +231,21 @@ mod tests {
         );
         // ctrl-shift-right = CSI 1;6C.
         assert_eq!(
-            to_bytes(&ks("ctrl-shift-right"), &TermMode::empty(), OptionAsMeta::None),
+            to_bytes(
+                &ks("ctrl-shift-right"),
+                &TermMode::empty(),
+                OptionAsMeta::None
+            ),
             Some(b"\x1b[1;6C".to_vec())
         );
     }
 
     #[test]
     fn cmd_never_reaches_pty() {
-        assert_eq!(to_bytes(&ks("cmd-a"), &TermMode::empty(), OptionAsMeta::None), None);
+        assert_eq!(
+            to_bytes(&ks("cmd-a"), &TermMode::empty(), OptionAsMeta::None),
+            None
+        );
     }
 
     #[test]

@@ -101,7 +101,11 @@ impl Theme {
         if !c.follow_system {
             return c.preset.as_deref();
         }
-        let variant = if dark { c.preset_dark.as_deref() } else { c.preset_light.as_deref() };
+        let variant = if dark {
+            c.preset_dark.as_deref()
+        } else {
+            c.preset_light.as_deref()
+        };
         variant.or(c.preset.as_deref())
     }
 
@@ -111,9 +115,9 @@ impl Theme {
     /// default palette and light uses `catppuccin-latte`, so the bare
     /// `follow_system = true` does something visible.
     pub fn resolve(c: &ColorsConfig, dark: bool) -> Self {
-        let name = Self::preset_for(c, dark).map(str::to_string).or_else(|| {
-            (c.follow_system && !dark).then(|| "catppuccin-latte".to_string())
-        });
+        let name = Self::preset_for(c, dark)
+            .map(str::to_string)
+            .or_else(|| (c.follow_system && !dark).then(|| "catppuccin-latte".to_string()));
         Self::from_preset(c, name.as_deref())
     }
 
@@ -121,7 +125,12 @@ impl Theme {
         // Unknown preset names fall back to the default palette; the config
         // loader surfaces a banner for that case.
         let (preset_name, base) = name
-            .and_then(|n| PRESET_NAMES.iter().find(|p| **p == n).map(|p| (*p, preset(n).unwrap())))
+            .and_then(|n| {
+                PRESET_NAMES
+                    .iter()
+                    .find(|p| **p == n)
+                    .map(|p| (*p, preset(n).unwrap()))
+            })
             .unwrap_or(("catppuccin-mocha", &CATPPUCCIN_MOCHA));
         let pick = |explicit: &Option<String>, base_ix: usize| -> Hsla {
             explicit
@@ -188,7 +197,10 @@ mod tests {
     #[test]
     fn all_presets_parse() {
         for name in PRESET_NAMES {
-            let config = ColorsConfig { preset: Some(name.to_string()), ..Default::default() };
+            let config = ColorsConfig {
+                preset: Some(name.to_string()),
+                ..Default::default()
+            };
             let _ = Theme::from_config(&config); // pick() unwraps on bad hex
         }
     }
@@ -221,15 +233,28 @@ mod tests {
         };
         assert_eq!(Theme::resolve(&config, true).preset, "gruvbox-dark");
         assert_eq!(Theme::resolve(&config, false).preset, "catppuccin-latte");
-        assert!(Theme::resolve(&config, false).selection_fg.is_some(), "overrides apply to both variants");
+        assert!(
+            Theme::resolve(&config, false).selection_fg.is_some(),
+            "overrides apply to both variants"
+        );
         // Off: the plain preset, whatever the appearance.
-        let off = ColorsConfig { follow_system: false, ..config.clone() };
+        let off = ColorsConfig {
+            follow_system: false,
+            ..config.clone()
+        };
         assert_eq!(Theme::resolve(&off, false).preset, "nord");
         // On with only `preset`: dark keeps it, light falls back to latte.
-        let bare = ColorsConfig { preset: Some("nord".into()), follow_system: true, ..Default::default() };
+        let bare = ColorsConfig {
+            preset: Some("nord".into()),
+            follow_system: true,
+            ..Default::default()
+        };
         assert_eq!(Theme::resolve(&bare, true).preset, "nord");
         assert_eq!(Theme::resolve(&bare, false).preset, "nord");
-        let bare = ColorsConfig { follow_system: true, ..Default::default() };
+        let bare = ColorsConfig {
+            follow_system: true,
+            ..Default::default()
+        };
         assert_eq!(Theme::resolve(&bare, true).preset, "catppuccin-mocha");
         assert_eq!(Theme::resolve(&bare, false).preset, "catppuccin-latte");
     }

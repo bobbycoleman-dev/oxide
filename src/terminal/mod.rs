@@ -26,15 +26,15 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     App, Bounds, ClipboardItem, Context, EventEmitter, ExternalPaths, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, ParentElement, Pixels, Render, ScrollDelta, ScrollWheelEvent, ShapedLine,
-    Styled, Window, div,
+    MouseUpEvent, ParentElement, Pixels, Render, ScrollDelta, ScrollWheelEvent, ShapedLine, Styled,
+    Window, div,
 };
 
 use crate::config::schema::{BellMode, CursorStyleName};
 use crate::config::{Config, Theme, theme::hsla_to_rgb8};
 use crate::keymap::actions::{
-    ClearScrollback, Copy, CopyLastBlock, CopyLastCommand, CopyLastOutput, CopyMode, Paste, PromptDown,
-    PromptUp, Search, SearchToggleCase, SearchToggleRegex, SearchToggleWord, SelectAll,
+    ClearScrollback, Copy, CopyLastBlock, CopyLastCommand, CopyLastOutput, CopyMode, Paste,
+    PromptDown, PromptUp, Search, SearchToggleCase, SearchToggleRegex, SearchToggleWord, SelectAll,
 };
 use crate::prompt::integration::{Channel, write_channel};
 use crate::startup::{OnExit, RestartDecision, RestartGate, StartupCommand};
@@ -62,12 +62,23 @@ pub enum TerminalEvent {
     /// The shell integration reported a command starting.
     CommandStarted,
     /// ...and finishing. `label` is the command's first line or a stand-in.
-    CommandFinished { label: String, exit: Option<i32>, duration: Duration },
+    CommandFinished {
+        label: String,
+        exit: Option<i32>,
+        duration: Duration,
+    },
     /// A program asked for a desktop notification (OSC 9 / OSC 777), already
     /// rate-limited and gated on the config.
-    Notify { title: Option<String>, body: String },
+    Notify {
+        title: Option<String>,
+        body: String,
+    },
     /// cmd-click on a `path:line:col` that resolved to a file.
-    OpenPath { path: PathBuf, line: Option<u32>, col: Option<u32> },
+    OpenPath {
+        path: PathBuf,
+        line: Option<u32>,
+        col: Option<u32>,
+    },
     /// cmd-click on a directory: point the tree there.
     RevealDir(PathBuf),
     /// Bytes the user typed or pasted while broadcast is on, for the owner
@@ -145,8 +156,16 @@ impl SearchOptions {
     /// word boundary is the ASCII one: alacritty's lazy DFA can't do the
     /// Unicode-aware `\b`.
     pub fn pattern(&self, query: &str) -> String {
-        let body = if self.regex { query.to_string() } else { regex_escape(query) };
-        let body = if self.whole_word { format!("(?-u:\\b)(?:{body})(?-u:\\b)") } else { body };
+        let body = if self.regex {
+            query.to_string()
+        } else {
+            regex_escape(query)
+        };
+        let body = if self.whole_word {
+            format!("(?-u:\\b)(?:{body})(?-u:\\b)")
+        } else {
+            body
+        };
         let flag = if self.case_sensitive { "(?-i)" } else { "(?i)" };
         format!("{flag}{body}")
     }
@@ -263,7 +282,10 @@ struct SearchState {
 fn regex_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
-        if matches!(c, '\\' | '.' | '+' | '*' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '^' | '$') {
+        if matches!(
+            c,
+            '\\' | '.' | '+' | '*' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '^' | '$'
+        ) {
             out.push('\\');
         }
         out.push(c);
@@ -275,7 +297,11 @@ impl EventEmitter<TerminalEvent> for TerminalPane {}
 
 /// One cell past `p` in `direction`, wrapping at line ends and clamped to
 /// the grid — the origin for "the next match after this one".
-fn step_point<T>(term: &alacritty_terminal::term::Term<T>, p: GridPoint, direction: Direction) -> GridPoint {
+fn step_point<T>(
+    term: &alacritty_terminal::term::Term<T>,
+    p: GridPoint,
+    direction: Direction,
+) -> GridPoint {
     let last_column = term.last_column();
     let stepped = if direction == Direction::Left {
         if p.column.0 > 0 {
@@ -312,16 +338,30 @@ mod search_tests {
     fn options_build_the_expected_pattern() {
         let plain = SearchOptions::default();
         assert_eq!(plain.pattern("a.b"), "(?i)a\\.b");
-        let re = SearchOptions { regex: true, ..Default::default() };
+        let re = SearchOptions {
+            regex: true,
+            ..Default::default()
+        };
         assert_eq!(re.pattern("a.b"), "(?i)a.b");
-        let word = SearchOptions { whole_word: true, case_sensitive: true, ..Default::default() };
+        let word = SearchOptions {
+            whole_word: true,
+            case_sensitive: true,
+            ..Default::default()
+        };
         assert_eq!(word.pattern("Err"), "(?-i)(?-u:\\b)(?:Err)(?-u:\\b)");
         // Every combination compiles, and a broken regex is reported.
         for regex in [false, true] {
             for case in [false, true] {
                 for word in [false, true] {
-                    let o = SearchOptions { regex, case_sensitive: case, whole_word: word };
-                    assert!(RegexSearch::new(&o.pattern("foo(bar)")).is_ok() || regex, "{o:?}");
+                    let o = SearchOptions {
+                        regex,
+                        case_sensitive: case,
+                        whole_word: word,
+                    };
+                    assert!(
+                        RegexSearch::new(&o.pattern("foo(bar)")).is_ok() || regex,
+                        "{o:?}"
+                    );
                 }
             }
         }
@@ -355,7 +395,12 @@ impl TerminalPane {
         let mut this = Self {
             session: None,
             // Plausible bring-up size; real measurement happens on first layout.
-            size: TermSize { columns: 80, screen_lines: 24, cell_width: 8.0, cell_height: 17.0 },
+            size: TermSize {
+                columns: 80,
+                screen_lines: 24,
+                cell_width: 8.0,
+                cell_height: 17.0,
+            },
             title: "oxide".into(),
             cwd: Some(working_dir.clone()),
             child_exited: None,
@@ -407,7 +452,8 @@ impl TerminalPane {
     }
 
     pub fn set_config(&mut self, config: Rc<Config>, theme: Rc<Theme>, cx: &mut Context<Self>) {
-        let term_changed = config.cursor != self.config.cursor || config.shell.scrollback != self.config.shell.scrollback;
+        let term_changed = config.cursor != self.config.cursor
+            || config.shell.scrollback != self.config.shell.scrollback;
         self.config = config;
         self.theme = theme;
         self.shape_cache.clear();
@@ -430,8 +476,14 @@ impl TerminalPane {
         };
         TermConfig {
             scrolling_history: self.config.shell.scrollback,
-            default_cursor_style: CursorStyle { shape, blinking: cursor.blink },
-            vi_mode_cursor_style: Some(CursorStyle { shape: CursorShape::Block, blinking: false }),
+            default_cursor_style: CursorStyle {
+                shape,
+                blinking: cursor.blink,
+            },
+            vi_mode_cursor_style: Some(CursorStyle {
+                shape: CursorShape::Block,
+                blinking: false,
+            }),
             ..TermConfig::default()
         }
     }
@@ -487,8 +539,12 @@ impl TerminalPane {
                             .update(cx, |pane, cx| {
                                 for event in batch {
                                     match event {
-                                        SessionEvent::Term(event) => pane.handle_alac_event(event, cx),
-                                        SessionEvent::Marker(marker) => pane.handle_marker(marker, cx),
+                                        SessionEvent::Term(event) => {
+                                            pane.handle_alac_event(event, cx)
+                                        }
+                                        SessionEvent::Marker(marker) => {
+                                            pane.handle_marker(marker, cx)
+                                        }
                                     }
                                 }
                             })
@@ -529,10 +585,18 @@ impl TerminalPane {
             MarkerKind::Notify { title, body } => {
                 // A remote host can spam these; one every few seconds is
                 // plenty for anything legitimate.
-                let recent = self.last_program_notify.is_some_and(|t| now.duration_since(t) < Duration::from_secs(3));
-                if self.config.notifications.enabled && self.config.notifications.passthrough_osc9 && !recent {
+                let recent = self
+                    .last_program_notify
+                    .is_some_and(|t| now.duration_since(t) < Duration::from_secs(3));
+                if self.config.notifications.enabled
+                    && self.config.notifications.passthrough_osc9
+                    && !recent
+                {
                     self.last_program_notify = Some(now);
-                    cx.emit(TerminalEvent::Notify { title: title.clone(), body: body.clone() });
+                    cx.emit(TerminalEvent::Notify {
+                        title: title.clone(),
+                        body: body.clone(),
+                    });
                 }
                 return;
             }
@@ -598,7 +662,10 @@ impl TerminalPane {
         if end < start || start < term.topmost_line() || end > term.bottommost_line() {
             return None;
         }
-        let text = term.bounds_to_string(GridPoint::new(start, Column(column)), GridPoint::new(end, term.last_column()));
+        let text = term.bounds_to_string(
+            GridPoint::new(start, Column(column)),
+            GridPoint::new(end, term.last_column()),
+        );
         let text = text.trim().to_string();
         (!text.is_empty()).then_some(text)
     }
@@ -617,7 +684,10 @@ impl TerminalPane {
         if end < start {
             return None;
         }
-        let text = term.bounds_to_string(GridPoint::new(start, Column(0)), GridPoint::new(end, term.last_column()));
+        let text = term.bounds_to_string(
+            GridPoint::new(start, Column(0)),
+            GridPoint::new(end, term.last_column()),
+        );
         let text = text.trim_end().to_string();
         (!text.is_empty()).then_some(text)
     }
@@ -634,22 +704,38 @@ impl TerminalPane {
         cx.notify();
     }
 
-    fn copy_last_output(&mut self, _: &CopyLastOutput, _window: &mut Window, cx: &mut Context<Self>) {
-        let Some(cmd) = self.log.last_finished().cloned() else { return };
+    fn copy_last_output(
+        &mut self,
+        _: &CopyLastOutput,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(cmd) = self.log.last_finished().cloned() else {
+            return;
+        };
         if let Some(text) = self.output_text(&cmd) {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
         }
     }
 
-    fn copy_last_command(&mut self, _: &CopyLastCommand, _window: &mut Window, cx: &mut Context<Self>) {
-        let Some(cmd) = self.log.last_finished().cloned() else { return };
+    fn copy_last_command(
+        &mut self,
+        _: &CopyLastCommand,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(cmd) = self.log.last_finished().cloned() else {
+            return;
+        };
         if let Some(text) = cmd.text {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
         }
     }
 
     fn copy_last_block(&mut self, _: &CopyLastBlock, _window: &mut Window, cx: &mut Context<Self>) {
-        let Some(cmd) = self.log.last_finished().cloned() else { return };
+        let Some(cmd) = self.log.last_finished().cloned() else {
+            return;
+        };
         let mut block = String::new();
         if let Some(text) = &cmd.text {
             block.push_str("$ ");
@@ -785,7 +871,8 @@ impl TerminalPane {
             loop {
                 let timer = match this.update(cx, |pane, cx| {
                     let interval = pane.config.cursor.blink_interval.clamp(100, 5000);
-                    cx.background_executor().timer(Duration::from_millis(interval))
+                    cx.background_executor()
+                        .timer(Duration::from_millis(interval))
                 }) {
                     Ok(timer) => timer,
                     Err(_) => break,
@@ -793,7 +880,9 @@ impl TerminalPane {
                 timer.await;
                 let alive = this
                     .update(cx, |pane, cx| {
-                        let interval = Duration::from_millis(pane.config.cursor.blink_interval.clamp(100, 5000));
+                        let interval = Duration::from_millis(
+                            pane.config.cursor.blink_interval.clamp(100, 5000),
+                        );
                         // A cursor that blinks mid-typing is distracting.
                         if pane.last_input.elapsed() < interval {
                             if !pane.blink_show {
@@ -904,7 +993,12 @@ impl TerminalPane {
         self.vi.as_ref()?;
         let session = self.session.as_ref()?;
         let term = session.term.lock();
-        let kind = match term.selection.as_ref().filter(|s| !s.is_empty()).map(|s| s.ty) {
+        let kind = match term
+            .selection
+            .as_ref()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.ty)
+        {
             None => ViModeKind::Normal,
             Some(SelectionType::Lines) => ViModeKind::VisualLine,
             Some(SelectionType::Block) => ViModeKind::VisualBlock,
@@ -932,7 +1026,9 @@ impl TerminalPane {
         if self.child_exited.is_some() {
             return Err("the shell has exited — press ⏎ to restart it first");
         }
-        let Some(session) = &self.session else { return Err("no session") };
+        let Some(session) = &self.session else {
+            return Err("no session");
+        };
         let mut term = session.term.lock();
         if term.mode().contains(TermMode::ALT_SCREEN) {
             return Err("copy mode isn't available while a full-screen program has the terminal");
@@ -967,7 +1063,9 @@ impl TerminalPane {
     /// Copy the selection (if any) to the clipboard. Returns whether
     /// anything was copied.
     fn copy_selection(&self, cx: &mut Context<Self>) -> bool {
-        let Some(session) = &self.session else { return false };
+        let Some(session) = &self.session else {
+            return false;
+        };
         let text = session.term.lock().selection_to_string();
         match text {
             Some(text) if !text.is_empty() => {
@@ -982,7 +1080,11 @@ impl TerminalPane {
     fn vi_toggle_selection(&mut self, ty: SelectionType) {
         let Some(session) = &self.session else { return };
         let mut term = session.term.lock();
-        if term.selection.as_ref().is_some_and(|s| s.ty == ty && !s.is_empty()) {
+        if term
+            .selection
+            .as_ref()
+            .is_some_and(|s| s.ty == ty && !s.is_empty())
+        {
             term.selection = None;
             return;
         }
@@ -1000,13 +1102,16 @@ impl TerminalPane {
         if m.platform || m.function {
             return; // cmd-keys are the app's; anything unbound is ignored
         }
-        let Some(session) = self.session.as_ref().map(|s| s.term.clone()) else { return };
+        let Some(session) = self.session.as_ref().map(|s| s.term.clone()) else {
+            return;
+        };
         let (count, pending) = {
             let vi = self.vi.as_mut().expect("in copy mode");
             (vi.count.take(), vi.pending.take())
         };
         let n = count.unwrap_or(1).max(1);
-        let motion = |term: &mut alacritty_terminal::term::Term<session::EventProxy>, motion: ViMotion| {
+        let motion = |term: &mut alacritty_terminal::term::Term<session::EventProxy>,
+                      motion: ViMotion| {
             for _ in 0..n {
                 term.vi_motion(motion);
             }
@@ -1081,7 +1186,11 @@ impl TerminalPane {
         // Counts: digits accumulate, except a leading 0 which is a motion.
         if key.is_ascii_digit() && (key != '0' || count.is_some()) {
             let digit = key.to_digit(10).unwrap() as usize;
-            let next = count.unwrap_or(0).saturating_mul(10).saturating_add(digit).min(99_999);
+            let next = count
+                .unwrap_or(0)
+                .saturating_mul(10)
+                .saturating_add(digit)
+                .min(99_999);
             if let Some(vi) = self.vi.as_mut() {
                 vi.count = Some(next);
                 vi.pending = pending;
@@ -1148,7 +1257,9 @@ impl TerminalPane {
                 let full = term.screen_lines() as i32;
                 term.scroll_display(Scroll::Delta(-full));
             }
-            (None, 'g' | 'y') if key == 'g' || term.selection.as_ref().is_none_or(|s| s.is_empty()) => {
+            (None, 'g' | 'y')
+                if key == 'g' || term.selection.as_ref().is_none_or(|s| s.is_empty()) =>
+            {
                 if let Some(vi) = self.vi.as_mut() {
                     vi.pending = Some(key);
                     vi.count = count;
@@ -1171,7 +1282,11 @@ impl TerminalPane {
             }
             (None, '/') | (None, '?') => {
                 drop(term);
-                let direction = if key == '/' { Direction::Right } else { Direction::Left };
+                let direction = if key == '/' {
+                    Direction::Right
+                } else {
+                    Direction::Left
+                };
                 self.search = Some(SearchState {
                     query: String::new(),
                     current: None,
@@ -1204,10 +1319,18 @@ impl TerminalPane {
     /// `n` / `N`: repeat the last accepted copy-mode search from the vi
     /// cursor, in the same (or the opposite) direction.
     fn vi_search_again(&mut self, reverse: bool, cx: &mut Context<Self>) {
-        let Some((pattern, direction)) = self.last_search.clone() else { return };
-        let direction = if reverse { direction.opposite() } else { direction };
+        let Some((pattern, direction)) = self.last_search.clone() else {
+            return;
+        };
+        let direction = if reverse {
+            direction.opposite()
+        } else {
+            direction
+        };
         let Some(session) = &self.session else { return };
-        let Ok(mut regex) = RegexSearch::new(&pattern) else { return };
+        let Ok(mut regex) = RegexSearch::new(&pattern) else {
+            return;
+        };
         let mut term = session.term.lock();
         let origin = step_point(&*term, term.vi_mode_cursor.point, direction);
         if let Some(m) = term.search_next(&mut regex, origin, direction, Side::Left, None) {
@@ -1277,7 +1400,11 @@ impl TerminalPane {
             let col = point.column.0;
             return Some((
                 ClickTarget::Url(link.uri().to_string()),
-                click::Token { start: col, end: col + 1, text: link.uri().to_string() },
+                click::Token {
+                    start: col,
+                    end: col + 1,
+                    text: link.uri().to_string(),
+                },
             ));
         }
         let cols = self.size.columns;
@@ -1406,7 +1533,9 @@ impl TerminalPane {
         cx.spawn(async move |this, cx| {
             timer.await;
             this.update(cx, |pane, cx| {
-                if pane.startup_generation == generation && pane.startup_phase == StartupPhase::Pending {
+                if pane.startup_generation == generation
+                    && pane.startup_phase == StartupPhase::Pending
+                {
                     pane.startup_phase = StartupPhase::Done;
                     cx.emit(TerminalEvent::Notice(format!(
                         "startup command skipped — the shell wasn't ready after {}",
@@ -1425,7 +1554,10 @@ impl TerminalPane {
     /// rc files are running" and fire shortly after. Racy by nature, which
     /// is why the marker path is preferred.
     fn startup_on_first_output(&mut self, cx: &mut Context<Self>) {
-        if self.startup_phase != StartupPhase::Pending || self.startup_uses_markers() || self.startup_wakeup_seen {
+        if self.startup_phase != StartupPhase::Pending
+            || self.startup_uses_markers()
+            || self.startup_wakeup_seen
+        {
             return;
         }
         self.startup_wakeup_seen = true;
@@ -1486,7 +1618,9 @@ impl TerminalPane {
 
     fn startup_finished(&mut self, exit: Option<i32>, cx: &mut Context<Self>) {
         self.startup_phase = StartupPhase::Done;
-        let Some(startup) = self.startup.clone() else { return };
+        let Some(startup) = self.startup.clone() else {
+            return;
+        };
         match startup.on_exit {
             OnExit::Shell => {}
             OnExit::Close => {
@@ -1495,7 +1629,9 @@ impl TerminalPane {
                 if exit == Some(0) {
                     cx.emit(TerminalEvent::StartupExited);
                 } else {
-                    let status = exit.map(|c| c.to_string()).unwrap_or_else(|| "unknown".into());
+                    let status = exit
+                        .map(|c| c.to_string())
+                        .unwrap_or_else(|| "unknown".into());
                     cx.emit(TerminalEvent::Notice(format!(
                         "startup command exited with status {status} — pane kept open"
                     )));
@@ -1580,7 +1716,8 @@ impl TerminalPane {
                 && !term.mode().contains(TermMode::ALT_SCREEN)
                 && !self.log.markers_seen
             {
-                let abs = term.grid().history_size() + term.renderable_content().cursor.point.line.0.max(0) as usize;
+                let abs = term.grid().history_size()
+                    + term.renderable_content().cursor.point.line.0.max(0) as usize;
                 drop(term);
                 self.push_prompt_mark(abs);
             } else {
@@ -1599,7 +1736,12 @@ impl TerminalPane {
         if self.search.is_some() {
             self.close_search(cx);
         } else {
-            self.search = Some(SearchState { query: String::new(), current: None, invalid: false, vi_direction: None });
+            self.search = Some(SearchState {
+                query: String::new(),
+                current: None,
+                invalid: false,
+                vi_direction: None,
+            });
         }
         cx.notify();
     }
@@ -1612,17 +1754,32 @@ impl TerminalPane {
         cx.notify();
     }
 
-    fn search_toggle_regex(&mut self, _: &SearchToggleRegex, _window: &mut Window, cx: &mut Context<Self>) {
+    fn search_toggle_regex(
+        &mut self,
+        _: &SearchToggleRegex,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.search_options.regex = !self.search_options.regex;
         self.rerun_search(cx);
     }
 
-    fn search_toggle_case(&mut self, _: &SearchToggleCase, _window: &mut Window, cx: &mut Context<Self>) {
+    fn search_toggle_case(
+        &mut self,
+        _: &SearchToggleCase,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.search_options.case_sensitive = !self.search_options.case_sensitive;
         self.rerun_search(cx);
     }
 
-    fn search_toggle_word(&mut self, _: &SearchToggleWord, _window: &mut Window, cx: &mut Context<Self>) {
+    fn search_toggle_word(
+        &mut self,
+        _: &SearchToggleWord,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.search_options.whole_word = !self.search_options.whole_word;
         self.rerun_search(cx);
     }
@@ -1663,7 +1820,11 @@ impl TerminalPane {
             }
             "enter" => {
                 // enter walks older matches; shift-enter walks newer.
-                let direction = if ks.modifiers.shift { Direction::Right } else { Direction::Left };
+                let direction = if ks.modifiers.shift {
+                    Direction::Right
+                } else {
+                    Direction::Left
+                };
                 self.run_search(direction, true, cx);
                 return;
             }
@@ -1695,8 +1856,12 @@ impl TerminalPane {
     /// Enter in a copy-mode search: park the vi cursor on the current match
     /// and close the bar, remembering the pattern for `n` / `N`.
     fn accept_vi_search(&mut self, cx: &mut Context<Self>) {
-        let Some(state) = self.search.take() else { return };
-        let Some(direction) = state.vi_direction else { return };
+        let Some(state) = self.search.take() else {
+            return;
+        };
+        let Some(direction) = state.vi_direction else {
+            return;
+        };
         if let Some(session) = &self.session {
             let mut term = session.term.lock();
             term.selection = None;
@@ -1713,7 +1878,9 @@ impl TerminalPane {
 
     fn run_search(&mut self, direction: Direction, from_current: bool, cx: &mut Context<Self>) {
         let Some(session) = &self.session else { return };
-        let Some(state) = &mut self.search else { return };
+        let Some(state) = &mut self.search else {
+            return;
+        };
         if state.query.is_empty() {
             state.current = None;
             state.invalid = false;
@@ -1739,7 +1906,11 @@ impl TerminalPane {
         let origin = match (&state.current, from_current) {
             (Some(m), true) => {
                 // Step one cell past the current match so we advance.
-                let p = if direction == Direction::Left { *m.start() } else { *m.end() };
+                let p = if direction == Direction::Left {
+                    *m.start()
+                } else {
+                    *m.end()
+                };
                 step_point(&*term, p, direction)
             }
             // Copy mode searches from the vi cursor; the bar searches from
@@ -1816,7 +1987,11 @@ impl TerminalPane {
         let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
             return;
         };
-        let bracketed = session.term.lock().mode().contains(TermMode::BRACKETED_PASTE);
+        let bracketed = session
+            .term
+            .lock()
+            .mode()
+            .contains(TermMode::BRACKETED_PASTE);
         let bytes = keys::prepare_paste(&text, bracketed);
         if self.broadcast {
             cx.emit(TerminalEvent::Input(bytes.clone()));
@@ -1847,7 +2022,12 @@ impl TerminalPane {
         cx.notify();
     }
 
-    fn clear_scrollback(&mut self, _: &ClearScrollback, _window: &mut Window, cx: &mut Context<Self>) {
+    fn clear_scrollback(
+        &mut self,
+        _: &ClearScrollback,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         use alacritty_terminal::vte::ansi::{ClearMode, Handler};
         let Some(session) = &self.session else { return };
         let mut term = session.term.lock();
@@ -1865,8 +2045,13 @@ impl TerminalPane {
         let y = f32::from(position.y - layout.bounds.origin.y) - self.config.window.padding.y;
         let col_f = (x / layout.cell_width).max(0.0);
         let col = (col_f as usize).min(self.size.columns.saturating_sub(1));
-        let row = ((y / layout.cell_height).max(0.0) as usize).min(self.size.screen_lines.saturating_sub(1));
-        let side = if col_f.fract() < 0.5 { Side::Left } else { Side::Right };
+        let row = ((y / layout.cell_height).max(0.0) as usize)
+            .min(self.size.screen_lines.saturating_sub(1));
+        let side = if col_f.fract() < 0.5 {
+            Side::Left
+        } else {
+            Side::Right
+        };
         let line = row as i32 - layout.display_offset as i32;
         Some((GridPoint::new(Line(line), Column(col)), side, col, row))
     }
@@ -1881,7 +2066,14 @@ impl TerminalPane {
             .unwrap_or(false)
     }
 
-    fn send_mouse_report(&self, button: u8, col: usize, row: usize, pressed: bool, mods: &gpui::Modifiers) {
+    fn send_mouse_report(
+        &self,
+        button: u8,
+        col: usize,
+        row: usize,
+        pressed: bool,
+        mods: &gpui::Modifiers,
+    ) {
         let Some(session) = &self.session else { return };
         let mode = *session.term.lock().mode();
         let mut b = button;
@@ -1910,9 +2102,16 @@ impl TerminalPane {
         }
     }
 
-    fn on_mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+    fn on_mouse_down(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         window.focus(&self.focus_handle);
-        let Some((point, side, col, row)) = self.grid_point(event.position) else { return };
+        let Some((point, side, col, row)) = self.grid_point(event.position) else {
+            return;
+        };
         if event.modifiers.platform {
             match self.target_at(point).map(|(t, _)| t) {
                 Some(ClickTarget::Url(url)) => cx.open_url(&url),
@@ -1953,13 +2152,23 @@ impl TerminalPane {
         }
     }
 
-    fn on_mouse_move(&mut self, event: &MouseMoveEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn on_mouse_move(
+        &mut self,
+        event: &MouseMoveEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if event.pressed_button.is_none() {
             // cmd-hover: underline whatever a click would open.
             let span = if event.modifiers.platform {
-                self.grid_point(event.position).and_then(|(point, _, _, row)| {
-                    self.target_at(point).map(|(_, token)| HoverSpan { row, start: token.start, end: token.end })
-                })
+                self.grid_point(event.position)
+                    .and_then(|(point, _, _, row)| {
+                        self.target_at(point).map(|(_, token)| HoverSpan {
+                            row,
+                            start: token.start,
+                            end: token.end,
+                        })
+                    })
             } else {
                 None
             };
@@ -1972,7 +2181,9 @@ impl TerminalPane {
         if event.pressed_button != Some(MouseButton::Left) {
             return;
         }
-        let Some((point, side, col, row)) = self.grid_point(event.position) else { return };
+        let Some((point, side, col, row)) = self.grid_point(event.position) else {
+            return;
+        };
         if self.mouse_mode_active(event.modifiers.shift) {
             let drag = self
                 .session
@@ -2013,13 +2224,20 @@ impl TerminalPane {
             }
             return;
         }
-        let Some((_, _, col, row)) = self.grid_point(event.position) else { return };
+        let Some((_, _, col, row)) = self.grid_point(event.position) else {
+            return;
+        };
         if self.mouse_mode_active(event.modifiers.shift) {
             self.send_mouse_report(0, col, row, false, &event.modifiers);
         }
     }
 
-    fn on_scroll_wheel(&mut self, event: &ScrollWheelEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn on_scroll_wheel(
+        &mut self,
+        event: &ScrollWheelEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(session) = &self.session else { return };
         let cell_height = self.last_layout.map(|l| l.cell_height).unwrap_or(17.0);
         let delta_lines = match event.delta {
@@ -2075,14 +2293,22 @@ impl TerminalPane {
         let session = self.session.as_ref()?;
         let (total, alt) = {
             let term = session.term.lock();
-            (term.grid().history_size() + term.screen_lines(), term.mode().contains(TermMode::ALT_SCREEN))
+            (
+                term.grid().history_size() + term.screen_lines(),
+                term.mode().contains(TermMode::ALT_SCREEN),
+            )
         };
         if alt || total == 0 {
             return None;
         }
         let theme = &self.theme;
         let dim = colors::blend(theme.foreground, theme.background, 0.6);
-        let mut strip = div().absolute().top_0().bottom_0().right_0().w(gpui::px(6.0));
+        let mut strip = div()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .right_0()
+            .w(gpui::px(6.0));
         for cmd in self.log.entries() {
             let Some(row) = cmd.prompt_row else { continue };
             let color = if cmd.finished.is_none() {
@@ -2132,7 +2358,11 @@ impl Render for TerminalPane {
 
         div()
             .id("terminal-pane")
-            .key_context(if vi_mode.is_some() { "TerminalVi" } else { "Terminal" })
+            .key_context(if vi_mode.is_some() {
+                "TerminalVi"
+            } else {
+                "Terminal"
+            })
             .track_focus(&self.focus_handle)
             .size_full()
             .relative()
@@ -2157,12 +2387,14 @@ impl Render for TerminalPane {
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
-            .on_modifiers_changed(cx.listener(|this, ev: &gpui::ModifiersChangedEvent, _w, cx| {
-                if !ev.modifiers.platform && this.hover.is_some() {
-                    this.hover = None;
-                    cx.notify();
-                }
-            }))
+            .on_modifiers_changed(
+                cx.listener(|this, ev: &gpui::ModifiersChangedEvent, _w, cx| {
+                    if !ev.modifiers.platform && this.hover.is_some() {
+                        this.hover = None;
+                        cx.notify();
+                    }
+                }),
+            )
             .when(self.hover.is_some(), |d| d.cursor_pointer())
             // Files dropped from Finder, or dragged out of the tree, land at
             // the prompt as quoted paths.
@@ -2173,29 +2405,34 @@ impl Render for TerminalPane {
                 }
                 cx.notify();
             }))
-            .on_drop(cx.listener(|this, drag: &crate::tree::TreeDrag, window, cx| {
-                window.focus(&this.focus_handle);
-                this.insert_path(&drag.path, false);
-                cx.notify();
-            }))
+            .on_drop(
+                cx.listener(|this, drag: &crate::tree::TreeDrag, window, cx| {
+                    window.focus(&this.focus_handle);
+                    this.insert_path(&drag.path, false);
+                    cx.notify();
+                }),
+            )
             .child(TerminalElement::new(cx.entity(), focused))
             .when_some(self.render_gutter(cx), |this, gutter| this.child(gutter))
             // "N lines above": you're looking at history, and how far back.
-            .when(scrolled_lines > 0 && self.search.is_none() && self.child_exited.is_none(), |this| {
-                this.child(
-                    div()
-                        .absolute()
-                        .top_2()
-                        .right_2()
-                        .px_2()
-                        .py_0p5()
-                        .rounded_md()
-                        .bg(theme.ansi[0])
-                        .text_size(gpui::px(11.0))
-                        .text_color(dim)
-                        .child(format!("▲ {} lines above", group_thousands(scrolled_lines))),
-                )
-            })
+            .when(
+                scrolled_lines > 0 && self.search.is_none() && self.child_exited.is_none(),
+                |this| {
+                    this.child(
+                        div()
+                            .absolute()
+                            .top_2()
+                            .right_2()
+                            .px_2()
+                            .py_0p5()
+                            .rounded_md()
+                            .bg(theme.ansi[0])
+                            .text_size(gpui::px(11.0))
+                            .text_color(dim)
+                            .child(format!("▲ {} lines above", group_thousands(scrolled_lines))),
+                    )
+                },
+            )
             .when_some(self.search.as_ref(), |this, search| {
                 let hint = if search.invalid {
                     "invalid pattern"
@@ -2214,7 +2451,11 @@ impl Render for TerminalPane {
                     _ => "/",
                 };
                 let chip = |ix: u8, label: &'static str, on: bool| {
-                    let (fg, bg) = if on { (theme.background, theme.ansi[4]) } else { (dim, theme.ansi[0]) };
+                    let (fg, bg) = if on {
+                        (theme.background, theme.ansi[4])
+                    } else {
+                        (dim, theme.ansi[0])
+                    };
                     div()
                         .id(("search-toggle", ix as usize))
                         .px_1()
@@ -2293,11 +2534,14 @@ impl Render for TerminalPane {
                         .child(label),
                 )
             })
-            .when(self.bell_until.is_some_and(|t| Instant::now() < t), |this| {
-                let mut flash = theme.foreground;
-                flash.a = 0.12;
-                this.child(div().absolute().inset_0().bg(flash))
-            })
+            .when(
+                self.bell_until.is_some_and(|t| Instant::now() < t),
+                |this| {
+                    let mut flash = theme.foreground;
+                    flash.a = 0.12;
+                    this.child(div().absolute().inset_0().bg(flash))
+                },
+            )
             .when_some(self.child_exited, |this, code| {
                 let message = match code {
                     Some(code) => format!("[process exited with code {code}]"),

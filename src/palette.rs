@@ -37,11 +37,18 @@ fn is_word_start(chars: &[char], ix: usize) -> bool {
 /// consecutive runs beat scattered hits, word-initial hits beat mid-word
 /// ones, and every skipped character between hits costs a little.
 pub fn fuzzy_match(query: &str, candidate: &str) -> Option<Match> {
-    let q: Vec<char> = query.chars().flat_map(|c| c.to_lowercase()).filter(|c| !c.is_whitespace()).collect();
+    let q: Vec<char> = query
+        .chars()
+        .flat_map(|c| c.to_lowercase())
+        .filter(|c| !c.is_whitespace())
+        .collect();
     let c: Vec<char> = candidate.chars().collect();
     let cl: Vec<char> = c.iter().flat_map(|ch| ch.to_lowercase().next()).collect();
     if q.is_empty() {
-        return Some(Match { score: 0, positions: Vec::new() });
+        return Some(Match {
+            score: 0,
+            positions: Vec::new(),
+        });
     }
     if q.len() > cl.len() {
         return None;
@@ -94,7 +101,10 @@ pub fn fuzzy_match(query: &str, candidate: &str) -> Option<Match> {
     }
     // Shorter candidates win ties: a match covering more of the title is a
     // better answer to the same query.
-    Some(Match { score: score - (m as i32) / 8, positions })
+    Some(Match {
+        score: score - (m as i32) / 8,
+        positions,
+    })
 }
 
 /// Score an action against a query across its title, category, and aliases.
@@ -103,7 +113,10 @@ pub fn score_action(query: &str, meta: &ActionMeta) -> Option<Match> {
     let mut best = fuzzy_match(query, meta.title);
     let mut consider = |text: &str, penalty: i32| {
         if let Some(m) = fuzzy_match(query, text) {
-            let alt = Match { score: m.score - penalty, positions: Vec::new() };
+            let alt = Match {
+                score: m.score - penalty,
+                positions: Vec::new(),
+            };
             if best.as_ref().is_none_or(|b| alt.score > b.score) {
                 best = Some(alt);
             }
@@ -142,7 +155,11 @@ pub fn build_items<'a>(
         let rank = |id: &str| recent.iter().position(|r| *r == id).unwrap_or(usize::MAX);
         items.sort_by_key(|it| rank(it.action_id));
     } else {
-        items.sort_by(|a, b| b.score.cmp(&a.score).then(a.title.len().cmp(&b.title.len())));
+        items.sort_by(|a, b| {
+            b.score
+                .cmp(&a.score)
+                .then(a.title.len().cmp(&b.title.len()))
+        });
     }
     items
 }
@@ -163,8 +180,14 @@ mod tests {
     fn subsequence_required() {
         assert!(fuzzy_match("spr", "Split Right").is_some());
         assert!(fuzzy_match("xyz", "Split Right").is_none());
-        assert!(fuzzy_match("thgir", "Split Right").is_none(), "order matters");
-        assert_eq!(fuzzy_match("", "anything").unwrap().positions, Vec::<usize>::new());
+        assert!(
+            fuzzy_match("thgir", "Split Right").is_none(),
+            "order matters"
+        );
+        assert_eq!(
+            fuzzy_match("", "anything").unwrap().positions,
+            Vec::<usize>::new()
+        );
     }
 
     #[test]
@@ -188,7 +211,9 @@ mod tests {
     #[test]
     fn shorter_titles_win_ties() {
         let short = fuzzy_match("tab", "New Tab").unwrap().score;
-        let long = fuzzy_match("tab", "New Tab In A Very Long Title").unwrap().score;
+        let long = fuzzy_match("tab", "New Tab In A Very Long Title")
+            .unwrap()
+            .score;
         assert!(short > long);
     }
 
@@ -197,7 +222,9 @@ mod tests {
         let ranked = top("spr");
         assert_eq!(ranked[0], "pane::split_right", "{ranked:?}");
         // "Workspace › Workspaces: Pin / Unpin" is a scattered match at best.
-        let pin = ranked.iter().position(|id| *id == "workspace::toggle_persist");
+        let pin = ranked
+            .iter()
+            .position(|id| *id == "workspace::toggle_persist");
         assert!(pin.is_none_or(|ix| ix > 3), "{ranked:?}");
         assert_eq!(top("pal")[0], "app::palette");
         assert_eq!(top("theme")[0], "app::select_theme");
@@ -209,7 +236,10 @@ mod tests {
         let items = build_items("vsplit", registry::all().iter(), &[], |_| None);
         let ids: Vec<_> = items.iter().map(|i| i.action_id).collect();
         // Both vertical splits carry the alias; nothing else should outrank them.
-        assert!(ids[..2].contains(&"pane::split_right") && ids[..2].contains(&"pane::split_left"), "{ids:?}");
+        assert!(
+            ids[..2].contains(&"pane::split_right") && ids[..2].contains(&"pane::split_left"),
+            "{ids:?}"
+        );
         assert!(items[0].highlights.is_empty());
         let items = build_items("terminal copy", registry::all().iter(), &[], |_| None);
         assert_eq!(items[0].action_id, "terminal::copy");
@@ -217,7 +247,12 @@ mod tests {
 
     #[test]
     fn empty_query_lists_recent_first_then_registry_order() {
-        let items = build_items("", registry::all().iter(), &["tab::new", "app::quit"], |_| None);
+        let items = build_items(
+            "",
+            registry::all().iter(),
+            &["tab::new", "app::quit"],
+            |_| None,
+        );
         assert_eq!(items[0].action_id, "tab::new");
         assert_eq!(items[1].action_id, "app::quit");
         assert_eq!(items.len(), registry::all().len());
@@ -232,7 +267,9 @@ mod tests {
 
     #[test]
     fn bindings_are_attached() {
-        let items = build_items("quit", registry::all().iter(), &[], |id| (id == "app::quit").then(|| "⌘Q".to_string()));
+        let items = build_items("quit", registry::all().iter(), &[], |id| {
+            (id == "app::quit").then(|| "⌘Q".to_string())
+        });
         assert_eq!(items[0].binding.as_deref(), Some("⌘Q"));
     }
 }

@@ -6,10 +6,10 @@ use alacritty_terminal::term::TermMode;
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, CursorShape};
 use gpui::{
-    App, Bounds, BorderStyle, Element, ElementId, Entity, Font, FontFallbacks, FontStyle, FontWeight,
-    GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, PaintQuad, Pixels, Point,
-    ShapedLine, SharedString, StrikethroughStyle, Style, TextRun, UnderlineStyle, Window, fill,
-    point, px, quad, relative, size,
+    App, BorderStyle, Bounds, Element, ElementId, Entity, Font, FontFallbacks, FontStyle,
+    FontWeight, GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, PaintQuad,
+    Pixels, Point, ShapedLine, SharedString, StrikethroughStyle, Style, TextRun, UnderlineStyle,
+    Window, fill, point, px, quad, relative, size,
 };
 
 use super::TerminalPane;
@@ -122,7 +122,10 @@ impl Element for TerminalElement {
         }
         let line_height = px(layout.cell_height);
         for (row, line) in &layout.lines {
-            let origin = point(layout.origin.x, layout.origin.y + px(*row as f32 * layout.cell_height));
+            let origin = point(
+                layout.origin.x,
+                layout.origin.y + px(*row as f32 * layout.cell_height),
+            );
             line.paint(origin, line_height, window, cx).ok();
         }
         if let Some(cursor) = &layout.cursor {
@@ -167,7 +170,11 @@ impl Element for TerminalElement {
 /// shaping a real '\t' would use the font's tab advance instead of one cell
 /// and skew everything after it (visible as ragged `ls` columns).
 fn display_char(c: char) -> char {
-    if (c as u32) < 0x20 || c == '\u{7f}' { ' ' } else { c }
+    if (c as u32) < 0x20 || c == '\u{7f}' {
+        ' '
+    } else {
+        c
+    }
 }
 
 fn base_font(pane: &TerminalPane, bold: bool, italic: bool) -> Font {
@@ -188,7 +195,11 @@ fn base_font(pane: &TerminalPane, bold: bool, italic: bool) -> Font {
         fallbacks: (!family.fallbacks().is_empty())
             .then(|| FontFallbacks::from_fonts(family.fallbacks().to_vec())),
         weight,
-        style: if italic { FontStyle::Italic } else { FontStyle::Normal },
+        style: if italic {
+            FontStyle::Italic
+        } else {
+            FontStyle::Normal
+        },
     }
 }
 
@@ -231,7 +242,12 @@ fn layout_grid(
     let columns = ((avail_w / cell_width).floor() as usize).max(2);
     let screen_lines = ((avail_h / cell_height).floor() as usize).max(1);
 
-    let new_size = TermSize { columns, screen_lines, cell_width, cell_height };
+    let new_size = TermSize {
+        columns,
+        screen_lines,
+        cell_width,
+        cell_height,
+    };
     let grid_changed = columns != pane.size.columns || screen_lines != pane.size.screen_lines;
     pane.size = new_size;
     if grid_changed {
@@ -288,7 +304,12 @@ fn layout_grid(
         drop(term);
     }
 
-    pane.last_layout = Some(super::LastLayout { bounds, cell_width, cell_height, display_offset });
+    pane.last_layout = Some(super::LastLayout {
+        bounds,
+        cell_width,
+        cell_height,
+        display_offset,
+    });
 
     // --- Shape rows (with a per-frame cache) and build quads. ---
     pane.prev_shape_cache = std::mem::take(&mut pane.shape_cache);
@@ -302,7 +323,11 @@ fn layout_grid(
         let mut open_bg: Option<(usize, usize, Hsla)> = None; // (start, end_exclusive, color)
         let mut open_sel: Option<(usize, usize)> = None;
         for cell in row {
-            let width = if cell.flags.contains(Flags::WIDE_CHAR) { 2 } else { 1 };
+            let width = if cell.flags.contains(Flags::WIDE_CHAR) {
+                2
+            } else {
+                1
+            };
             if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
                 continue;
             }
@@ -313,17 +338,35 @@ fn layout_grid(
             }
             if color_key(bg) != color_key(default_bg) {
                 open_bg = match open_bg {
-                    Some((start, end, color)) if end == col && color_key(color) == color_key(bg) => {
+                    Some((start, end, color))
+                        if end == col && color_key(color) == color_key(bg) =>
+                    {
                         Some((start, col + width, color))
                     }
                     Some((start, end, color)) => {
-                        layout.bg_quads.push(cell_run_quad(origin, row_y, start, end, cell_width, cell_height, color));
+                        layout.bg_quads.push(cell_run_quad(
+                            origin,
+                            row_y,
+                            start,
+                            end,
+                            cell_width,
+                            cell_height,
+                            color,
+                        ));
                         Some((col, col + width, bg))
                     }
                     None => Some((col, col + width, bg)),
                 };
             } else if let Some((start, end, color)) = open_bg.take() {
-                layout.bg_quads.push(cell_run_quad(origin, row_y, start, end, cell_width, cell_height, color));
+                layout.bg_quads.push(cell_run_quad(
+                    origin,
+                    row_y,
+                    start,
+                    end,
+                    cell_width,
+                    cell_height,
+                    color,
+                ));
             }
 
             let grid_point = GridPoint::new(
@@ -335,26 +378,66 @@ fn layout_grid(
                 open_sel = match open_sel {
                     Some((start, end)) if end == col => Some((start, col + width)),
                     Some((start, end)) => {
-                        layout.selection_quads.push(cell_run_quad(origin, row_y, start, end, cell_width, cell_height, theme.selection_bg));
+                        layout.selection_quads.push(cell_run_quad(
+                            origin,
+                            row_y,
+                            start,
+                            end,
+                            cell_width,
+                            cell_height,
+                            theme.selection_bg,
+                        ));
                         Some((col, col + width))
                     }
                     None => Some((col, col + width)),
                 };
             } else if let Some((start, end)) = open_sel.take() {
-                layout.selection_quads.push(cell_run_quad(origin, row_y, start, end, cell_width, cell_height, theme.selection_bg));
+                layout.selection_quads.push(cell_run_quad(
+                    origin,
+                    row_y,
+                    start,
+                    end,
+                    cell_width,
+                    cell_height,
+                    theme.selection_bg,
+                ));
             }
             col += width;
         }
         if let Some((start, end, color)) = open_bg {
-            layout.bg_quads.push(cell_run_quad(origin, row_y, start, end, cell_width, cell_height, color));
+            layout.bg_quads.push(cell_run_quad(
+                origin,
+                row_y,
+                start,
+                end,
+                cell_width,
+                cell_height,
+                color,
+            ));
         }
         if let Some((start, end)) = open_sel {
-            layout.selection_quads.push(cell_run_quad(origin, row_y, start, end, cell_width, cell_height, theme.selection_bg));
+            layout.selection_quads.push(cell_run_quad(
+                origin,
+                row_y,
+                start,
+                end,
+                cell_width,
+                cell_height,
+                theme.selection_bg,
+            ));
         }
 
         // Text runs: coalesce consecutive cells sharing style.
         let selected_line = alacritty_terminal::index::Line(row_idx as i32 - display_offset as i32);
-        let shaped = shape_row(pane, row, &theme, font_size, &text_system, selection.as_ref(), selected_line);
+        let shaped = shape_row(
+            pane,
+            row,
+            &theme,
+            font_size,
+            &text_system,
+            selection.as_ref(),
+            selected_line,
+        );
         if let Some(shaped) = shaped {
             layout.lines.push((row_idx, shaped));
         }
@@ -394,7 +477,11 @@ fn layout_grid(
                 if snap.flags.contains(Flags::WIDE_CHAR_SPACER) {
                     continue;
                 }
-                let width = if snap.flags.contains(Flags::WIDE_CHAR) { 2 } else { 1 };
+                let width = if snap.flags.contains(Flags::WIDE_CHAR) {
+                    2
+                } else {
+                    1
+                };
                 if col >= c && col < c + width {
                     return Some((snap, c));
                 }
@@ -413,10 +500,11 @@ fn layout_grid(
         } else {
             CursorShape::HollowBlock
         };
-        let shape = match cursor_style.blinking && focused && !vi_mode && shape != CursorShape::Hidden {
-            true if !pane.blink_show => CursorShape::Hidden,
-            _ => shape,
-        };
+        let shape =
+            match cursor_style.blinking && focused && !vi_mode && shape != CursorShape::Hidden {
+                true if !pane.blink_show => CursorShape::Hidden,
+                _ => shape,
+            };
         let thickness = px((cursor_config.thickness * cell_width).max(1.0).round());
         let cursor_color = if vi_mode { theme.ansi[3] } else { theme.cursor };
         let cursor_bounds = Bounds {
@@ -437,7 +525,11 @@ fn layout_grid(
             }
             let run = TextRun {
                 len: text.len(),
-                font: base_font(pane, snap.flags.contains(Flags::BOLD), snap.flags.contains(Flags::ITALIC)),
+                font: base_font(
+                    pane,
+                    snap.flags.contains(Flags::BOLD),
+                    snap.flags.contains(Flags::ITALIC),
+                ),
                 color: theme.background,
                 background_color: None,
                 underline: None,
@@ -489,7 +581,11 @@ fn shape_row(
         !(display_char(cell.c) == ' '
             && cell.zerowidth.is_none()
             && !cell.flags.intersects(
-                Flags::INVERSE | Flags::UNDERLINE | Flags::DOUBLE_UNDERLINE | Flags::UNDERCURL | Flags::STRIKEOUT,
+                Flags::INVERSE
+                    | Flags::UNDERLINE
+                    | Flags::DOUBLE_UNDERLINE
+                    | Flags::UNDERCURL
+                    | Flags::STRIKEOUT,
             ))
     })?;
 
@@ -506,7 +602,11 @@ fn shape_row(
         if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
             continue;
         }
-        let width = if cell.flags.contains(Flags::WIDE_CHAR) { 2 } else { 1 };
+        let width = if cell.flags.contains(Flags::WIDE_CHAR) {
+            2
+        } else {
+            1
+        };
         let cell_col = col;
         col += width;
         let mut fg = resolve(cell.fg, theme);
@@ -532,14 +632,20 @@ fn shape_row(
             fg = blend(fg, bg, 0.4);
         }
         if let Some((sel_fg, range)) = selection_fg
-            && range.contains(GridPoint::new(line, alacritty_terminal::index::Column(cell_col)))
+            && range.contains(GridPoint::new(
+                line,
+                alacritty_terminal::index::Column(cell_col),
+            ))
         {
             fg = sel_fg;
         }
 
         let bold = cell.flags.contains(Flags::BOLD);
         let italic = cell.flags.contains(Flags::ITALIC);
-        let underline = if cell.flags.intersects(Flags::UNDERLINE | Flags::DOUBLE_UNDERLINE | Flags::UNDERCURL) {
+        let underline = if cell
+            .flags
+            .intersects(Flags::UNDERLINE | Flags::DOUBLE_UNDERLINE | Flags::UNDERCURL)
+        {
             Some(UnderlineStyle {
                 thickness: px(1.0),
                 color: Some(fg),
@@ -549,7 +655,10 @@ fn shape_row(
             None
         };
         let strikethrough = if cell.flags.contains(Flags::STRIKEOUT) {
-            Some(StrikethroughStyle { thickness: px(1.0), color: Some(fg) })
+            Some(StrikethroughStyle {
+                thickness: px(1.0),
+                color: Some(fg),
+            })
         } else {
             None
         };
@@ -572,7 +681,12 @@ fn shape_row(
         match runs.last_mut() {
             Some(run)
                 if color_key(run.color) == style_key.0
-                    && run.font.weight == if bold { FontWeight::BOLD } else { base_font(pane, false, italic).weight }
+                    && run.font.weight
+                        == if bold {
+                            FontWeight::BOLD
+                        } else {
+                            base_font(pane, false, italic).weight
+                        }
                     && (run.font.style == FontStyle::Italic) == italic
                     && run.underline.is_some() == underline.is_some()
                     && run.strikethrough.is_some() == strikethrough.is_some() =>
@@ -593,7 +707,11 @@ fn shape_row(
         style_key.hash(&mut hasher);
     }
 
-    if text.trim_end().is_empty() && runs.iter().all(|r| r.underline.is_none() && r.strikethrough.is_none()) {
+    if text.trim_end().is_empty()
+        && runs
+            .iter()
+            .all(|r| r.underline.is_none() && r.strikethrough.is_none())
+    {
         // A row of plain spaces with non-default colors still got bg quads;
         // nothing to shape.
         if row[..=last].iter().all(|c| display_char(c.c) == ' ') {

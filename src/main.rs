@@ -127,7 +127,9 @@ pub(crate) fn menus() -> Vec<Menu> {
 /// running anything. The out for someone whose startup command wedges the
 /// app, so it must not depend on any state the app writes.
 pub(crate) fn startup_commands_disabled_by_cli() -> bool {
-    std::env::args().skip(1).any(|a| a == "--no-startup-commands")
+    std::env::args()
+        .skip(1)
+        .any(|a| a == "--no-startup-commands")
 }
 
 fn main() {

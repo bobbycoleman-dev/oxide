@@ -105,7 +105,14 @@ mod tests {
 
     #[test]
     fn truecolor_passthrough() {
-        let c = resolve(Color::Spec(Rgb { r: 255, g: 128, b: 0 }), &theme());
+        let c = resolve(
+            Color::Spec(Rgb {
+                r: 255,
+                g: 128,
+                b: 0,
+            }),
+            &theme(),
+        );
         assert!(approx(c, 1.0, 128.0 / 255.0, 0.0));
     }
 
@@ -124,13 +131,23 @@ mod tests {
         assert!(approx(resolve(Color::Indexed(231), &t), 1.0, 1.0, 1.0));
         assert!(approx(resolve(Color::Indexed(196), &t), 1.0, 0.0, 0.0));
         // 17 = (0,0,95).
-        assert!(approx(resolve(Color::Indexed(17), &t), 0.0, 0.0, 95.0 / 255.0));
+        assert!(approx(
+            resolve(Color::Indexed(17), &t),
+            0.0,
+            0.0,
+            95.0 / 255.0
+        ));
     }
 
     #[test]
     fn grayscale_ramp() {
         let t = theme();
-        assert!(approx(resolve(Color::Indexed(232), &t), 8.0 / 255.0, 8.0 / 255.0, 8.0 / 255.0));
+        assert!(approx(
+            resolve(Color::Indexed(232), &t),
+            8.0 / 255.0,
+            8.0 / 255.0,
+            8.0 / 255.0
+        ));
         assert!(approx(
             resolve(Color::Indexed(255), &t),
             238.0 / 255.0,
@@ -142,8 +159,17 @@ mod tests {
     #[test]
     fn named_semantic_colors() {
         let t = theme();
-        assert_eq!(resolve(Color::Named(NamedColor::Foreground), &t), t.foreground);
-        assert_eq!(resolve(Color::Named(NamedColor::Background), &t), t.background);
-        assert_eq!(resolve(Color::Named(NamedColor::BrightBlue), &t), t.ansi[12]);
+        assert_eq!(
+            resolve(Color::Named(NamedColor::Foreground), &t),
+            t.foreground
+        );
+        assert_eq!(
+            resolve(Color::Named(NamedColor::Background), &t),
+            t.background
+        );
+        assert_eq!(
+            resolve(Color::Named(NamedColor::BrightBlue), &t),
+            t.ansi[12]
+        );
     }
 }

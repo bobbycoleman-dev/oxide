@@ -24,7 +24,17 @@ impl ForegroundProcess {
         let name = self.name.trim_start_matches('-');
         matches!(
             name,
-            "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh" | "mksh" | "tcsh" | "csh" | "nu" | "elvish" | "xonsh"
+            "sh" | "bash"
+                | "zsh"
+                | "fish"
+                | "dash"
+                | "ksh"
+                | "mksh"
+                | "tcsh"
+                | "csh"
+                | "nu"
+                | "elvish"
+                | "xonsh"
                 | "login"
         ) || name.starts_with("bash-")
             || name.starts_with("zsh-")
@@ -58,15 +68,29 @@ fn process_name(pid: i32) -> Option<String> {
     unsafe {
         let mut info: libc::proc_bsdinfo = std::mem::zeroed();
         let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
-        let written = libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, &mut info as *mut _ as *mut libc::c_void, size);
+        let written = libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            &mut info as *mut _ as *mut libc::c_void,
+            size,
+        );
         if written <= 0 {
             return None;
         }
         // pbi_name holds the full name; pbi_comm is truncated to 16 chars.
         let full = std::ffi::CStr::from_ptr(info.pbi_name.as_ptr().cast());
-        let name = full.to_str().ok().filter(|s| !s.is_empty()).map(str::to_string).or_else(|| {
-            std::ffi::CStr::from_ptr(info.pbi_comm.as_ptr().cast()).to_str().ok().map(str::to_string)
-        })?;
+        let name = full
+            .to_str()
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                std::ffi::CStr::from_ptr(info.pbi_comm.as_ptr().cast())
+                    .to_str()
+                    .ok()
+                    .map(str::to_string)
+            })?;
         (!name.is_empty()).then_some(name)
     }
 }
@@ -77,11 +101,28 @@ fn process_args(pid: i32) -> Option<Vec<String>> {
     unsafe {
         let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
         let mut size: libc::size_t = 0;
-        if libc::sysctl(mib.as_mut_ptr(), 3, std::ptr::null_mut(), &mut size, std::ptr::null_mut(), 0) != 0 || size == 0 {
+        if libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            std::ptr::null_mut(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        ) != 0
+            || size == 0
+        {
             return None;
         }
         let mut buf = vec![0u8; size];
-        if libc::sysctl(mib.as_mut_ptr(), 3, buf.as_mut_ptr().cast(), &mut size, std::ptr::null_mut(), 0) != 0 {
+        if libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            buf.as_mut_ptr().cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        ) != 0
+        {
             return None;
         }
         buf.truncate(size);
@@ -157,7 +198,10 @@ fn clean_host(arg: &str) -> String {
     }
     // `ssh://host:22/` form.
     if let Some((h, port)) = host.split_once(':')
-        && port.trim_end_matches('/').chars().all(|c| c.is_ascii_digit())
+        && port
+            .trim_end_matches('/')
+            .chars()
+            .all(|c| c.is_ascii_digit())
     {
         host = h;
     }
@@ -174,15 +218,42 @@ mod tests {
 
     #[test]
     fn ssh_host_is_the_first_positional() {
-        assert_eq!(ssh_host_from_args(&args("ssh prod-web-01")).as_deref(), Some("prod-web-01"));
-        assert_eq!(ssh_host_from_args(&args("ssh deploy@prod-web-01")).as_deref(), Some("prod-web-01"));
-        assert_eq!(ssh_host_from_args(&args("ssh -p 2222 -i ~/.ssh/id host uptime")).as_deref(), Some("host"));
-        assert_eq!(ssh_host_from_args(&args("ssh -p2222 host")).as_deref(), Some("host"));
-        assert_eq!(ssh_host_from_args(&args("ssh -4vp 22 host")).as_deref(), Some("host"));
-        assert_eq!(ssh_host_from_args(&args("ssh -A -t -o StrictHostKeyChecking=no bastion")).as_deref(), Some("bastion"));
-        assert_eq!(ssh_host_from_args(&args("ssh -J jump@bastion target")).as_deref(), Some("target"));
-        assert_eq!(ssh_host_from_args(&args("ssh ssh://me@box.example.com:22/")).as_deref(), Some("box.example.com"));
-        assert_eq!(ssh_host_from_args(&args("ssh -- -weird")).as_deref(), Some("-weird"));
+        assert_eq!(
+            ssh_host_from_args(&args("ssh prod-web-01")).as_deref(),
+            Some("prod-web-01")
+        );
+        assert_eq!(
+            ssh_host_from_args(&args("ssh deploy@prod-web-01")).as_deref(),
+            Some("prod-web-01")
+        );
+        assert_eq!(
+            ssh_host_from_args(&args("ssh -p 2222 -i ~/.ssh/id host uptime")).as_deref(),
+            Some("host")
+        );
+        assert_eq!(
+            ssh_host_from_args(&args("ssh -p2222 host")).as_deref(),
+            Some("host")
+        );
+        assert_eq!(
+            ssh_host_from_args(&args("ssh -4vp 22 host")).as_deref(),
+            Some("host")
+        );
+        assert_eq!(
+            ssh_host_from_args(&args("ssh -A -t -o StrictHostKeyChecking=no bastion")).as_deref(),
+            Some("bastion")
+        );
+        assert_eq!(
+            ssh_host_from_args(&args("ssh -J jump@bastion target")).as_deref(),
+            Some("target")
+        );
+        assert_eq!(
+            ssh_host_from_args(&args("ssh ssh://me@box.example.com:22/")).as_deref(),
+            Some("box.example.com")
+        );
+        assert_eq!(
+            ssh_host_from_args(&args("ssh -- -weird")).as_deref(),
+            Some("-weird")
+        );
         assert_eq!(ssh_host_from_args(&args("ssh -V")), None);
         assert_eq!(ssh_host_from_args(&args("ssh")), None);
     }
@@ -199,13 +270,28 @@ mod tests {
 
     #[test]
     fn shells_are_recognised() {
-        let shell = ForegroundProcess { name: "-zsh".into(), ssh_host: None };
+        let shell = ForegroundProcess {
+            name: "-zsh".into(),
+            ssh_host: None,
+        };
         assert!(shell.is_shell());
-        assert!(ForegroundProcess { name: "bash".into(), ssh_host: None }.is_shell());
-        let vim = ForegroundProcess { name: "vim".into(), ssh_host: None };
+        assert!(
+            ForegroundProcess {
+                name: "bash".into(),
+                ssh_host: None
+            }
+            .is_shell()
+        );
+        let vim = ForegroundProcess {
+            name: "vim".into(),
+            ssh_host: None,
+        };
         assert!(!vim.is_shell());
         assert_eq!(vim.label(), "vim");
-        let ssh = ForegroundProcess { name: "ssh".into(), ssh_host: Some("prod".into()) };
+        let ssh = ForegroundProcess {
+            name: "ssh".into(),
+            ssh_host: Some("prod".into()),
+        };
         assert_eq!(ssh.label(), "ssh prod");
     }
 
@@ -214,13 +300,21 @@ mod tests {
     #[test]
     fn foreground_of_a_live_shell_is_the_shell() {
         use crate::terminal::session::{SessionOptions, TermSize, TerminalSession};
-        let size = TermSize { columns: 80, screen_lines: 24, cell_width: 8.0, cell_height: 16.0 };
+        let size = TermSize {
+            columns: 80,
+            screen_lines: 24,
+            cell_width: 8.0,
+            cell_height: 16.0,
+        };
         let options = SessionOptions {
             program: "/bin/sh".into(),
             args: vec![],
             working_directory: None,
             scrollback: 100,
-            env: std::collections::HashMap::from([("HISTFILE".to_string(), "/dev/null".to_string())]),
+            env: std::collections::HashMap::from([(
+                "HISTFILE".to_string(),
+                "/dev/null".to_string(),
+            )]),
         };
         let (session, _rx) = TerminalSession::spawn(options, size).expect("spawn sh");
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -229,7 +323,10 @@ mod tests {
                 assert!(fg.is_shell(), "{fg:?}");
                 break;
             }
-            assert!(std::time::Instant::now() < deadline, "no foreground process reported");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "no foreground process reported"
+            );
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
     }

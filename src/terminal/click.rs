@@ -8,7 +8,11 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClickTarget {
     Url(String),
-    Path { path: PathBuf, line: Option<u32>, col: Option<u32> },
+    Path {
+        path: PathBuf,
+        line: Option<u32>,
+        col: Option<u32>,
+    },
 }
 
 /// A token's span within its row, for hover underlining.
@@ -21,7 +25,11 @@ pub struct Token {
 }
 
 fn is_break(c: char) -> bool {
-    c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '(' | ')' | '[' | ']' | '{' | '}')
+    c.is_whitespace()
+        || matches!(
+            c,
+            '"' | '\'' | '<' | '>' | '(' | ')' | '[' | ']' | '{' | '}'
+        )
 }
 
 /// The whitespace/bracket-delimited token covering column `ix`, with
@@ -34,15 +42,24 @@ pub fn token_at(chars: &[char], ix: usize) -> Option<Token> {
     if is_break(chars[ix]) {
         return None;
     }
-    let start = (0..=ix).rev().find(|&i| is_break(chars[i])).map_or(0, |i| i + 1);
-    let mut end = (ix..chars.len()).find(|&i| is_break(chars[i])).unwrap_or(chars.len());
+    let start = (0..=ix)
+        .rev()
+        .find(|&i| is_break(chars[i]))
+        .map_or(0, |i| i + 1);
+    let mut end = (ix..chars.len())
+        .find(|&i| is_break(chars[i]))
+        .unwrap_or(chars.len());
     while end > start && matches!(chars[end - 1], ',' | '.' | ';' | ':' | '!' | '?') {
         end -= 1;
     }
     if end <= start {
         return None;
     }
-    Some(Token { start, end, text: chars[start..end].iter().collect() })
+    Some(Token {
+        start,
+        end,
+        text: chars[start..end].iter().collect(),
+    })
 }
 
 /// Split `src/main.rs:42:8` into the path text and the line/column suffix.
@@ -52,7 +69,9 @@ pub fn split_line_col(token: &str) -> (&str, Option<u32>, Option<u32>) {
     let mut path = token;
     let mut numbers: Vec<u32> = Vec::new();
     while numbers.len() < 2 {
-        let Some((head, tail)) = path.rsplit_once(':') else { break };
+        let Some((head, tail)) = path.rsplit_once(':') else {
+            break;
+        };
         if head.is_empty() || tail.is_empty() || !tail.bytes().all(|b| b.is_ascii_digit()) {
             break;
         }
@@ -82,7 +101,11 @@ pub struct Roots<'a> {
 /// (tools print repo-relative paths from subdirectories), then the tree
 /// root. No basename search: opening the wrong `mod.rs` is worse than
 /// opening nothing.
-pub fn resolve_path(text: &str, roots: &Roots, exists: &mut dyn FnMut(&Path) -> bool) -> Option<PathBuf> {
+pub fn resolve_path(
+    text: &str,
+    roots: &Roots,
+    exists: &mut dyn FnMut(&Path) -> bool,
+) -> Option<PathBuf> {
     if text.is_empty() || text.contains("://") {
         return None;
     }
@@ -97,7 +120,10 @@ pub fn resolve_path(text: &str, roots: &Roots, exists: &mut dyn FnMut(&Path) -> 
     if path.is_absolute() {
         return exists(path).then(|| path.to_path_buf());
     }
-    for base in [roots.cwd, roots.git_root, roots.tree_root].into_iter().flatten() {
+    for base in [roots.cwd, roots.git_root, roots.tree_root]
+        .into_iter()
+        .flatten()
+    {
         let candidate = base.join(path);
         if exists(&candidate) {
             return Some(candidate);
@@ -107,8 +133,13 @@ pub fn resolve_path(text: &str, roots: &Roots, exists: &mut dyn FnMut(&Path) -> 
 }
 
 /// Classify a token: URLs win, then `path[:line[:col]]` that resolves.
-pub fn classify(token: &str, roots: &Roots, exists: &mut dyn FnMut(&Path) -> bool) -> Option<ClickTarget> {
-    if token.starts_with("http://") || token.starts_with("https://") || token.starts_with("file://") {
+pub fn classify(
+    token: &str,
+    roots: &Roots,
+    exists: &mut dyn FnMut(&Path) -> bool,
+) -> Option<ClickTarget> {
+    if token.starts_with("http://") || token.starts_with("https://") || token.starts_with("file://")
+    {
         return Some(ClickTarget::Url(token.to_string()));
     }
     let (text, line, col) = split_line_col(token);
@@ -125,7 +156,11 @@ pub fn classify(token: &str, roots: &Roots, exists: &mut dyn FnMut(&Path) -> boo
 /// Single-quote for any Bourne-family shell, so a space in a name stays one
 /// argument. A leading `-` gets `./` so the shell can't read it as a flag.
 pub fn shell_quote(text: &str) -> String {
-    let text = if text.starts_with('-') { format!("./{text}") } else { text.to_string() };
+    let text = if text.starts_with('-') {
+        format!("./{text}")
+    } else {
+        text.to_string()
+    };
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 
@@ -146,14 +181,23 @@ mod tests {
         assert_eq!((t.start, t.end), (10, 26));
         assert_eq!(token_at(&row, 34).unwrap().text, "x/y.rs");
         assert!(token_at(&row, 5).is_none(), "whitespace is not a token");
-        assert_eq!(token_at(&chars("at foo.rs:88,"), 5).unwrap().text, "foo.rs:88");
+        assert_eq!(
+            token_at(&chars("at foo.rs:88,"), 5).unwrap().text,
+            "foo.rs:88"
+        );
         assert!(token_at(&[], 0).is_none());
     }
 
     #[test]
     fn line_and_column_split() {
-        assert_eq!(split_line_col("src/main.rs:42:8"), ("src/main.rs", Some(42), Some(8)));
-        assert_eq!(split_line_col("src/main.rs:42"), ("src/main.rs", Some(42), None));
+        assert_eq!(
+            split_line_col("src/main.rs:42:8"),
+            ("src/main.rs", Some(42), Some(8))
+        );
+        assert_eq!(
+            split_line_col("src/main.rs:42"),
+            ("src/main.rs", Some(42), None)
+        );
         assert_eq!(split_line_col("src/main.rs"), ("src/main.rs", None, None));
         assert_eq!(split_line_col("foo:bar"), ("foo:bar", None, None));
         assert_eq!(split_line_col("C:\\foo"), ("C:\\foo", None, None));
@@ -162,39 +206,94 @@ mod tests {
     }
 
     fn roots<'a>(cwd: &'a Path, git: &'a Path, tree: &'a Path, home: &'a Path) -> Roots<'a> {
-        Roots { cwd: Some(cwd), git_root: Some(git), tree_root: Some(tree), home: Some(home) }
+        Roots {
+            cwd: Some(cwd),
+            git_root: Some(git),
+            tree_root: Some(tree),
+            home: Some(home),
+        }
     }
 
     #[test]
     fn resolution_precedence_cwd_then_git_then_tree() {
-        let (cwd, git, tree, home) = (Path::new("/w/sub"), Path::new("/w"), Path::new("/t"), Path::new("/home/me"));
+        let (cwd, git, tree, home) = (
+            Path::new("/w/sub"),
+            Path::new("/w"),
+            Path::new("/t"),
+            Path::new("/home/me"),
+        );
         let r = roots(cwd, git, tree, home);
-        let existing: HashSet<PathBuf> = ["/w/sub/a.rs", "/w/a.rs", "/w/b.rs", "/t/c.rs", "/home/me/d.rs", "/abs.rs"]
-            .into_iter()
-            .map(PathBuf::from)
-            .collect();
+        let existing: HashSet<PathBuf> = [
+            "/w/sub/a.rs",
+            "/w/a.rs",
+            "/w/b.rs",
+            "/t/c.rs",
+            "/home/me/d.rs",
+            "/abs.rs",
+        ]
+        .into_iter()
+        .map(PathBuf::from)
+        .collect();
         let mut exists = |p: &Path| existing.contains(p);
-        assert_eq!(resolve_path("a.rs", &r, &mut exists), Some(PathBuf::from("/w/sub/a.rs")), "cwd wins");
-        assert_eq!(resolve_path("b.rs", &r, &mut exists), Some(PathBuf::from("/w/b.rs")), "then git root");
-        assert_eq!(resolve_path("c.rs", &r, &mut exists), Some(PathBuf::from("/t/c.rs")), "then tree root");
-        assert_eq!(resolve_path("~/d.rs", &r, &mut exists), Some(PathBuf::from("/home/me/d.rs")));
-        assert_eq!(resolve_path("/abs.rs", &r, &mut exists), Some(PathBuf::from("/abs.rs")));
+        assert_eq!(
+            resolve_path("a.rs", &r, &mut exists),
+            Some(PathBuf::from("/w/sub/a.rs")),
+            "cwd wins"
+        );
+        assert_eq!(
+            resolve_path("b.rs", &r, &mut exists),
+            Some(PathBuf::from("/w/b.rs")),
+            "then git root"
+        );
+        assert_eq!(
+            resolve_path("c.rs", &r, &mut exists),
+            Some(PathBuf::from("/t/c.rs")),
+            "then tree root"
+        );
+        assert_eq!(
+            resolve_path("~/d.rs", &r, &mut exists),
+            Some(PathBuf::from("/home/me/d.rs"))
+        );
+        assert_eq!(
+            resolve_path("/abs.rs", &r, &mut exists),
+            Some(PathBuf::from("/abs.rs"))
+        );
         assert_eq!(resolve_path("nope.rs", &r, &mut exists), None);
         assert_eq!(resolve_path("/nope.rs", &r, &mut exists), None);
     }
 
     #[test]
     fn classify_prefers_urls_and_rejects_non_paths() {
-        let r = Roots { cwd: Some(Path::new("/w")), git_root: None, tree_root: None, home: None };
+        let r = Roots {
+            cwd: Some(Path::new("/w")),
+            git_root: None,
+            tree_root: None,
+            home: None,
+        };
         let mut exists = |p: &Path| p == Path::new("/w/src/main.rs");
-        assert_eq!(classify("https://x.y/z:12", &r, &mut exists), Some(ClickTarget::Url("https://x.y/z:12".into())));
+        assert_eq!(
+            classify("https://x.y/z:12", &r, &mut exists),
+            Some(ClickTarget::Url("https://x.y/z:12".into()))
+        );
         assert_eq!(
             classify("src/main.rs:42:8", &r, &mut exists),
-            Some(ClickTarget::Path { path: PathBuf::from("/w/src/main.rs"), line: Some(42), col: Some(8) })
+            Some(ClickTarget::Path {
+                path: PathBuf::from("/w/src/main.rs"),
+                line: Some(42),
+                col: Some(8)
+            })
         );
         assert_eq!(classify("foo:bar", &r, &mut exists), None);
-        assert_eq!(classify("missing.rs:3", &r, &mut exists), None, "a line number on a non-file is nothing");
-        assert_eq!(classify("main", &r, &mut exists), None, "bare words are not tried");
+        assert_eq!(
+            classify("missing.rs:3", &r, &mut exists),
+            None,
+            "a line number on a non-file is nothing"
+        );
+        assert_eq!(
+            classify("main", &r, &mut exists),
+            None,
+            "bare words are not tried"
+        );
     }
 
     #[test]

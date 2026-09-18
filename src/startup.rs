@@ -83,7 +83,11 @@ impl RestartGate {
     pub fn record_exit(&mut self, now: Instant) -> RestartDecision {
         // A long healthy run resets the count: this exit is a new episode,
         // not the fifth crash of a loop.
-        if self.started.take().is_some_and(|t| now.duration_since(t) >= WINDOW) {
+        if self
+            .started
+            .take()
+            .is_some_and(|t| now.duration_since(t) >= WINDOW)
+        {
             self.exits.clear();
         }
         self.exits.retain(|t| now.duration_since(*t) < WINDOW);
@@ -176,8 +180,14 @@ mod tests {
     fn on_exit_cycles_and_serialises_snake_case() {
         assert_eq!(OnExit::Shell.next(), OnExit::Close);
         assert_eq!(OnExit::Restart.next(), OnExit::Shell);
-        assert_eq!(serde_json::to_string(&OnExit::Restart).unwrap(), "\"restart\"");
-        assert_eq!(serde_json::from_str::<OnExit>("\"close\"").unwrap(), OnExit::Close);
+        assert_eq!(
+            serde_json::to_string(&OnExit::Restart).unwrap(),
+            "\"restart\""
+        );
+        assert_eq!(
+            serde_json::from_str::<OnExit>("\"close\"").unwrap(),
+            OnExit::Close
+        );
         assert_eq!(OnExit::default(), OnExit::Shell);
     }
 }

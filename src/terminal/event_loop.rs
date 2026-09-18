@@ -67,7 +67,9 @@ pub struct LoopSender {
 
 impl LoopSender {
     pub fn send(&self, msg: Msg) -> io::Result<()> {
-        self.tx.send(msg).map_err(|_| io::Error::new(ErrorKind::BrokenPipe, "event loop gone"))?;
+        self.tx
+            .send(msg)
+            .map_err(|_| io::Error::new(ErrorKind::BrokenPipe, "event loop gone"))?;
         self.poller.notify()
     }
 
@@ -113,7 +115,10 @@ impl<L: EventListener + Send + 'static> EventLoop<L> {
     }
 
     pub fn sender(&self) -> LoopSender {
-        LoopSender { tx: self.tx.clone(), poller: self.poll.clone() }
+        LoopSender {
+            tx: self.tx.clone(),
+            poller: self.poll.clone(),
+        }
     }
 
     /// Returns false when a shutdown was requested.
@@ -349,7 +354,10 @@ impl State {
     }
 
     fn goto_next(&mut self) {
-        self.writing = self.write_list.pop_front().map(|source| Writing { source, written: 0 });
+        self.writing = self
+            .write_list
+            .pop_front()
+            .map(|source| Writing { source, written: 0 });
     }
 
     fn take_current(&mut self) -> Option<Writing> {

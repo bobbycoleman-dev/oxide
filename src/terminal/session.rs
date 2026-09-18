@@ -12,8 +12,8 @@ use alacritty_terminal::term::{Config as TermConfig, Term};
 use alacritty_terminal::tty;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 
-use super::event_loop::{EventLoop, LoopSender, Msg};
 pub use super::event_loop::SessionEvent;
+use super::event_loop::{EventLoop, LoopSender, Msg};
 
 /// Bridge from the PTY thread to the GPUI main thread. Invoked on the PTY
 /// reader thread, possibly while it holds the term lock — it must do nothing
@@ -91,9 +91,11 @@ pub fn shell_name(program: &str) -> &str {
 /// not, and need such a snippet delegated to `/bin/sh`.
 pub fn is_posix_shell(program: &str) -> bool {
     let name = shell_name(program);
-    ["sh", "bash", "zsh", "dash", "ksh", "mksh", "pdksh", "ash", "yash"]
-        .iter()
-        .any(|family| name == *family || name.starts_with(&format!("{family}-")))
+    [
+        "sh", "bash", "zsh", "dash", "ksh", "mksh", "pdksh", "ash", "yash",
+    ]
+    .iter()
+    .any(|family| name == *family || name.starts_with(&format!("{family}-")))
 }
 
 pub struct TerminalSession {
@@ -113,7 +115,11 @@ pub struct TerminalSession {
 fn next_session_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQ: AtomicU64 = AtomicU64::new(0);
-    format!("{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed))
+    format!(
+        "{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 impl TerminalSession {
@@ -160,7 +166,17 @@ impl TerminalSession {
         let sender = event_loop.sender();
         let join = event_loop.spawn();
 
-        Ok((Self { term, sender, master_fd, child_pid, join: Some(join), session_id }, rx))
+        Ok((
+            Self {
+                term,
+                sender,
+                master_fd,
+                child_pid,
+                join: Some(join),
+                session_id,
+            },
+            rx,
+        ))
     }
 
     /// The value of `OXIDE_SESSION` in this shell's environment.
@@ -199,7 +215,11 @@ impl TerminalSession {
             }
             let path = std::ffi::CStr::from_ptr(info.pvi_cdir.vip_path.as_ptr().cast());
             let path = path.to_str().ok()?;
-            if path.is_empty() { None } else { Some(PathBuf::from(path)) }
+            if path.is_empty() {
+                None
+            } else {
+                Some(PathBuf::from(path))
+            }
         }
     }
 }
@@ -279,7 +299,12 @@ mod tests {
         if !integration.env.contains_key("ZDOTDIR") {
             return; // cache dir unavailable in this environment
         }
-        let size = TermSize { columns: 100, screen_lines: 24, cell_width: 8.0, cell_height: 16.0 };
+        let size = TermSize {
+            columns: 100,
+            screen_lines: 24,
+            cell_width: 8.0,
+            cell_height: 16.0,
+        };
         let mut env = integration.env;
         env.insert("HISTFILE".into(), "/dev/null".into());
         let options = SessionOptions {
@@ -300,8 +325,14 @@ mod tests {
                     markers.push(m);
                 }
             }
-            let started = markers.iter().position(|m| matches!(m.kind, MarkerKind::CommandStart { .. }));
-            if started.is_some_and(|ix| markers[ix..].iter().any(|m| matches!(m.kind, MarkerKind::CommandEnd { .. }))) {
+            let started = markers
+                .iter()
+                .position(|m| matches!(m.kind, MarkerKind::CommandStart { .. }));
+            if started.is_some_and(|ix| {
+                markers[ix..]
+                    .iter()
+                    .any(|m| matches!(m.kind, MarkerKind::CommandEnd { .. }))
+            }) {
                 break;
             }
             std::thread::sleep(Duration::from_millis(50));
@@ -311,22 +342,41 @@ mod tests {
         assert!(kinds.contains(&&MarkerKind::InputStart), "{kinds:?}");
         // The startup prompt emits its own D;0 before anything runs; the one
         // that matters follows the C marker for `false`.
-        let start_ix = markers.iter().position(|m| matches!(m.kind, MarkerKind::CommandStart { .. })).expect("C marker");
+        let start_ix = markers
+            .iter()
+            .position(|m| matches!(m.kind, MarkerKind::CommandStart { .. }))
+            .expect("C marker");
         let start = &markers[start_ix];
-        assert_eq!(start.kind, MarkerKind::CommandStart { cmdline: Some("false".into()) });
-        let end = markers[start_ix..].iter().find(|m| matches!(m.kind, MarkerKind::CommandEnd { .. })).expect("D marker");
+        assert_eq!(
+            start.kind,
+            MarkerKind::CommandStart {
+                cmdline: Some("false".into())
+            }
+        );
+        let end = markers[start_ix..]
+            .iter()
+            .find(|m| matches!(m.kind, MarkerKind::CommandEnd { .. }))
+            .expect("D marker");
         assert_eq!(end.kind, MarkerKind::CommandEnd { exit: Some(1) });
         // Enter moved the cursor to a fresh line before C fired, and `false`
         // prints nothing, so D lands on that same row: exact rows, not
         // "somewhere in the chunk".
         assert_eq!(end.row, start.row, "start {start:?} end {end:?}");
-        assert!(markers.iter().any(|m| matches!(m.kind, MarkerKind::Cwd(_))), "OSC 7 should report the cwd");
+        assert!(
+            markers.iter().any(|m| matches!(m.kind, MarkerKind::Cwd(_))),
+            "OSC 7 should report the cwd"
+        );
         assert!(markers.iter().all(|m| !m.alt_screen));
     }
 
     #[test]
     fn plain_sh_delivers_no_markers() {
-        let size = TermSize { columns: 80, screen_lines: 24, cell_width: 8.0, cell_height: 16.0 };
+        let size = TermSize {
+            columns: 80,
+            screen_lines: 24,
+            cell_width: 8.0,
+            cell_height: 16.0,
+        };
         let options = SessionOptions {
             program: "/bin/sh".into(),
             args: vec![],
@@ -341,14 +391,22 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
         }
         while let Ok(event) = rx.try_recv() {
-            assert!(!matches!(event, SessionEvent::Marker(_)), "unexpected {event:?}");
+            assert!(
+                !matches!(event, SessionEvent::Marker(_)),
+                "unexpected {event:?}"
+            );
         }
     }
 
     /// M3: a real shell runs, output lands in the grid, and input round-trips.
     #[test]
     fn shell_round_trip() {
-        let size = TermSize { columns: 80, screen_lines: 24, cell_width: 8.0, cell_height: 16.0 };
+        let size = TermSize {
+            columns: 80,
+            screen_lines: 24,
+            cell_width: 8.0,
+            cell_height: 16.0,
+        };
         let options = SessionOptions {
             program: "/bin/sh".into(),
             args: vec![],
@@ -375,4 +433,3 @@ mod tests {
         assert!(cwd.is_some(), "foreground cwd lookup failed");
     }
 }
-
