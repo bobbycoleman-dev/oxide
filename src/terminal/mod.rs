@@ -322,60 +322,12 @@ fn group_thousands(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
     }
     out
-}
-
-#[cfg(test)]
-mod search_tests {
-    use super::*;
-
-    #[test]
-    fn options_build_the_expected_pattern() {
-        let plain = SearchOptions::default();
-        assert_eq!(plain.pattern("a.b"), "(?i)a\\.b");
-        let re = SearchOptions {
-            regex: true,
-            ..Default::default()
-        };
-        assert_eq!(re.pattern("a.b"), "(?i)a.b");
-        let word = SearchOptions {
-            whole_word: true,
-            case_sensitive: true,
-            ..Default::default()
-        };
-        assert_eq!(word.pattern("Err"), "(?-i)(?-u:\\b)(?:Err)(?-u:\\b)");
-        // Every combination compiles, and a broken regex is reported.
-        for regex in [false, true] {
-            for case in [false, true] {
-                for word in [false, true] {
-                    let o = SearchOptions {
-                        regex,
-                        case_sensitive: case,
-                        whole_word: word,
-                    };
-                    assert!(
-                        RegexSearch::new(&o.pattern("foo(bar)")).is_ok() || regex,
-                        "{o:?}"
-                    );
-                }
-            }
-        }
-        assert!(RegexSearch::new(&re.pattern("foo(")).is_err());
-    }
-
-    #[test]
-    fn thousands_are_grouped() {
-        assert_eq!(group_thousands(0), "0");
-        assert_eq!(group_thousands(999), "999");
-        assert_eq!(group_thousands(1000), "1,000");
-        assert_eq!(group_thousands(2340), "2,340");
-        assert_eq!(group_thousands(1234567), "1,234,567");
-    }
 }
 
 impl Focusable for TerminalPane {
@@ -2003,10 +1955,10 @@ impl TerminalPane {
 
     fn copy(&mut self, _: &Copy, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(session) = &self.session else { return };
-        if let Some(text) = session.term.lock().selection_to_string() {
-            if !text.is_empty() {
-                cx.write_to_clipboard(ClipboardItem::new_string(text));
-            }
+        if let Some(text) = session.term.lock().selection_to_string()
+            && !text.is_empty()
+        {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
         }
     }
 
@@ -2565,5 +2517,53 @@ impl Render for TerminalPane {
                         ),
                 )
             })
+    }
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+
+    #[test]
+    fn options_build_the_expected_pattern() {
+        let plain = SearchOptions::default();
+        assert_eq!(plain.pattern("a.b"), "(?i)a\\.b");
+        let re = SearchOptions {
+            regex: true,
+            ..Default::default()
+        };
+        assert_eq!(re.pattern("a.b"), "(?i)a.b");
+        let word = SearchOptions {
+            whole_word: true,
+            case_sensitive: true,
+            ..Default::default()
+        };
+        assert_eq!(word.pattern("Err"), "(?-i)(?-u:\\b)(?:Err)(?-u:\\b)");
+        // Every combination compiles, and a broken regex is reported.
+        for regex in [false, true] {
+            for case in [false, true] {
+                for word in [false, true] {
+                    let o = SearchOptions {
+                        regex,
+                        case_sensitive: case,
+                        whole_word: word,
+                    };
+                    assert!(
+                        RegexSearch::new(&o.pattern("foo(bar)")).is_ok() || regex,
+                        "{o:?}"
+                    );
+                }
+            }
+        }
+        assert!(RegexSearch::new(&re.pattern("foo(")).is_err());
+    }
+
+    #[test]
+    fn thousands_are_grouped() {
+        assert_eq!(group_thousands(0), "0");
+        assert_eq!(group_thousands(999), "999");
+        assert_eq!(group_thousands(1000), "1,000");
+        assert_eq!(group_thousands(2340), "2,340");
+        assert_eq!(group_thousands(1234567), "1,234,567");
     }
 }

@@ -71,12 +71,12 @@ pub fn fuzzy_match(query: &str, candidate: &str) -> Option<Match> {
             let here = MATCH + if is_word_start(&c, j) { WORD_START } else { 0 };
             let mut top = i32::MIN;
             let mut from = usize::MAX;
-            for k in (i - 1)..j {
-                if best[i - 1][k] == i32::MIN {
+            for (k, &before) in best[i - 1].iter().enumerate().take(j).skip(i - 1) {
+                if before == i32::MIN {
                     continue;
                 }
                 let gap = (j - k - 1) as i32;
-                let s = best[i - 1][k] + here + if gap == 0 { CONSECUTIVE } else { -gap * GAP };
+                let s = before + here + if gap == 0 { CONSECUTIVE } else { -gap * GAP };
                 if s > top {
                     top = s;
                     from = k;

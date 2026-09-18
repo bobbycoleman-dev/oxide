@@ -861,13 +861,13 @@ impl FileTree {
                     self.input = Some(input);
                 }
             },
-            InputMode::ConfirmDelete { target } => match ks.key.as_str() {
-                "y" => {
+            InputMode::ConfirmDelete { target } => {
+                // Anything but y cancels.
+                if ks.key.as_str() == "y" {
                     let target = target.clone();
                     self.delete_entry(target, cx);
                 }
-                _ => {} // anything but y cancels
-            },
+            }
         }
         cx.stop_propagation();
         cx.notify();
@@ -1296,46 +1296,6 @@ fn filter_rows(rows: Vec<VisibleRow>, filter: &str) -> Vec<VisibleRow> {
         .collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use model::RowKind;
-
-    fn row(path: &str, depth: usize, is_dir: bool) -> VisibleRow {
-        VisibleRow {
-            path: path.into(),
-            depth,
-            is_dir,
-            expanded: is_dir,
-            kind: RowKind::Entry,
-        }
-    }
-
-    #[test]
-    fn filter_keeps_matches_and_ancestors() {
-        let rows = vec![
-            row("/r/src", 0, true),
-            row("/r/src/main.rs", 1, false),
-            row("/r/src/lib.rs", 1, false),
-            row("/r/docs", 0, true),
-            row("/r/docs/guide.md", 1, false),
-        ];
-        let filtered = filter_rows(rows, "main");
-        let names: Vec<_> = filtered
-            .iter()
-            .map(|r| r.path.file_name().unwrap().to_string_lossy().to_string())
-            .collect();
-        // main.rs matches; src is kept as its ancestor; docs subtree drops.
-        assert_eq!(names, vec!["src", "main.rs"]);
-    }
-
-    #[test]
-    fn filter_is_case_insensitive() {
-        let rows = vec![row("/r/README.md", 0, false), row("/r/notes.txt", 0, false)];
-        assert_eq!(filter_rows(rows, "readme").len(), 1);
-    }
-}
-
 impl Render for FileTree {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme.clone();
@@ -1418,5 +1378,45 @@ impl Render for FileTree {
             .when(self.context_menu.is_some(), |d| {
                 d.child(self.render_context_menu(window, cx))
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use model::RowKind;
+
+    fn row(path: &str, depth: usize, is_dir: bool) -> VisibleRow {
+        VisibleRow {
+            path: path.into(),
+            depth,
+            is_dir,
+            expanded: is_dir,
+            kind: RowKind::Entry,
+        }
+    }
+
+    #[test]
+    fn filter_keeps_matches_and_ancestors() {
+        let rows = vec![
+            row("/r/src", 0, true),
+            row("/r/src/main.rs", 1, false),
+            row("/r/src/lib.rs", 1, false),
+            row("/r/docs", 0, true),
+            row("/r/docs/guide.md", 1, false),
+        ];
+        let filtered = filter_rows(rows, "main");
+        let names: Vec<_> = filtered
+            .iter()
+            .map(|r| r.path.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        // main.rs matches; src is kept as its ancestor; docs subtree drops.
+        assert_eq!(names, vec!["src", "main.rs"]);
+    }
+
+    #[test]
+    fn filter_is_case_insensitive() {
+        let rows = vec![row("/r/README.md", 0, false), row("/r/notes.txt", 0, false)];
+        assert_eq!(filter_rows(rows, "readme").len(), 1);
     }
 }

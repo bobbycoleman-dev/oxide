@@ -373,7 +373,7 @@ fn layout_grid(
                 alacritty_terminal::index::Line(row_idx as i32 - display_offset as i32),
                 alacritty_terminal::index::Column(col),
             );
-            let selected = selection.map_or(false, |r| r.contains(grid_point));
+            let selected = selection.is_some_and(|r| r.contains(grid_point));
             if selected {
                 open_sel = match open_sel {
                     Some((start, end)) if end == col => Some((start, col + width)),
@@ -489,7 +489,7 @@ fn layout_grid(
             }
             None
         });
-        let wide = cell.map_or(false, |(snap, _)| snap.flags.contains(Flags::WIDE_CHAR));
+        let wide = cell.is_some_and(|(snap, _)| snap.flags.contains(Flags::WIDE_CHAR));
         let width_cells = if wide { 2.0 } else { 1.0 };
         // The vi cursor is always a block, never blinks, and stays visible
         // unfocused, so the copy-mode position is never in doubt.

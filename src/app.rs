@@ -397,7 +397,7 @@ pub fn load_window_bounds() -> Option<gpui::Bounds<gpui::Pixels>> {
 }
 
 /// Quote a path for the shell: single-quoted, embedded quotes escaped.
-fn shell_quote(path: &PathBuf) -> String {
+fn shell_quote(path: &Path) -> String {
     single_quote(&path.to_string_lossy())
 }
 
@@ -415,7 +415,7 @@ fn single_quote(s: &str) -> String {
 /// run this: under fish, csh, or nushell the Bourne syntax below is a parse
 /// error, so it goes to /bin/sh instead. That costs a non-exported $EDITOR —
 /// worth it only where the direct form cannot run at all.
-fn edit_file_command(path: &PathBuf, shell: &str) -> String {
+fn edit_file_command(path: &Path, shell: &str) -> String {
     editor_command(path, None, shell, None)
 }
 
@@ -456,7 +456,7 @@ fn editor_snippet(
 
 /// Open a file in the user's editor, optionally at a line and column.
 fn editor_command(
-    path: &PathBuf,
+    path: &Path,
     at: Option<(u32, Option<u32>)>,
     shell: &str,
     override_cmd: Option<&str>,
@@ -3185,12 +3185,7 @@ impl Oxide {
             );
             return;
         }
-        let command = editor_command(
-            &path.to_path_buf(),
-            at,
-            &shell,
-            self.config.editor.open_at_line.as_deref(),
-        );
+        let command = editor_command(path, at, &shell, self.config.editor.open_at_line.as_deref());
         self.active_pane()
             .update(cx, |t, _| t.run_command(&command));
         self.focus_terminal(Some(window), cx);
@@ -3229,7 +3224,7 @@ impl Oxide {
                 }
             }
         }
-        items.sort_by(|a, b| b.finished.cmp(&a.finished));
+        items.sort_by_key(|a| std::cmp::Reverse(a.finished));
         let mut seen = std::collections::HashSet::new();
         items.retain(|it| seen.insert(it.text.clone()));
         items
@@ -4396,13 +4391,13 @@ impl Oxide {
                     self.ws_input = Some(input);
                 }
             },
-            WsInput::ConfirmDelete => match ks.key.as_str() {
-                "y" => {
+            WsInput::ConfirmDelete => {
+                // Anything but y cancels.
+                if ks.key.as_str() == "y" {
                     let ix = self.ws_selected;
                     self.remove_workspace_at(ix, window, cx);
                 }
-                _ => {} // anything but y cancels
-            },
+            }
         }
         cx.stop_propagation();
         cx.notify();
@@ -5067,15 +5062,16 @@ impl Render for Oxide {
         // Root bindings still fire under an overlay (cmd-1 switches tabs and
         // focuses that tab's pane, say). An overlay that lost focus that way
         // would linger unreachable, so drop it; a theme preview reverts.
-        if self.overlay.is_some() && !self.picker_focus.is_focused(window) {
-            if let Some(Overlay::ThemePicker(picker)) = self.overlay.take() {
-                let original = picker.original;
-                let entity = cx.entity();
-                // Deferred: entity updates aren't allowed from inside render.
-                cx.defer(move |cx| {
-                    entity.update(cx, |this, cx| this.apply_theme(original, cx));
-                });
-            }
+        if self.overlay.is_some()
+            && !self.picker_focus.is_focused(window)
+            && let Some(Overlay::ThemePicker(picker)) = self.overlay.take()
+        {
+            let original = picker.original;
+            let entity = cx.entity();
+            // Deferred: entity updates aren't allowed from inside render.
+            cx.defer(move |cx| {
+                entity.update(cx, |this, cx| this.apply_theme(original, cx));
+            });
         }
 
         self.tab_mut().unread = false;
@@ -5501,7 +5497,7 @@ mod edit_command_tests {
             .unwrap();
         let _ = std::fs::remove_file(&record);
 
-        let command = edit_file_command(&target.to_path_buf(), shell);
+        let command = edit_file_command(target, shell);
         let out = Command::new(shell)
             .arg("-c")
             .arg(&command)
@@ -5679,7 +5675,8 @@ mod edit_command_tests {
                 _ => unreachable!(),
             }
         };
-        let cases: Vec<(&str, Option<(u32, Option<u32>)>)> = vec![
+        type At = Option<(u32, Option<u32>)>;
+        let cases: Vec<(&str, At)> = vec![
             ("nvim", Some((42, Some(8)))),
             ("nvim", Some((42, None))),
             ("code", Some((42, Some(8)))),

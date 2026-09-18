@@ -213,9 +213,9 @@ fn parse_133(rest: &str) -> Option<MarkerKind> {
 /// can go, so it is ignored.
 fn parse_cwd(url: &str) -> Option<PathBuf> {
     let rest = url.strip_prefix("file://")?;
-    let (host, path) = match rest.find('/') {
-        Some(ix) => (&rest[..ix], &rest[ix..]),
-        None => return None,
+    let (host, path) = {
+        let ix = rest.find('/')?;
+        (&rest[..ix], &rest[ix..])
     };
     if !host_is_local(host) {
         return None;

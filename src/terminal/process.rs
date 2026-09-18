@@ -168,7 +168,7 @@ pub fn ssh_host_from_args(args: &[String]) -> Option<String> {
     let mut iter = args.iter().skip(1);
     while let Some(arg) = iter.next() {
         if arg == "--" {
-            return iter.next().and_then(|a| Some(clean_host(a)));
+            return iter.next().map(|a| clean_host(a));
         }
         if let Some(flags) = arg.strip_prefix('-')
             && !flags.is_empty()

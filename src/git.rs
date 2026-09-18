@@ -54,7 +54,7 @@ fn git_text(cwd: &Path, args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-pub fn read_git_status(cwd: &PathBuf) -> GitStatus {
+pub fn read_git_status(cwd: &Path) -> GitStatus {
     if !git_usable() {
         return GitStatus::default();
     }

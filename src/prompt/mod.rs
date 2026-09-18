@@ -799,8 +799,7 @@ mod cd_tests {
                 .is_some_and(|p| p == std::path::Path::new("/usr/local"));
             let last_line = grid(&session)
                 .lines()
-                .filter(|l| !l.trim().is_empty())
-                .next_back()
+                .rfind(|l| !l.trim().is_empty())
                 .unwrap_or("")
                 .to_string();
             if moved && last_line.contains("local") {
@@ -821,11 +820,7 @@ mod cd_tests {
         );
         // The visible prompt must reflect the new directory immediately,
         // without the user having to run a command first.
-        let last = after
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .next_back()
-            .unwrap_or("");
+        let last = after.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("");
         assert!(
             last.contains("local"),
             "prompt did not refresh to the new directory; last line: {last:?}\nfull:\n{after}"

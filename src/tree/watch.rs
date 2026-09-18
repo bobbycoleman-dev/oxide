@@ -51,15 +51,14 @@ pub fn create() -> Option<(TreeWatcher, UnboundedReceiver<Vec<PathBuf>>)> {
 
 impl TreeWatcher {
     pub fn watch(&mut self, dir: &PathBuf) {
-        if self.watched.insert(dir.clone()) {
-            if self
+        if self.watched.insert(dir.clone())
+            && self
                 .debouncer
                 .watcher()
                 .watch(dir, RecursiveMode::NonRecursive)
                 .is_err()
-            {
-                self.watched.remove(dir);
-            }
+        {
+            self.watched.remove(dir);
         }
     }
 
