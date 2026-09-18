@@ -11,9 +11,14 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+### Fixed
+
+- Right-click context menu in file tree drawer was clipping under the terminal and workspaces panel instead of displaying on top becasue it was a child of the tree rather than the app.
+
 ## [0.5.2] - 2026-09-13
 
 ### Added
+
 - In-app toasts in the bottom-right corner replace the yellow strip across the
   top of the window. Config and keymap errors show in red and stay until the
   next clean reload; other notices fade after a few seconds. Click any toast to
@@ -31,11 +36,13 @@ write for users: what changed and why it matters, not which files moved.
 ## [0.5.1] - 2026-09-13
 
 ### Fixed
+
 - Double-clicking a directory in the file tree toggled it twice, so it ended up
   back where it started. Directories now open on the first click and stay open.
 - A hardcoded path left over from testing was removed.
 
 ### Changed
+
 - Each release now uploads the DMG twice: `Oxide-x.y.z.dmg` for the website's
   download button and `Oxide-x.y.z-update.dmg` for the in-app updater. GitHub
   counts downloads per asset, so the website's counter reflects people who
@@ -48,6 +55,7 @@ write for users: what changed and why it matters, not which files moved.
 ## [0.5.0] - 2026-09-09
 
 ### Added
+
 - **Startup commands**, the tmuxinator move. Give a pane a command with
   `ctrl-w r` (prefilled with the last thing that ran there) and a pinned
   workspace re-runs it on restore, once that pane's shell is actually at a
@@ -67,12 +75,14 @@ write for users: what changed and why it matters, not which files moved.
   command to a specific shell without it echoing as typed input.
 
 ### Changed
+
 - `workspaces.json` moved to a v3 format that carries startup commands. Older
   files still load.
 
 ## [0.4.0] - 2026-09-08
 
 ### Added
+
 - **Scrollback search** grew regex, case-sensitive, and whole-word toggles as
   clickable chips (`cmd-alt-r` / `c` / `w`). A malformed regex says so instead
   of silently matching nothing.
@@ -107,12 +117,14 @@ write for users: what changed and why it matters, not which files moved.
   and a configurable bell.
 
 ### Changed
+
 - The theme picker moved to `cmd-alt-t`; GPUI's chord handling made the bare
   `cmd-k` prefix lag.
 
 ## [0.3.4] - 2026-09-05
 
 ### Added
+
 - **Command awareness.** The shell integration's OSC 133 markers are read
   straight off the PTY, so Oxide knows what's running, how long it took, and
   whether it failed: elapsed time in the status bar, activity dots on
@@ -138,6 +150,7 @@ write for users: what changed and why it matters, not which files moved.
 ## [0.3.3] - 2026-09-04
 
 ### Added
+
 - **Command palette** (`cmd-shift-p`) lists every action with its binding,
   fuzzy-matched across title, category, and aliases, most-recently-used
   first. Focus returns to the pane you were in before the action runs.
@@ -155,16 +168,19 @@ write for users: what changed and why it matters, not which files moved.
 - `scripts/docs.sh` serves the docs site locally.
 
 ### Changed
+
 - `workspaces.json` gained a version field. v0.3.2 files still load and get
   even splits.
 
 ### Known issues
+
 - Narrowing a pane past the width of a multi-line bash prompt can scroll the
   prompt's first line into scrollback until the next prompt is drawn.
 
 ## [0.3.2] - 2026-09-02
 
 ### Added
+
 - The documentation site at oxideterminal.com/docs: install, terminal, file
   tree, tabs and splits, workspaces, prompt, themes, keybindings,
   configuration, and troubleshooting pages.
@@ -173,15 +189,18 @@ write for users: what changed and why it matters, not which files moved.
   shells where the Bourne one-liner would be a syntax error.
 
 ### Changed
+
 - "Open Settings" runs the editor command silently instead of echoing it at
   your prompt.
 
 ### Fixed
+
 - Paths containing `'`, `\`, or `!` open correctly in every supported shell.
 
 ## [0.3.1] - 2026-09-02
 
 ### Added
+
 - JetBrainsMono Nerd Font Mono is bundled, so a machine with no Nerd Font
   installed still gets every powerline and tree glyph. Set `font.family` to
   use your own.
@@ -189,6 +208,7 @@ write for users: what changed and why it matters, not which files moved.
   System Settings double-click action, matching a real titlebar.
 
 ### Fixed
+
 - Opening a file with no `$EDITOR` set now hands it to the macOS default text
   editor instead of failing with "command not found: nvim".
 - On a Mac without the Command Line Tools, the git status poll no longer
@@ -198,6 +218,7 @@ write for users: what changed and why it matters, not which files moved.
 ## [0.3.0] - 2026-09-01
 
 ### Added
+
 - **Workspaces**: named sets of tabs and splits, tmux-session style, managed
   from a panel below the file tree (`a` add, `r` rename, `d` delete, `p` pin;
   `ctrl-w p` focuses the panel, `tab` toggles tree ↔ workspaces). Temporary by
@@ -210,6 +231,7 @@ write for users: what changed and why it matters, not which files moved.
 - MIT license, and the oxideterminal.com landing page.
 
 ### Fixed
+
 - Workspace persistence writes atomically, so a crash mid-save can't leave an
   empty file.
 - New workspaces start at `~` rather than wherever the previous shell was.
@@ -217,6 +239,7 @@ write for users: what changed and why it matters, not which files moved.
 ## [0.2.0] - 2026-08-31
 
 ### Added
+
 - **Split panes.** Split in any direction (`ctrl-w v` / `s`, or `cmd-d` /
   `cmd-shift-d`) and nest freely. `ctrl-w h j k l` or `cmd-opt-arrows` move
   between panes by what's on screen; `exit` or `ctrl-w q` closes a pane and
@@ -226,11 +249,13 @@ write for users: what changed and why it matters, not which files moved.
 - The oxideterminal.com landing page.
 
 ### Known issues
+
 - Splits divide their space evenly and can't be resized yet.
 
 ## [0.1.1] - 2026-08-31
 
 ### Added
+
 - Native macOS window tabs (`cmd-t`); new tabs start in the current directory
   or `~/` (`window.new_tab_directory`).
 - The prompt switches with the file tree: `cd`-ing in the shell re-roots the
@@ -238,6 +263,7 @@ write for users: what changed and why it matters, not which files moved.
 - `cmd-click` opens URLs, copy-on-select as an option, font size at runtime.
 
 ### Fixed
+
 - `ls` output columns rendered wrongly.
 
 ## [0.1.0] - 2026-08-31
@@ -264,6 +290,7 @@ First release: a native macOS terminal emulator built on GPUI and
   double-click.
 
 ### Known limitations
+
 - No IME or dead-key composition yet.
 - No tabs or splits.
 - Apple Silicon only.
