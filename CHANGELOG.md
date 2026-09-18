@@ -11,6 +11,8 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-09-18
+
 ### Fixed
 
 - Right-click context menu in file tree drawer was clipping under the terminal and workspaces panel instead of displaying on top becasue it was a child of the tree rather than the app.
