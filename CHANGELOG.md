@@ -11,6 +11,8 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-09-18
+
 ### Added
 
 - 17 new theme presets from [Omarchy](https://omarchy.org/manual/themes/):
