@@ -11,6 +11,8 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-09-18
+
 ### Added
 
 - **Preview markdown** on the file tree's right-click menu for `.md` and
