@@ -317,7 +317,7 @@ mod tests {
         let (session, mut rx) = TerminalSession::spawn(options, size).expect("spawn zsh");
         session.write_input(b"false\r".to_vec());
 
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(30);
         let mut markers = Vec::new();
         while Instant::now() < deadline {
             while let Ok(event) = rx.try_recv() {
@@ -386,7 +386,7 @@ mod tests {
         };
         let (session, mut rx) = TerminalSession::spawn(options, size).expect("spawn sh");
         session.write_input(b"echo marker_free\r".to_vec());
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(30);
         while Instant::now() < deadline && !visible_text(&session).contains("marker_free") {
             std::thread::sleep(Duration::from_millis(50));
         }
@@ -417,7 +417,7 @@ mod tests {
         let (session, _rx) = TerminalSession::spawn(options, size).expect("spawn pty");
         session.write_input(b"echo oxide_roundtrip_$((20+22))\r".to_vec());
 
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             std::thread::sleep(Duration::from_millis(100));
             let text = visible_text(&session);

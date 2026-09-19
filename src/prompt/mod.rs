@@ -688,7 +688,7 @@ mod tests {
         };
         let (session, _rx) = TerminalSession::spawn(options, size).expect("spawn zsh");
 
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             std::thread::sleep(Duration::from_millis(150));
             let text: String = {
@@ -791,7 +791,7 @@ mod cd_tests {
         session.write_input(b"\x1b[9001~\r".to_vec());
 
         // Wait for the shell to move *and* for a refreshed prompt to render.
-        let deadline = Instant::now() + Duration::from_secs(8);
+        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             std::thread::sleep(Duration::from_millis(200));
             let moved = session
@@ -981,8 +981,10 @@ mod run_tests {
         wait_for(session, expect, &format!("{shell}: {command:?} never ran"))
     }
 
+    /// The deadline is for a hung shell, not a slow one: CI runners start
+    /// several shells at once on three cores, and 8s wasn't always enough.
     fn wait_for(session: &TerminalSession, expect: &str, what: &str) -> String {
-        let deadline = Instant::now() + Duration::from_secs(8);
+        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             std::thread::sleep(Duration::from_millis(200));
             let grid = grid(session);
@@ -1039,7 +1041,7 @@ mod run_tests {
         let (session, mut rx) = TerminalSession::spawn(options, size).expect("spawn shell");
 
         // Block on the channel until the first A marker, then fire at once.
-        let deadline = Instant::now() + Duration::from_secs(8);
+        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             match rx.try_recv() {
                 Ok(SessionEvent::Marker(m)) if m.kind == MarkerKind::PromptStart => break,

@@ -317,7 +317,7 @@ mod tests {
             )]),
         };
         let (session, _rx) = TerminalSession::spawn(options, size).expect("spawn sh");
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         loop {
             if let Some(fg) = session.foreground_process() {
                 assert!(fg.is_shell(), "{fg:?}");
