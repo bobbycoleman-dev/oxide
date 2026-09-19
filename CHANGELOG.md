@@ -16,6 +16,12 @@ write for users: what changed and why it matters, not which files moved.
 - Closing a markdown preview (or What's New) returns to the tab you opened it
   from, instead of jumping to the last tab.
 
+### Fixed
+
+- Long file names in the tree wrapped onto a second line and overlapped the row
+  below. They now stay on one line and end in an ellipsis, with the full name
+  on hover. Long workspace names get the same treatment.
+
 ## [0.5.5] - 2026-09-18
 
 ### Added

@@ -50,7 +50,7 @@ pub struct TreeDrag {
     pub path: PathBuf,
 }
 
-/// The label that follows the pointer during a drag.
+/// The label that follows the pointer during a drag, and a row's tooltip.
 struct DragLabel(SharedString);
 
 impl Render for DragLabel {
@@ -1026,6 +1026,7 @@ impl FileTree {
             };
             let drag_path = row.path.clone();
             let drag_name: SharedString = label.clone();
+            let full_name: SharedString = label.clone();
             rows.push(
                 div()
                     .id(ix)
@@ -1072,6 +1073,12 @@ impl FileTree {
                             cx.notify();
                         }),
                     )
+                    // The whole name on hover, for when the row cut it short.
+                    .when(row.kind == RowKind::Entry, |d| {
+                        d.tooltip(move |_window, cx| {
+                            cx.new(|_| DragLabel(full_name.clone())).into()
+                        })
+                    })
                     .when(row.kind == RowKind::Entry, |d| {
                         d.on_drag(
                             TreeDrag {
@@ -1084,10 +1091,12 @@ impl FileTree {
                     .when(icons, |d| {
                         d.child(div().flex_none().text_color(icon_color).child(icon))
                     })
+                    // One line, ending in an ellipsis: a wrapped name spills
+                    // over the fixed-height row below it.
                     .child(
                         div()
                             .flex_1()
-                            .overflow_hidden()
+                            .truncate()
                             .text_color(text_color)
                             .child(label),
                     )

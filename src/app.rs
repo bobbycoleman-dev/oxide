@@ -4584,7 +4584,7 @@ impl Oxide {
                             cx.notify();
                         }),
                     )
-                    .child(div().flex_1().overflow_hidden().child(w.name.clone()))
+                    .child(div().flex_1().truncate().child(w.name.clone()))
                     .when(self.workspace_has_startup(w, cx), |d| {
                         // Has startup commands, visible without opening anything.
                         d.child(div().flex_none().text_color(dim).child("▸"))
