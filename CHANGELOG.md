@@ -11,6 +11,11 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+### Changed
+
+- Closing a markdown preview (or What's New) returns to the tab you opened it
+  from, instead of jumping to the last tab.
+
 ## [0.5.5] - 2026-09-18
 
 ### Added

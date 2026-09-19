@@ -45,6 +45,10 @@ struct TabState {
     broadcast: bool,
     /// A user-set name, overriding the automatic title.
     title: Option<String>,
+    /// The pane that had focus when this tab was opened on top of it (a
+    /// markdown preview, What's New). Closing the tab goes back to it
+    /// instead of to a neighbour. Transient: not saved with the workspace.
+    opener: Option<PaneId>,
 }
 
 impl TabState {
@@ -56,6 +60,7 @@ impl TabState {
             zoomed: None,
             broadcast: false,
             title: None,
+            opener: None,
         }
     }
 }
@@ -1200,6 +1205,17 @@ impl Oxide {
         } else if tix < ws.active_tab {
             ws.active_tab -= 1;
         }
+        // A tab opened on top of another hands focus back to it. Found by
+        // pane, so it survives tabs being moved or closed in the meantime.
+        if was_active_tab
+            && let Some(opener) = tab.opener
+            && let Some(ix) = ws
+                .tabs
+                .iter()
+                .position(|t| t.layout.leaves().contains(&opener))
+        {
+            ws.active_tab = ix;
+        }
         if was_active_tab {
             let next = self.active_id();
             self.focus_pane(next, window, cx);
@@ -1677,6 +1693,7 @@ impl Oxide {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let opener = self.active_id();
         let id = self.create_pane(cwd, window, cx);
         let timeout = self.config.workspaces.startup_timeout.0;
         self.panes[&id].update(cx, |pane, cx| {
@@ -1699,6 +1716,7 @@ impl Oxide {
         let ws = self.ws_mut();
         ws.tabs.push(TabState {
             title: Some(title),
+            opener: Some(opener),
             ..TabState::new(Node::Leaf(id), id)
         });
         ws.active_tab = ws.tabs.len() - 1;
