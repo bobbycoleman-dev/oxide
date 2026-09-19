@@ -15,9 +15,16 @@ write for users: what changed and why it matters, not which files moved.
 
 - Closing a markdown preview (or What's New) returns to the tab you opened it
   from, instead of jumping to the last tab.
+- The key hints under the file finder and command history follow your keymap:
+  rebind `overlay::confirm_reveal` (say, because a window manager owns
+  `alt-enter`) and the footer shows the new key instead of `⌥⏎`.
 
 ### Fixed
 
+- The file finder (`cmd-p`) stalled on every keystroke in large trees — and for
+  a quarter of a second just opening it once you had a list of recent files.
+  Opening is now instant and typing is 5–10× faster, with the same results in
+  the same order. Command history search (`cmd-r`) got the same speed-up.
 - Long file names in the tree wrapped onto a second line and overlapped the row
   below. They now stay on one line and end in an ellipsis, with the full name
   on hover. Long workspace names get the same treatment.

@@ -2129,6 +2129,20 @@ impl Oxide {
         }
     }
 
+    /// "⏎ open · ⌘⏎ insert path · " for an overlay's footer, from the keys
+    /// the actions are bound to right now — a global hotkey elsewhere on the
+    /// system can make a default unusable, and the hint should follow the
+    /// rebind. An unbound action drops out.
+    fn overlay_hints(&self, actions: &[(&str, &str)]) -> String {
+        actions
+            .iter()
+            .filter_map(|(id, label)| {
+                let keys = pretty_keys(&self.keymap.display_for(id)?.keys);
+                Some(format!("{keys} {label} · "))
+            })
+            .collect()
+    }
+
     /// alt-enter: reveal in the tree, where that means something.
     fn overlay_confirm_reveal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match &self.overlay {
@@ -3034,24 +3048,35 @@ impl Oxide {
     }
 
     fn finder_refresh(&mut self) {
-        let recent: Vec<PathBuf> = self.recent_files.iter().cloned().collect();
         let Some(index) = &self.finder_index else {
             if let Some(Overlay::FileFinder(f)) = &mut self.overlay {
                 f.matches.clear();
             }
             return;
         };
-        let root = index.root.clone();
         let entries = index.entries.clone();
+        // Recent files as the index spells them, mapped to their rank — once
+        // per refresh. Doing this per match meant re-parsing 30 paths for each
+        // of up to 100k entries: a quarter of a second on an empty query.
+        let recent: HashMap<String, usize> = self
+            .recent_files
+            .iter()
+            .enumerate()
+            .filter_map(|(pos, path)| {
+                let rel = path.strip_prefix(&index.root).ok()?;
+                Some((rel.to_string_lossy().into_owned(), pos))
+            })
+            .collect();
         let Some(Overlay::FileFinder(f)) = &mut self.overlay else {
             return;
         };
         let query = f.query.trim().to_string();
+        let mut matcher = palette::Matcher::new(&query);
         let mut matches: Vec<FinderMatch> = entries
             .iter()
             .enumerate()
             .filter_map(|(ix, rel)| {
-                let m = palette::fuzzy_match(&query, rel)?;
+                let m = matcher.score(rel)?;
                 let mut score = m.score;
                 if !query.is_empty() {
                     // Matches inside the file name beat matches in the
@@ -3062,11 +3087,7 @@ impl Oxide {
                     }
                     score -= rel.matches('/').count() as i32;
                 }
-                if let Some(pos) = recent.iter().position(|r| {
-                    r.strip_prefix(&root)
-                        .map(|p| p.to_string_lossy() == *rel)
-                        .unwrap_or(false)
-                }) {
+                if let Some(&pos) = recent.get(rel.as_str()) {
                     score += 20 - pos.min(10) as i32;
                 }
                 Some(FinderMatch {
@@ -3262,7 +3283,12 @@ impl Oxide {
             .text_size(px(11.0))
             .text_color(dim)
             .child(format!(
-                "↑↓ move · ⏎ open · ⌘⏎ insert path · ⌥⏎ reveal in tree · esc close{note}"
+                "↑↓ move · {}esc close{note}",
+                self.overlay_hints(&[
+                    ("overlay::confirm", "open"),
+                    ("overlay::confirm_alt", "insert path"),
+                    ("overlay::confirm_reveal", "reveal in tree"),
+                ])
             ));
 
         div()
@@ -3366,12 +3392,13 @@ impl Oxide {
             return;
         };
         let query = h.query.trim().to_string();
+        let mut matcher = palette::Matcher::new(&query);
         let mut matches: Vec<HistoryMatch> = h
             .items
             .iter()
             .enumerate()
             .filter_map(|(ix, item)| {
-                let m = palette::fuzzy_match(&query, &item.text)?;
+                let m = matcher.score(&item.text)?;
                 // Commands run in the directory you're in now are the ones
                 // you most likely want again.
                 let local = if item.cwd.is_some() && item.cwd == here {
@@ -3565,7 +3592,13 @@ impl Oxide {
             .border_color(border)
             .text_size(px(11.0))
             .text_color(dim)
-            .child("↑↓ move · ⏎ insert at prompt · ⌘⏎ run · esc close");
+            .child(format!(
+                "↑↓ move · {}esc close",
+                self.overlay_hints(&[
+                    ("overlay::confirm", "insert at prompt"),
+                    ("overlay::confirm_alt", "run"),
+                ])
+            ));
 
         div()
             .flex()

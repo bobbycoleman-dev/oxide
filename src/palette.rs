@@ -37,74 +37,137 @@ fn is_word_start(chars: &[char], ix: usize) -> bool {
 /// consecutive runs beat scattered hits, word-initial hits beat mid-word
 /// ones, and every skipped character between hits costs a little.
 pub fn fuzzy_match(query: &str, candidate: &str) -> Option<Match> {
-    let q: Vec<char> = query
-        .chars()
-        .flat_map(|c| c.to_lowercase())
-        .filter(|c| !c.is_whitespace())
-        .collect();
-    let c: Vec<char> = candidate.chars().collect();
-    let cl: Vec<char> = c.iter().flat_map(|ch| ch.to_lowercase().next()).collect();
-    if q.is_empty() {
-        return Some(Match {
-            score: 0,
-            positions: Vec::new(),
-        });
-    }
-    if q.len() > cl.len() {
-        return None;
-    }
-    let (n, m) = (q.len(), cl.len());
-    // best[i][j]: best score with q[i] matched at c[j]; prev[i][j]: the j
-    // chosen for q[i-1] in that alignment.
-    let mut best = vec![vec![i32::MIN; m]; n];
-    let mut prev = vec![vec![usize::MAX; m]; n];
-    for j in 0..m {
-        if cl[j] == q[0] {
-            best[0][j] = MATCH + if is_word_start(&c, j) { WORD_START } else { 0 };
+    Matcher::new(query).score(candidate)
+}
+
+/// A query prepared once for matching against many candidates. The file
+/// finder scores every indexed path on each keystroke — up to 100k of them —
+/// so the query is lowercased once, candidates that can't match are turned
+/// away in one pass, and the tables are scratch space kept between calls.
+pub struct Matcher {
+    q: Vec<char>,
+    c: Vec<char>,
+    cl: Vec<char>,
+    /// `best[i * m + j]`: best score with `q[i]` matched at `c[j]`.
+    best: Vec<i32>,
+    /// `prev[i * m + j]`: the `j` chosen for `q[i - 1]` in that alignment.
+    prev: Vec<usize>,
+}
+
+impl Matcher {
+    pub fn new(query: &str) -> Self {
+        Self {
+            q: query
+                .chars()
+                .flat_map(|c| c.to_lowercase())
+                .filter(|c| !c.is_whitespace())
+                .collect(),
+            c: Vec::new(),
+            cl: Vec::new(),
+            best: Vec::new(),
+            prev: Vec::new(),
         }
     }
-    for i in 1..n {
-        for j in i..m {
-            if cl[j] != q[i] {
-                continue;
+
+    pub fn score(&mut self, candidate: &str) -> Option<Match> {
+        let Self {
+            q,
+            c,
+            cl,
+            best,
+            prev,
+        } = self;
+        if q.is_empty() {
+            return Some(Match {
+                score: 0,
+                positions: Vec::new(),
+            });
+        }
+        // One pass: the chars, their lowercase, and whether the query is a
+        // subsequence at all. Most candidates stop here.
+        c.clear();
+        cl.clear();
+        let mut matched = 0;
+        for ch in candidate.chars() {
+            let lower = if ch.is_ascii() {
+                ch.to_ascii_lowercase()
+            } else {
+                ch.to_lowercase().next().unwrap_or(ch)
+            };
+            if matched < q.len() && lower == q[matched] {
+                matched += 1;
             }
-            let here = MATCH + if is_word_start(&c, j) { WORD_START } else { 0 };
-            let mut top = i32::MIN;
-            let mut from = usize::MAX;
-            for (k, &before) in best[i - 1].iter().enumerate().take(j).skip(i - 1) {
-                if before == i32::MIN {
+            c.push(ch);
+            cl.push(lower);
+        }
+        if matched < q.len() {
+            return None;
+        }
+
+        let (n, m) = (q.len(), cl.len());
+        best.clear();
+        best.resize(n * m, i32::MIN);
+        prev.clear();
+        prev.resize(n * m, usize::MAX);
+        let hit = |j: usize| MATCH + if is_word_start(c, j) { WORD_START } else { 0 };
+        for j in 0..m {
+            if cl[j] == q[0] {
+                best[j] = hit(j);
+            }
+        }
+        for i in 1..n {
+            let (above, row) = best[(i - 1) * m..(i + 1) * m].split_at_mut(m);
+            // Coming from column k costs (j - k - 1) * GAP, so the best k
+            // with a gap is the one maximising above[k] + k * GAP — a
+            // running maximum over k <= j - 2, earliest k winning ties.
+            let (mut run_top, mut run_from) = (i32::MIN, usize::MAX);
+            for j in i..m {
+                if j > i && above[j - 2] != i32::MIN {
+                    let v = above[j - 2] + (j - 2) as i32 * GAP;
+                    if v > run_top {
+                        (run_top, run_from) = (v, j - 2);
+                    }
+                }
+                if cl[j] != q[i] {
                     continue;
                 }
-                let gap = (j - k - 1) as i32;
-                let s = before + here + if gap == 0 { CONSECUTIVE } else { -gap * GAP };
-                if s > top {
-                    top = s;
-                    from = k;
+                let here = hit(j);
+                let (mut top, mut from) = (i32::MIN, usize::MAX);
+                if run_top != i32::MIN {
+                    (top, from) = (run_top + here - (j as i32 - 1) * GAP, run_from);
+                }
+                // The adjacent column is considered last, as a run.
+                if above[j - 1] != i32::MIN {
+                    let s = above[j - 1] + here + CONSECUTIVE;
+                    if s > top {
+                        (top, from) = (s, j - 1);
+                    }
+                }
+                if top != i32::MIN {
+                    row[j] = top;
+                    prev[i * m + j] = from;
                 }
             }
-            if top != i32::MIN {
-                best[i][j] = top;
-                prev[i][j] = from;
+        }
+        let last = &best[(n - 1) * m..];
+        let (mut j, score) = (0..m)
+            .filter(|&j| last[j] != i32::MIN)
+            .map(|j| (j, last[j]))
+            .max_by_key(|&(j, s)| (s, std::cmp::Reverse(j)))?;
+        let mut positions = vec![0; n];
+        for i in (0..n).rev() {
+            positions[i] = j;
+            if i > 0 {
+                j = prev[i * m + j];
             }
         }
+        // Shorter candidates win ties: a match covering more of the title is
+        // a better answer to the same query.
+        Some(Match {
+            score: score - (m as i32) / 8,
+            positions,
+        })
     }
-    let (mut j, score) = (0..m)
-        .filter(|&j| best[n - 1][j] != i32::MIN)
-        .map(|j| (j, best[n - 1][j]))
-        .max_by_key(|&(j, s)| (s, std::cmp::Reverse(j)))?;
-    let mut positions = vec![0; n];
-    for i in (0..n).rev() {
-        positions[i] = j;
-        if i > 0 {
-            j = prev[i][j];
-        }
-    }
-    // Shorter candidates win ties: a match covering more of the title is a
-    // better answer to the same query.
-    Some(Match {
-        score: score - (m as i32) / 8,
-        positions,
-    })
 }
 
 /// Score an action against a query across its title, category, and aliases.
@@ -174,6 +237,34 @@ mod tests {
             .into_iter()
             .map(|i| i.action_id)
             .collect()
+    }
+
+    /// The file finder reuses one matcher across 100k candidates of every
+    /// length; scratch left over from one must never colour the next.
+    #[test]
+    fn a_reused_matcher_agrees_with_a_fresh_one() {
+        let candidates = [
+            "src/terminal/mod.rs",
+            "a",
+            "docs/docs/file-tree/index.html",
+            "",
+            "src/app.rs",
+            "Überstraße/ÄPFEL.md",
+            "target/debug/deps/oxide-032b53269b7ca225",
+            "s/r/c/a/p/p",
+            "src/app.rs",
+        ];
+        for query in [
+            "", "s", "sap", "src/app", "apfel", "SRC", "x y z", "oxide032",
+        ] {
+            let mut reused = Matcher::new(query);
+            for c in candidates {
+                assert_eq!(reused.score(c), fuzzy_match(query, c), "{query:?} on {c:?}");
+            }
+        }
+        // Gaps cost their length, runs and word starts pay: pin one alignment.
+        let m = fuzzy_match("sap", "src/app.rs").unwrap();
+        assert_eq!(m.positions, [0, 4, 5], "s, then the run at the word start");
     }
 
     #[test]
