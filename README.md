@@ -32,7 +32,8 @@ with a file-tree drawer you drive like vim and a status bar that knows where you
   relative; `cmd-click` a `path:line:col` in output to open it in `$EDITOR` at that line
   (nvim, VS Code, emacs, Sublime, Helix dialects built in); rows are coloured by git status;
   `cmd-p` fuzzy-finds any file under the root; `cmd-shift-r` reveals the shell's directory;
-  right-click a row to re-root, copy, or reveal in Finder; drag rows or drop files onto a pane.
+  right-click a row to re-root, copy, or reveal in Finder — or, on a `.md` file, preview it
+  rendered in a new tab (tables, highlighted code with click-to-copy); drag rows or drop files onto a pane.
 - **Scrollback search** — `cmd-f`, live, `⏎`/`⇧⏎` to walk matches; regex, case-sensitive,
   and whole-word toggles as clickable chips (`cmd-alt-r` / `c` / `w`), and a malformed
   regex says so instead of matching nothing.

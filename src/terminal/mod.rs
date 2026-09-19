@@ -233,6 +233,9 @@ pub struct TerminalPane {
     last_program_notify: Option<Instant>,
     /// The file tree's root, for resolving relative paths in output.
     pub tree_root: Option<PathBuf>,
+    /// Code blocks of the markdown preview this pane is paging; the "copy"
+    /// links in it name them by index. Empty in every other pane.
+    pub preview_code: Vec<String>,
     /// Repo root for the current cwd, looked up on the background pool.
     git_root: Option<PathBuf>,
     git_root_for: Option<PathBuf>,
@@ -379,6 +382,7 @@ impl TerminalPane {
             osc7_seen: false,
             last_program_notify: None,
             tree_root: None,
+            preview_code: Vec::new(),
             git_root: None,
             git_root_for: None,
             exists_cache: HashMap::new(),
@@ -2008,6 +2012,37 @@ impl TerminalPane {
         Some((GridPoint::new(Line(line), Column(col)), side, col, row))
     }
 
+    /// The code block whose "copy" link is under `point`: the markdown
+    /// renderer wraps that label in an `oxide-copy:N` hyperlink. Only a pane
+    /// that was handed preview code honours it, so other programs' output
+    /// can't reach the clipboard this way.
+    fn preview_code_at(&self, point: GridPoint) -> Option<String> {
+        if self.preview_code.is_empty() {
+            return None;
+        }
+        let link = self.session.as_ref()?.term.lock().grid()[point].hyperlink()?;
+        let index = link.uri().strip_prefix(crate::markdown::COPY_URI)?;
+        self.preview_code.get(index.parse::<usize>().ok()?).cloned()
+    }
+
+    /// The cells of the "copy" link under `point`, for the hover underline.
+    fn copy_link_span(&self, point: GridPoint, row: usize) -> Option<HoverSpan> {
+        self.preview_code_at(point)?;
+        let term = self.session.as_ref()?.term.lock();
+        let line = &term.grid()[point.line];
+        let link = line[point.column].hyperlink();
+        let linked = |col: usize| line[Column(col)].hyperlink() == link;
+        let start = (0..point.column.0).rev().take_while(|&c| linked(c)).last();
+        let end = (point.column.0..self.size.columns)
+            .take_while(|&c| linked(c))
+            .last()?;
+        Some(HoverSpan {
+            row,
+            start: start.unwrap_or(point.column.0),
+            end: end + 1,
+        })
+    }
+
     fn mouse_mode_active(&self, shift: bool) -> bool {
         if shift {
             return false; // shift bypasses reporting to force local selection
@@ -2078,6 +2113,13 @@ impl TerminalPane {
             }
             return;
         }
+        if let Some(code) = self.preview_code_at(point) {
+            let lines = code.lines().count();
+            cx.write_to_clipboard(ClipboardItem::new_string(code));
+            let s = if lines == 1 { "" } else { "s" };
+            cx.emit(TerminalEvent::Notice(format!("copied {lines} line{s}")));
+            return;
+        }
         if self.mouse_mode_active(event.modifiers.shift) {
             self.send_mouse_report(0, col, row, true, &event.modifiers);
             return;
@@ -2122,7 +2164,9 @@ impl TerminalPane {
                         })
                     })
             } else {
-                None
+                // A preview's "copy" link underlines on plain hover.
+                self.grid_point(event.position)
+                    .and_then(|(point, _, _, row)| self.copy_link_span(point, row))
             };
             if span != self.hover {
                 self.hover = span;

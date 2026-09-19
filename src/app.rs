@@ -402,6 +402,20 @@ fn shell_quote(path: &Path) -> String {
     single_quote(&path.to_string_lossy())
 }
 
+/// Whether `less` can wrap at spaces instead of mid-word. An older less
+/// stops on an unknown flag with a "press RETURN" prompt, so ask first.
+/// Probes the app's PATH; a shell with a different less is assumed newer.
+fn less_wraps_words() -> bool {
+    static WRAPS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *WRAPS.get_or_init(|| {
+        std::process::Command::new("less")
+            .arg("--help")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("--wordwrap"))
+    })
+}
+
 /// Wrap in single quotes for any Bourne-family shell.
 fn single_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
@@ -1592,10 +1606,9 @@ impl Oxide {
         }
     }
 
-    /// The bundled changelog, rendered to ANSI and paged with `less` in a
-    /// new tab of the current workspace. The tab closes when `less` quits.
+    /// The bundled changelog, rendered to ANSI and paged in a new tab.
     fn open_changelog_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(path) = crate::changelog::write_rendered() else {
+        let Some((path, code)) = crate::changelog::write_rendered(self.tab_columns(cx)) else {
             self.toast(
                 ToastKind::Error,
                 "couldn't write the changelog to ~/.cache/oxide".into(),
@@ -1604,10 +1617,76 @@ impl Oxide {
             return;
         };
         let cwd = self.new_tab_cwd(cx);
+        self.open_pager_tab(&path, code, cwd, "what's new".into(), window, cx);
+    }
+
+    /// Render a markdown file the way the changelog is and page it in a new
+    /// tab. The tab's cwd is the file's directory so relative links in it
+    /// resolve on cmd-click.
+    fn open_markdown_preview(
+        &mut self,
+        source: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((path, code)) = crate::markdown::write_preview(source, self.tab_columns(cx))
+        else {
+            self.toast(
+                ToastKind::Error,
+                format!("couldn't render {} for preview", source.display()),
+                cx,
+            );
+            return;
+        };
+        let cwd = source
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| self.new_tab_cwd(cx));
+        let name = source.file_name().unwrap_or_default().to_string_lossy();
+        self.open_pager_tab(&path, code, cwd, format!("preview: {name}"), window, cx);
+    }
+
+    /// Columns a terminal filling the current tab has: what a new tab's pager
+    /// gets, measured across this tab's panes. 80 before the first layout.
+    fn tab_columns(&self, cx: &Context<Self>) -> usize {
+        let mut span: Option<(f32, f32, f32)> = None;
+        for id in self.tab().layout.leaves() {
+            if let Some(l) = self.panes[&id].read(cx).last_layout {
+                let (left, right) = (f32::from(l.bounds.left()), f32::from(l.bounds.right()));
+                span = Some(match span {
+                    Some((a, b, cell)) => (a.min(left), b.max(right), cell),
+                    None => (left, right, l.cell_width),
+                });
+            }
+        }
+        let pad = self.config.window.padding.x * 2.0;
+        span.map_or(80, |(left, right, cell)| {
+            ((right - left - pad) / cell) as usize
+        })
+    }
+
+    /// Page a rendered (ANSI) file with `less` in a new tab of the current
+    /// workspace. The tab closes when `less` quits. `code` is what the
+    /// rendering's "copy" links copy.
+    fn open_pager_tab(
+        &mut self,
+        path: &Path,
+        code: Vec<String>,
+        cwd: PathBuf,
+        title: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let id = self.create_pane(cwd, window, cx);
         let timeout = self.config.workspaces.startup_timeout.0;
         self.panes[&id].update(cx, |pane, cx| {
-            let command = format!("less -R {}", shell_quote(&path));
+            pane.preview_code = code;
+            let wrap = if less_wraps_words() {
+                " --wordwrap"
+            } else {
+                ""
+            };
+            let command = format!("less -R{wrap} {}", shell_quote(path));
             pane.set_startup(
                 Some(StartupCommand {
                     command,
@@ -1619,7 +1698,7 @@ impl Oxide {
         });
         let ws = self.ws_mut();
         ws.tabs.push(TabState {
-            title: Some("what's new".into()),
+            title: Some(title),
             ..TabState::new(Node::Leaf(id), id)
         });
         ws.active_tab = ws.tabs.len() - 1;
@@ -1678,6 +1757,10 @@ impl Oxide {
             TreeEvent::OpenFile(path) => {
                 let path = path.clone();
                 self.open_in_editor(&path, None, window, cx);
+            }
+            TreeEvent::PreviewMarkdown(path) => {
+                let path = path.clone();
+                self.open_markdown_preview(&path, window, cx);
             }
             TreeEvent::ChangedRoot(path) | TreeEvent::CdShell(path) => {
                 let path = path.clone();

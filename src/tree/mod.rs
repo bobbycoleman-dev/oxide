@@ -25,6 +25,8 @@ use watch::TreeWatcher;
 
 pub enum TreeEvent {
     OpenFile(PathBuf),
+    /// Render a markdown file and page it in a new tab.
+    PreviewMarkdown(PathBuf),
     /// The user re-rooted the tree; the shell should follow.
     ChangedRoot(PathBuf),
     /// The root changed for any reason (including following the shell);
@@ -1125,7 +1127,7 @@ impl FileTree {
 
         // Keep the menu on screen when the click lands near an edge.
         let viewport = window.viewport_size();
-        let (menu_w, menu_h) = (200.0, 150.0);
+        let (menu_w, menu_h) = (200.0, 180.0);
         let x = f32::from(menu.position.x).min(f32::from(viewport.width) - menu_w - 8.0);
         let y = f32::from(menu.position.y).min(f32::from(viewport.height) - menu_h - 8.0);
 
@@ -1141,6 +1143,7 @@ impl FileTree {
         };
         let path = row.path.clone();
         let is_dir = row.is_dir;
+        let is_markdown = !is_dir && crate::markdown::is_markdown(&path);
 
         let backdrop = div()
             .w(viewport.width)
@@ -1190,6 +1193,19 @@ impl FileTree {
                                 move |tree, _: &gpui::MouseDownEvent, _w, cx| {
                                     tree.context_menu = None;
                                     cx.emit(TreeEvent::OpenFile(path.clone()));
+                                    cx.notify();
+                                }
+                            }),
+                        ))
+                    })
+                    .when(is_markdown, |d| {
+                        d.child(item("tree-menu-preview", "Preview markdown").on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener({
+                                let path = path.clone();
+                                move |tree, _: &gpui::MouseDownEvent, _w, cx| {
+                                    tree.context_menu = None;
+                                    cx.emit(TreeEvent::PreviewMarkdown(path.clone()));
                                     cx.notify();
                                 }
                             }),

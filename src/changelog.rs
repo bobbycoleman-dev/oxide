@@ -1,79 +1,37 @@
 //! The bundled CHANGELOG.md, rendered to ANSI for paging in a terminal tab.
-//! Deliberately tiny: headings, bullets, `code`, **bold**, and [links]. The
-//! maintainer preamble and the empty Unreleased section are skipped.
+//! The maintainer preamble and the empty Unreleased section are skipped.
 
 use std::path::PathBuf;
 
+use crate::markdown;
+
 const CHANGELOG: &str = include_str!("../CHANGELOG.md");
 
-const BOLD: &str = "\x1b[1m";
-const CYAN: &str = "\x1b[36m";
-const YELLOW: &str = "\x1b[33m";
-const UNDERLINE: &str = "\x1b[4m";
-const RESET: &str = "\x1b[0m";
-
-/// Write the rendered changelog to the cache and return its path.
-pub fn write_rendered() -> Option<PathBuf> {
-    let dir = directories::BaseDirs::new()?
-        .home_dir()
-        .join(".cache/oxide");
-    std::fs::create_dir_all(&dir).ok()?;
-    let path = dir.join("changelog.txt");
-    std::fs::write(&path, render_ansi(CHANGELOG)).ok()?;
-    Some(path)
+/// Write the rendered changelog to the cache; returns its path and the code
+/// blocks its "copy" links refer to.
+pub fn write_rendered(width: usize) -> Option<(PathBuf, Vec<String>)> {
+    let rendered = render_ansi(CHANGELOG, width);
+    Some((
+        markdown::write_cache("changelog.txt", &rendered.text)?,
+        rendered.code,
+    ))
 }
 
-pub fn render_ansi(md: &str) -> String {
-    let mut out = format!("{BOLD}{UNDERLINE}Oxide — what's new{RESET}\n\n");
+pub fn render_ansi(md: &str, width: usize) -> markdown::Rendered {
+    let mut body = String::from("# Oxide — what's new\n\n");
     // Skip everything before the first released version heading.
-    let body = md
+    for line in md
         .lines()
         .skip_while(|l| !(l.starts_with("## [") && !l.starts_with("## [Unreleased]")))
-        .collect::<Vec<_>>();
-    for line in body {
-        let rendered = if let Some(h) = line.strip_prefix("### ") {
-            format!("{BOLD}{YELLOW}{}{RESET}", inline(h))
-        } else if let Some(h) = line.strip_prefix("## ") {
-            format!("{BOLD}{CYAN}{}{RESET}", inline(&h.replace(['[', ']'], "")))
-        } else if let Some(item) = line.strip_prefix("- ") {
-            format!("  • {}", inline(item))
+    {
+        if line.starts_with("## ") {
+            body.push_str(&line.replace(['[', ']'], ""));
         } else {
-            inline(line)
-        };
-        out.push_str(&rendered);
-        out.push('\n');
-    }
-    out
-}
-
-/// `code` → cyan, **bold** → bold, [text](url) → underlined text.
-fn inline(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut rest = s;
-    while !rest.is_empty() {
-        if let Some(after) = rest.strip_prefix('`')
-            && let Some(end) = after.find('`')
-        {
-            out.push_str(&format!("{CYAN}{}{RESET}", &after[..end]));
-            rest = &after[end + 1..];
-        } else if let Some(after) = rest.strip_prefix("**")
-            && let Some(end) = after.find("**")
-        {
-            out.push_str(&format!("{BOLD}{}{RESET}", &after[..end]));
-            rest = &after[end + 2..];
-        } else if let Some(after) = rest.strip_prefix('[')
-            && let Some(mid) = after.find("](")
-            && let Some(end) = after[mid..].find(')')
-        {
-            out.push_str(&format!("{UNDERLINE}{}{RESET}", &after[..mid]));
-            rest = &after[mid + end + 1..];
-        } else {
-            let ch = rest.chars().next().unwrap();
-            out.push(ch);
-            rest = &rest[ch.len_utf8()..];
+            body.push_str(line);
         }
+        body.push('\n');
     }
-    out
+    markdown::render(&body, width)
 }
 
 #[cfg(test)]
@@ -83,7 +41,7 @@ mod tests {
     #[test]
     fn renders_headings_bullets_and_inline() {
         let md = "# Changelog\n\npreamble\n\n## [Unreleased]\n\n- pending\n\n## [0.5.1] - 2026-09-13\n\n### Fixed\n- `ls` and **bold** and [docs](https://x)\n";
-        let out = render_ansi(md);
+        let out = render_ansi(md, 80).text;
         assert!(
             !out.contains("preamble") && !out.contains("pending"),
             "skips preamble and Unreleased"
@@ -101,6 +59,6 @@ mod tests {
 
     #[test]
     fn bundled_changelog_renders() {
-        assert!(render_ansi(CHANGELOG).contains("0.1.0"));
+        assert!(render_ansi(CHANGELOG, 80).text.contains("0.1.0"));
     }
 }

@@ -3,6 +3,7 @@ mod changelog;
 mod config;
 mod git;
 mod keymap;
+mod markdown;
 mod notifications;
 mod palette;
 mod panes;

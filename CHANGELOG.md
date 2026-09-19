@@ -11,6 +11,26 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+### Added
+
+- **Preview markdown** on the file tree's right-click menu for `.md` and
+  `.markdown` files. It opens the file rendered in a new tab, paged with
+  `less`; `q` closes it. Headings, lists, task boxes, quotes, and inline styles
+  render; code blocks are boxed, syntax-highlighted in your theme's own
+  colors, and carry a **⧉ copy** link that puts the block on the clipboard
+  (without a trailing newline, so a pasted command waits for you to press
+  return); tables are drawn with
+  aligned columns and cells wrapped to fit the tab; and README-style HTML
+  (`<h1>`, centered `<p>`, `<a>`, `<img>`, `<kbd>`, comments, entities) is
+  understood rather than shown as tags. Link URLs are shown so `cmd-click` opens them, and relative links
+  resolve against the file's directory.
+
+### Changed
+
+- What's New and markdown previews wrap long lines at spaces instead of
+  mid-word when your `less` supports `--wordwrap`. Links in What's New now show
+  their URL, so they're clickable too.
+
 ## [0.5.4] - 2026-09-18
 
 ### Added

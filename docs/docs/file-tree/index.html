@@ -236,6 +236,33 @@
             set a directory as the tree root, insert the path, copy it, or
             reveal it in Finder.
           </p>
+          <p>
+            Markdown files (<code>.md</code>, <code>.markdown</code>) get one
+            more item, <strong>Preview markdown</strong>. It renders the file
+            the way <em>Help → What's New</em> renders the changelog &mdash;
+            headings, lists, task boxes, quotes, boxed code blocks, tables
+            laid out to the tab's width, and inline styles &mdash; and pages
+            it with <code>less</code> in a new tab that closes on
+            <code>q</code>. The HTML that READMEs lean on is understood too:
+            <code>&lt;h1&gt;</code>, <code>&lt;p align="center"&gt;</code>,
+            <code>&lt;a&gt;</code>, <code>&lt;img&gt;</code> (shown as its
+            alt text), <code>&lt;kbd&gt;</code>, <code>&lt;br&gt;</code>,
+            comments, and entities. Link URLs are printed after their
+            text, so <code>cmd-click</code> opens them; the tab starts in the
+            file's directory, so relative links resolve too. The preview is
+            a snapshot laid out for the tab's width when it opened: reopen it
+            to pick up edits or a resized window.
+          </p>
+          <p>
+            Code blocks are syntax-highlighted by the language on their fence
+            (<code>```toml</code>, <code>```rust</code>, <code>```sh</code>,
+            and a couple of hundred more), using your theme's own ANSI colors
+            rather than a fixed palette, so they sit right in any preset.
+            Each block's top edge has a <strong>⧉ copy</strong> link: click
+            it to put the block on the clipboard, exactly as written. It's
+            copied without a trailing newline, so pasting a command at a
+            prompt doesn't run it until you press <kbd>⏎</kbd>.
+          </p>
 
           <h2 id="git">Git state</h2>
           <p>
