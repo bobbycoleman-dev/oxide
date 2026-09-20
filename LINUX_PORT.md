@@ -11,6 +11,15 @@ one (notifications) is a *link-time* failure that `cargo check` cannot see.
 Several Phase 2/4 worries turned out to be already solved by GPUI or by the
 bundled font; they are marked ✂ below.
 
+**Re-verified 2026-09-20 against v0.5.6** (from macOS, source only — no new
+Linux build). Still nothing cfg-gated, all four blockers unchanged, keymap
+still 55 `cmd-` bindings. Line refs refreshed; added 2.8 (cmd-click),
+`pretty_keys` glyphs (Phase 3), and the two-machine release flow (Phase 5).
+**Re-run `cargo check --all-targets` on the Omarchy box before starting** —
+the "ten errors" count predates `markdown.rs` (syntect/onig, a C build that
+`base-devel` covers), toasts and the file finder. None of them add mac-isms
+by grep, but the compiler hasn't confirmed it.
+
 ## Where things stand
 
 The architecture is largely portable already:
@@ -38,7 +47,7 @@ for Linux**. Four hard blockers (three fail `cargo check`, one fails the
 link), a handful of compiles-but-wrong items, one big UX item (keybindings),
 then packaging/polish.
 
-### What `cargo check --all-targets` says today
+### What `cargo check --all-targets` said on 2026-09-13
 
 Ten errors, all Darwin process APIs plus the AppKit link, in exactly three
 files:
@@ -46,15 +55,15 @@ files:
 | file | what | plan item |
 |---|---|---|
 | `src/terminal/mod.rs:48` | `#[link(kind = "framework")]` AppKit / `NSBeep` | 1.1 |
-| `src/terminal/session.rs:188-192` | `proc_pidinfo(PROC_PIDVNODEPATHINFO)` | 1.2 |
-| `src/terminal/process.rs:59-78` | `proc_pidinfo(PROC_PIDTBSDINFO)` + `sysctl(KERN_PROCARGS2)` | 1.3 |
+| `src/terminal/session.rs:204-208` | `proc_pidinfo(PROC_PIDVNODEPATHINFO)` | 1.2 |
+| `src/terminal/process.rs:69-117` | `proc_pidinfo(PROC_PIDTBSDINFO)` + `sysctl(KERN_PROCARGS2)` | 1.3 |
 
 Not in that list, but fatal at link time: `src/notifications.rs` (1.4).
 
 ### What can be done over SSH vs. what needs the graphical session
 
 - **SSH is enough for:** all of Phase 1, most of Phase 2 (2.1–2.4, 2.6, 2.7),
-  the keymap table split in Phase 3, packaging scripts in Phase 5, and
+  2.8, the keymap table split in Phase 3, packaging scripts in Phase 5, and
   `cargo build --all-targets` + `cargo test` to prove it. Tests spawn real
   PTYs but no window.
 - **Graphical session needed for:** the testing checklist, the keymap
@@ -98,7 +107,7 @@ cached.
 unsafe extern "C" { fn NSBeep(); }
 ```
 
-Gate the `BellMode::Sound` arm (line ~729) the same way; on Linux fall
+Gate the `BellMode::Sound` arm (line ~771) the same way; on Linux fall
 through to the visual flash (already implemented) or no-op. (A "correct"
 Linux beep would be XDG sound themes / ALSA — not worth it for v1.)
 
@@ -182,31 +191,34 @@ back.
 
 The whole install path is DMG-shaped (`hdiutil`, bundle swap, `open`).
 - Gate `install_and_restart`, `download`, and `dmg_url` to macOS.
+- `dmg_url` now prefers the `-update.dmg` asset and `ReleaseInfo` carries a
+  `dmg_url` field; on Linux that field becomes the release's `html_url`.
 - Linux v1: `fetch_latest` looks for a `.tar.gz` asset (Phase 5 naming); the
   top-right pill becomes "v X ready — open releases" and calls
   `cx.open_url(<release html_url>)`. Real self-update can come later.
-- `Command::new("open")` in the not-installed fallback (line ~114) is
+- `Command::new("open")` in the not-installed fallback (line ~153) is
   macOS-only; gate it with the rest.
 - **`installed_bundle()` is a gate in five places**, not just the updater:
-  `notifications.rs:80,87` (delivery path), `app.rs:583` (auto update
-  check), `app.rs:690` (restart-after-update). On Linux define it as
+  `notifications.rs:80,87` (delivery path), `app.rs:675` (auto update
+  check), `app.rs:800` (restart-after-update). On Linux define it as
   "release build whose exe is not under a `target/` directory" and return
   the exe's directory — or add a sibling `fn is_installed() -> bool` and
   switch the four non-updater callers to it. The latter is cleaner.
 
-### 2.2 Trash — `src/tree/mod.rs:845-862`
+### 2.2 Trash — `src/tree/mod.rs::delete_entry` (~931)
 
 `~/.Trash` is macOS. Linux is the XDG trash spec
 (`~/.local/share/Trash/files/` + `info/*.trashinfo`). **Decision: adopt the
 `trash` crate** (one call, both platforms), keeping the `remove_dir_all`
 fallback. It is not in the local registry yet; `cargo add trash` pulls it.
 
-### 2.3 Reveal in file manager — `src/tree/mod.rs:1009` (new)
+### 2.3 Reveal in file manager — `src/tree/mod.rs:1119`
 
 `reveal_in_finder` spawns `/usr/bin/open -R <path>`. GPUI already has a
 portable `App::reveal_path(&Path)` (Finder on macOS, the
 `org.freedesktop.FileManager1` D-Bus interface on Linux). Replace the hand-
-rolled spawn with `cx.reveal_path(path)` and delete the fn. Rename the action
+rolled spawn with `cx.reveal_path(path)` at both call sites (~368, ~1280)
+and delete the fn. Rename the action
 id's display text from "Reveal in Finder" to "Reveal in file manager" (or
 per-platform text) — the `tree::reveal_in_finder` id can stay.
 
@@ -223,7 +235,7 @@ per-platform text) — the `tree::reveal_in_finder` id can stay.
 - ✂ `cx.open_url` — verified: GPUI's Linux platform routes through
   `open_uri_internal`, which uses the XDG portal / `xdg-open`. Nothing to do.
 
-### 2.5 Window options — `src/app.rs::open_oxide_window` (~line 4300)
+### 2.5 Window options — `src/app.rs` window open (~line 5150)
 
 - `traffic_light_position` is macOS-only (harmless elsewhere, but gate for
   clarity).
@@ -233,8 +245,8 @@ per-platform text) — the `tree::reveal_in_finder` id can stay.
 - `titlebar = "hidden"`: under Hyprland there are no server decorations
   anyway — every window is borderless and tiled. On Linux: no custom top
   padding. **The 30px inset and the `titlebar-strip` band in `Oxide::render`
-  (`app.rs` ~4399-4430, `hidden_titlebar`) must be macOS-only**; also the
-  `.h(px(30.0))` at ~3456. Simplest: `let hidden_titlebar = cfg!(target_os =
+  (`app.rs` ~5244-5275, `hidden_titlebar`) must be macOS-only**; also the
+  `.h(px(30.0))` at ~4237. Simplest: `let hidden_titlebar = cfg!(target_os =
   "macos") && …`.
 - `WindowBackgroundAppearance::Blurred`: GPUI's Wayland backend binds the
   KDE blur protocol (`org_kde_kwin_blur_manager`) and applies it in
@@ -245,7 +257,7 @@ per-platform text) — the `tree::reveal_in_finder` id can stay.
   Hyprland decides geometry. Make `load_window_bounds` return `None` on Linux
   (saving is harmless).
 
-### 2.6 Shift-at-launch escape hatch — `src/app.rs:572` (needs graphical session)
+### 2.6 Shift-at-launch escape hatch — `src/app.rs:648` (needs graphical session)
 
 Holding shift while Oxide launches skips workspace startup commands via
 `window.modifiers().shift`. Verified in GPUI source: on Wayland,
@@ -271,7 +283,7 @@ shift for Linux.
   weird under a tiling WM. **Decision: on Linux, quit when the last window
   closes.** Implement with an `on_window_closed` handler behind
   `cfg!(target_os = "linux")` that calls `cx.quit()` when `cx.windows()` is
-  empty. The app-level `NewWindow` fallback (main.rs ~185) becomes
+  empty. The app-level `NewWindow` fallback (main.rs ~191) becomes
   unreachable on Linux but is harmless.
 - `cx.set_menus` / global menu bar: no-op on Linux. Fine — every menu action
   has a keybinding or UI affordance. `cx.hide()` / `hide_other_apps` are
@@ -280,6 +292,24 @@ shift for Linux.
   table (Phase 3). The actions can stay registered.
 - `git.rs::git_usable`'s xcode-select probe is already behind
   `cfg!(target_os = "macos")`. ✂ nothing to do.
+
+### 2.8 cmd-click → ctrl-click (new 2026-09-20)
+
+Mouse handlers test `modifiers.platform` directly, outside the keymap:
+open URL/path on click (`terminal/mod.rs` ~2102), hover underline (~2157,
+~2388), file-finder "insert path" click (`app.rs` ~3244), history confirm-alt
+click (~3552). On Hyprland **Super+click is the compositor's window-move**, so
+these never fire. Add one helper —
+
+```rust
+fn open_modifier(m: &gpui::Modifiers) -> bool {
+    if cfg!(target_os = "macos") { m.platform } else { m.control }
+}
+```
+
+— and use it at those five sites. ctrl-click matches GNOME Terminal and VS Code's terminal.
+The other `m.platform` checks (`keys.rs`, `resolve.rs`, the `plain` tests)
+are "is this a shortcut?" guards and are fine as-is: Super never arrives.
 
 ## Phase 3 — keybindings (the big UX decision)
 
@@ -335,8 +365,17 @@ ctrl-shift (acceptable, standard).
 Also confirm `key_char` is populated (it should be — then the US-layout
 `shifted()` fallback in `keys.rs` rarely triggers).
 
-Menu-item display strings (`menus()` in `main.rs`), the README key tables,
-and `docs/` need per-platform text later; don't block the port on docs.
+**`pretty_keys` (`keymap/resolve.rs:244`) renders mac glyphs** (⌘⌥⇧⌃) in the
+palette, overlay footers and file-finder hints. On Linux emit `Ctrl+Shift+P`
+style instead. Two tests assert the mac form and need gating:
+`pretty_keys_uses_mac_glyphs` (resolve.rs ~450) and the `⌘Q` assertion in
+`palette.rs` ~362.
+
+Menu-item display strings (`menus()` in `main.rs`), the README key tables
+(and its "macOS only" line, ~327), and the website need per-platform text
+later; don't block the port on docs. The site is now a separate repo
+(`~/Developer/oxide-app/oxide-site`): `docs/keybindings/`, `docs/install/`,
+`docs/troubleshooting/` and the landing page.
 
 ## Phase 4 — Linux-specific polish (after it runs)
 
@@ -374,8 +413,14 @@ Order of usefulness for an Arch/Omarchy user:
    host shell; Flatpak fights that.
 
 `scripts/`: add `linux-package.sh` (tarball + .desktop) as the analogue of
-`bundle.sh`; `dmg.sh` stays macOS-only. Release flow gains one artifact:
-`gh release create vX target/Oxide-X.dmg target/oxide-X-linux-x86_64.tar.gz`.
+`bundle.sh`; `dmg.sh` stays macOS-only.
+
+**The release is two-machine.** `release.sh` runs on the Mac (two DMGs, cask
+bump, site changelog) and GPUI can't be cross-compiled, so the tarball is
+built on the Linux box and attached afterwards:
+`gh release upload vX target/oxide-X-linux-x86_64.tar.gz`. Worth a
+`scripts/release-linux.sh` and a `RELEASING.md` section. The extra asset
+doesn't disturb the mac updater — `dmg_url` only matches `.dmg` names.
 `update.rs::fetch_latest` on Linux looks for that `-linux-x86_64.tar.gz`
 name (2.1).
 
@@ -404,6 +449,11 @@ GitHub Actions workflow, two jobs:
    Also change its `cargo check` to `cargo build --all-targets` so the
    1.4 link failure is what CI actually exercises — `cargo test` already
    links, so this is belt-and-braces, but it makes the job's name honest.
+   Fix the job's comment too (it still says "two cfg-gate compile
+   blockers"). The macOS job now installs fish + nushell for the cross-shell
+   tests; add `fish` to the apt line so Linux covers a non-POSIX shell, and
+   add `/usr/bin/fish`, `/usr/bin/nu` to `CANDIDATES` (`app.rs` ~5608) —
+   missing shells are skipped, so this is coverage, not a blocker.
 
 Cross-compiling GPUI from macOS is not practical (needs a Linux sysroot);
 CI and the Omarchy box are the two real build environments.
@@ -429,6 +479,10 @@ CI and the Omarchy box are the two real build environments.
 - [ ] `~/.cache/oxide/workspaces.json` is 0600 after a save (`stat -c %a`)
 - [ ] clipboard copy/paste both directions; then primary selection (Phase 4)
 - [ ] a long command finishes unfocused → `notify-send` notification appears
+- [ ] ctrl-click opens a URL / path, ctrl-hover underlines it; Super+click
+      still moves the window (2.8)
+- [ ] palette and overlay footers show `Ctrl+Shift+…`, not ⌘ glyphs
+- [ ] markdown preview renders with highlighted code blocks (syntect/onig)
 - [ ] reveal in file manager opens the containing folder (2.3)
 - [ ] `window.opacity < 1` + `blur = true`: does Hyprland blur it? (2.5)
 - [ ] config live-reload (inotify backend of `notify`)
@@ -451,13 +505,16 @@ CI and the Omarchy box are the two real build environments.
    documented as the universal out.
 7. **Notifications on Linux v1**: `notify-send`, no click routing.
 8. **Blur**: keep the flag, test under Hyprland, document only if it fails.
+9. **cmd-click on Linux** (added 2026-09-20): ctrl-click.
+10. **Linux release artifact**: built on the Linux box, `gh release upload`
+    after the mac release.
 
 ## Effort sketch
 
 | Phase | Estimate | Needs |
 |---|---|---|
 | 1 (build blockers, incl. notifications) | half a day | SSH |
-| 2 (gating) | 2–3 hours, plus 2.6 on hardware | mostly SSH |
+| 2 (gating, incl. 2.8) | 2–3 hours, plus 2.6 on hardware | mostly SSH |
 | 3 (keymap) | half a day incl. taste decisions | keyboard |
 | 5 (packaging) | half a day | SSH |
 | 6 (CI flip) | 15 minutes, in the Phase 1 PR | — |
