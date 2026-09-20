@@ -11,6 +11,8 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-09-20
+
 ### Added
 
 - `cmd-alt-1` … `cmd-alt-9` jump straight to a workspace, in the order the
