@@ -99,6 +99,17 @@ pub static DEFAULTS: &[DefaultBinding] = &[
     b("cmd-7", "tab::select_7", Root),
     b("cmd-8", "tab::select_8", Root),
     b("cmd-9", "tab::select_9", Root),
+    // cmd-shift-<n> is out: macOS keeps cmd-shift-3/4/5 for screenshots, and
+    // the rest arrive as layout-dependent punctuation (cmd-!, cmd-@, …).
+    b("cmd-alt-1", "workspace::select_1", Root),
+    b("cmd-alt-2", "workspace::select_2", Root),
+    b("cmd-alt-3", "workspace::select_3", Root),
+    b("cmd-alt-4", "workspace::select_4", Root),
+    b("cmd-alt-5", "workspace::select_5", Root),
+    b("cmd-alt-6", "workspace::select_6", Root),
+    b("cmd-alt-7", "workspace::select_7", Root),
+    b("cmd-alt-8", "workspace::select_8", Root),
+    b("cmd-alt-9", "workspace::select_9", Root),
     // Workspaces panel (drawer, below the file tree).
     b("ctrl-w p", "drawer::focus_workspaces", Root),
     b("cmd-w", "window::close", Root),

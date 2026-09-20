@@ -14,6 +14,7 @@ pub struct Config {
     pub colors: ColorsConfig,
     pub prompt: PromptConfig,
     pub status_bar: StatusBarConfig,
+    pub tabs: TabsConfig,
     pub bell: BellMode,
     pub copy_on_select: bool,
     pub keymap: KeymapConfig,
@@ -376,6 +377,9 @@ impl TryFrom<BTreeMap<String, toml::Value>> for KeymapConfig {
 pub struct StatusBarConfig {
     pub enabled: bool,
     pub position: StatusBarPosition,
+    /// What the current-tab chip shows. It matters most with the tab bar
+    /// hidden, when the chip is the only thing saying which tab this is.
+    pub tab: StatusBarTab,
 }
 
 impl Default for StatusBarConfig {
@@ -383,6 +387,32 @@ impl Default for StatusBarConfig {
         Self {
             enabled: true,
             position: StatusBarPosition::Bottom,
+            tab: StatusBarTab::Number,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum StatusBarTab {
+    Number,
+    Name,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct TabsConfig {
+    /// Show the tab bar. `app::toggle_tab_bar` flips it for the session.
+    pub enabled: bool,
+    /// A small position number at the left of each tab — the `n` in `cmd-n`.
+    pub show_numbers: bool,
+}
+
+impl Default for TabsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            show_numbers: true,
         }
     }
 }
@@ -584,6 +614,9 @@ pub struct TreeConfig {
     /// Colour rows by git state (modified, added, untracked, deleted,
     /// conflicted), rolled up onto collapsed directories.
     pub git_status: bool,
+    /// Whether a new window starts with the drawer showing. Startup only:
+    /// `cmd-b` still toggles it, and a config reload leaves it alone.
+    pub open_on_startup: bool,
 }
 
 impl Default for TreeConfig {
@@ -596,6 +629,7 @@ impl Default for TreeConfig {
             icons: true,
             follow_cwd: true,
             git_status: true,
+            open_on_startup: true,
         }
     }
 }
@@ -949,5 +983,25 @@ mod duration_tests {
         assert!(!c.commands.emit_cmdline);
         assert_eq!(c.commands.max_entries, 50);
         assert!(c.commands.track);
+    }
+}
+
+#[cfg(test)]
+mod tabs_config_tests {
+    use super::*;
+
+    #[test]
+    fn tab_options_parse_and_default_to_visible_numbers() {
+        let d = Config::default();
+        assert!(d.tabs.enabled && d.tabs.show_numbers);
+        assert_eq!(d.status_bar.tab, StatusBarTab::Number);
+
+        let c: Config = toml::from_str(
+            "[tabs]\nenabled = false\nshow_numbers = false\n[status_bar]\ntab = \"name\"\n",
+        )
+        .unwrap();
+        assert!(!c.tabs.enabled && !c.tabs.show_numbers);
+        assert_eq!(c.status_bar.tab, StatusBarTab::Name);
+        assert!(toml::from_str::<Config>("[status_bar]\ntab = \"title\"\n").is_err());
     }
 }

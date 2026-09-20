@@ -320,6 +320,9 @@ mod tests {
         assert_eq!(top("pal")[0], "app::palette");
         assert_eq!(top("theme")[0], "app::select_theme");
         assert_eq!(top("eq")[0], "pane::equalize");
+        // Word order the panel titles ("Workspaces: Rename Selected") can't match.
+        assert_eq!(top("rename workspace")[0], "workspace::rename");
+        assert_eq!(top("pin workspace")[0], "workspace::toggle_persist");
     }
 
     #[test]

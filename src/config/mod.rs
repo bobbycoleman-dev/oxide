@@ -191,6 +191,7 @@ indent            = 16
 icons             = true      # nerd-font icons in the drawer
 follow_cwd        = true      # re-root the tree when the shell cd's
 git_status        = true      # colour rows by git state (modified, added, untracked…)
+open_on_startup   = true      # false starts with the drawer hidden (cmd-b shows it)
 
 # [editor]
 # open_at_line = "myeditor --line {line} {path}"   # for editors Oxide doesn't know
@@ -201,6 +202,11 @@ git_status        = true      # colour rows by git state (modified, added, untra
 [status_bar]
 enabled  = true               # native bar showing cwd + git branch/dirty
 position = "bottom"           # top | bottom
+tab      = "number"           # number (2/5) | name — the current-tab chip beside the workspace
+
+[tabs]
+enabled      = true           # show the tab bar (View → Toggle Tab Bar flips it for the session)
+show_numbers = true           # small position number on each tab — the n in cmd-n
 
 [notifications]
 enabled             = true    # notify when a command finishes in a pane you aren't watching

@@ -23,6 +23,7 @@ oxide_actions! {
     ShowChangelog   => "app::changelog",         "What's New",              "Application", ["changelog", "release notes"], Root;
     InstallUpdate   => "app::install_update",    "Install Downloaded Update", "Application", [], Root;
     ToggleStatusBar => "app::toggle_status_bar", "Toggle Status Bar",       "Application", [], Root;
+    ToggleTabBar    => "app::toggle_tab_bar",    "Toggle Tab Bar",          "Application", ["hide tabs", "show tabs"], Root;
 
     // --- Window ---
     NewWindow        => "window::new",               "New Window",         "Window", [], Root;
@@ -100,13 +101,22 @@ oxide_actions! {
 
     // --- Workspaces ---
     NewWorkspace    => "workspace::new",            "New Workspace",              "Workspace", [], Root;
+    SelectWorkspace1 => "workspace::select_1", "Go to Workspace 1", "Workspace", ["switch"], Root;
+    SelectWorkspace2 => "workspace::select_2", "Go to Workspace 2", "Workspace", ["switch"], Root;
+    SelectWorkspace3 => "workspace::select_3", "Go to Workspace 3", "Workspace", ["switch"], Root;
+    SelectWorkspace4 => "workspace::select_4", "Go to Workspace 4", "Workspace", ["switch"], Root;
+    SelectWorkspace5 => "workspace::select_5", "Go to Workspace 5", "Workspace", ["switch"], Root;
+    SelectWorkspace6 => "workspace::select_6", "Go to Workspace 6", "Workspace", ["switch"], Root;
+    SelectWorkspace7 => "workspace::select_7", "Go to Workspace 7", "Workspace", ["switch"], Root;
+    SelectWorkspace8 => "workspace::select_8", "Go to Workspace 8", "Workspace", ["switch"], Root;
+    SelectWorkspace9 => "workspace::select_9", "Go to Workspace 9", "Workspace", ["switch"], Root;
     WsDown          => "workspace::down",           "Workspaces: Move Down",      "Workspace", [], Workspaces;
     WsUp            => "workspace::up",             "Workspaces: Move Up",        "Workspace", [], Workspaces;
     WsOpen          => "workspace::open",           "Workspaces: Switch to Selected", "Workspace", [], Workspaces;
     WsAdd           => "workspace::add",            "Workspaces: Add Named",      "Workspace", ["create"], Workspaces;
     WsDelete        => "workspace::delete",         "Workspaces: Delete Selected", "Workspace", ["remove"], Workspaces;
-    WsRename        => "workspace::rename",         "Workspaces: Rename Selected", "Workspace", [], Workspaces;
-    WsTogglePersist => "workspace::toggle_persist", "Workspaces: Pin / Unpin",    "Workspace", ["persist", "save"], Workspaces;
+    WsRename        => "workspace::rename",         "Workspaces: Rename Selected", "Workspace", ["rename workspace"], Workspaces;
+    WsTogglePersist => "workspace::toggle_persist", "Workspaces: Pin / Unpin",    "Workspace", ["pin workspace", "unpin workspace", "persist", "save"], Workspaces;
     WsEditStartup   => "workspace::edit_startup_commands", "Workspaces: Edit Startup Commands…", "Workspace", ["run on restore", "autorun"], Workspaces;
     WsEscape        => "workspace::escape",         "Workspaces: Dismiss",        "Workspace", [], Workspaces;
 

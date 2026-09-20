@@ -104,7 +104,8 @@ The short tour. Every feature has a page in the [docs](https://oxideterminal.com
 - **Command history** — `cmd-r` searches every command run in any pane, with its directory
   and exit status; `⏎` inserts it at the prompt, `⌘⏎` runs it. `cmd-shift-c` copies the last
   command's output.
-- **Status bar** — cwd plus git branch, dirty state, and ahead/behind, rendered natively.
+- **Status bar** — workspace, current tab (number or name, `status_bar.tab`), cwd plus git
+  branch, dirty state, and ahead/behind, rendered natively.
 - **Configurable prompt** *(optional)* — compile a powerline prompt from TOML segments
   (`cwd`, `git`, `exit_status`, `time`, `duration`, …), injected without touching your
   dotfiles (ZDOTDIR shim for zsh, `--init-file` for bash), with OSC 133 semantic prompt
@@ -132,9 +133,12 @@ The short tour. Every feature has a page in the [docs](https://oxideterminal.com
   tiling window managers). `cmd-t` opens one in the current directory or `~/`
   (`window.new_tab_directory`); `cmd-1..9` jump straight to a tab. Double-click or
   `ctrl-w ,` to rename one (names survive with pinned workspaces), drag tabs to reorder,
-  `cmd-shift-t` reopens the last closed one.
+  `cmd-shift-t` reopens the last closed one. Each tab carries its number
+  (`tabs.show_numbers`), and the whole bar can be hidden — View → Toggle Tab Bar, or
+  `tabs.enabled = false` — with the status bar still showing which tab you're on.
 - **Workspaces** — named sets of tabs and splits, tmux-session style, managed from the
-  drawer below the file tree (`a` add, `r` rename, `d` delete, `p` pin). Temporary by
+  drawer below the file tree (`a` add, `r` rename, `d` delete, `p` pin); `cmd-alt-1..9`
+  jump straight to one. Temporary by
   default; pinned ones survive restarts, restoring layout, tabs, splits, and each
   pane's directory with fresh shells.
 - **Startup commands** — the tmuxinator move: give a pane a command (`ctrl-w r`,
@@ -173,6 +177,7 @@ action id, and a `[keymap]` table in your config rebinds any of them.
 | `ctrl-w ,` / `cmd-shift-t` | rename tab (double-click works too) / reopen the last closed tab |
 | `ctrl-w r` | set the pane's startup command (run when its pinned workspace is restored) |
 | `cmd-1..9` | jump to tab |
+| `cmd-alt-1..9` | jump to workspace |
 | `⌃tab` `⇧⌘]` / `⌃⇧tab` `⇧⌘[` | next / previous tab |
 | `ctrl-w p` | focus the workspaces panel (`tab` toggles tree ↔ workspaces) |
 | `ctrl-w v` / `ctrl-w s` | split right / down (`⇧V` / `⇧S` for left / up) |
@@ -264,10 +269,16 @@ accent = "#f38ba8"
 
 [tree]
 follow_cwd = true             # tree re-roots when the shell cd's
+open_on_startup = true        # false starts with the drawer hidden (cmd-b shows it)
 
 [status_bar]
 enabled  = true
 position = "bottom"
+tab      = "number"           # number | name — the current-tab chip
+
+[tabs]
+enabled      = true           # false hides the tab bar
+show_numbers = true           # small position number on each tab
 
 [prompt]
 enabled = false               # keep your own prompt (starship, p10k, ...)

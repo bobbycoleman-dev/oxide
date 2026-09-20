@@ -11,6 +11,33 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+### Added
+
+- `cmd-alt-1` … `cmd-alt-9` jump straight to a workspace, in the order the
+  workspaces panel lists them — the workspace twin of `cmd-1..9` for tabs.
+  Rebind them through `workspace::select_1` … `workspace::select_9`.
+- The tab bar can be hidden, like the status bar: **View → Toggle Tab Bar** (or
+  `app::toggle_tab_bar` from the palette or a keybinding) flips it for the
+  current window, and `tabs.enabled = false` keeps it off. `cmd-1..9`, `cmd-t`
+  and the rest keep working without it.
+- Tabs show a small position number at their left edge — the `n` in `cmd-n`.
+  `tabs.show_numbers = false` turns them off.
+- The status bar shows which tab you're on, in a chip beside the workspace
+  name, so you keep your bearings with the tab bar hidden. It shows the tab's
+  position by default — `2/5` for the second of five tabs;
+  `status_bar.tab = "name"` shows its name instead.
+- `tree.open_on_startup = false` starts Oxide with the drawer hidden, for when
+  you'd rather have the full width and call the tree up with `cmd-b`. It
+  defaults to `true`, so nothing changes unless you set it.
+
+### Changed
+
+- The command palette offers the workspace actions — rename, pin, delete,
+  edit startup commands — even with the drawer hidden, and typing "rename
+  workspace" or "pin workspace" finds them. Running one opens the drawer on
+  the current workspace. Before, they only appeared while the drawer was
+  showing, under titles those searches didn't match.
+
 ## [0.5.6] - 2026-09-19
 
 ### Changed

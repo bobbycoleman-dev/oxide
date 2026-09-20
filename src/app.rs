@@ -12,7 +12,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Subscription, Window, div, px,
 };
 
-use crate::config::schema::{ColorsConfig, StatusBarPosition, TitlebarMode};
+use crate::config::schema::{ColorsConfig, StatusBarPosition, StatusBarTab, TitlebarMode};
 use crate::config::theme::parse_hex;
 use crate::config::{self, Config, Theme};
 use crate::git::{GitStatus, read_git_status};
@@ -153,6 +153,7 @@ pub struct Oxide {
     /// Files opened through the finder or cmd-click, newest first.
     recent_files: VecDeque<PathBuf>,
     status_bar_override: Option<bool>,
+    tab_bar_override: Option<bool>,
     update: UpdateState,
     /// Recently closed tabs, newest first, for cmd-shift-t.
     closed_tabs: VecDeque<SavedTab>,
@@ -600,6 +601,7 @@ impl Oxide {
         let resolved = Rc::new(keymap::resolve(&config.keymap));
         let config_error = config_error.or_else(|| resolved.error_banner());
 
+        let drawer_visible = config.tree.open_on_startup;
         let mut this = Self {
             config,
             theme,
@@ -614,7 +616,7 @@ impl Oxide {
             panes: HashMap::new(),
             next_pane_id: 0,
             pane_subscriptions: HashMap::new(),
-            drawer_visible: true,
+            drawer_visible,
             toasts: Vec::new(),
             next_toast_id: 0,
             git_status: GitStatus::default(),
@@ -632,6 +634,7 @@ impl Oxide {
             finder_indexing: false,
             recent_files: VecDeque::new(),
             status_bar_override: None,
+            tab_bar_override: None,
             update: UpdateState::Idle,
             closed_tabs: VecDeque::new(),
             dark_appearance,
@@ -2849,16 +2852,18 @@ impl Oxide {
         cx.notify();
     }
 
-    /// Actions the palette offers right now. Tree and workspace actions
-    /// need the drawer on screen to have anything to act on; overlay
-    /// navigation is meaningless from inside an overlay.
+    /// Actions the palette offers right now. Tree actions need the drawer
+    /// on screen to have anything to act on. Workspace actions don't: running
+    /// one focuses the panel, which opens the drawer with the active
+    /// workspace selected. Overlay navigation is meaningless from inside an
+    /// overlay.
     fn palette_candidates(&self) -> impl Iterator<Item = &'static ActionMeta> {
         let drawer = self.drawer_visible;
         registry::all().iter().filter(move |m| {
             m.id != "app::palette"
                 && match m.context {
-                    ActionContext::Root => true,
-                    ActionContext::FileTree | ActionContext::Workspaces => drawer,
+                    ActionContext::Root | ActionContext::Workspaces => true,
+                    ActionContext::FileTree => drawer,
                     ActionContext::Overlay => false,
                 }
         })
@@ -4308,6 +4313,15 @@ impl Oxide {
                     .on_drop(cx.listener(move |this, drag: &TabDrag, _window, cx| {
                         this.move_tab(drag.ix, ix, cx);
                     }))
+                    .when(self.config.tabs.show_numbers, |d| {
+                        d.child(
+                            div()
+                                .flex_none()
+                                .text_size(px(10.0))
+                                .text_color(dim)
+                                .child((ix + 1).to_string()),
+                        )
+                    })
                     .when_some(indicator, |d, color| {
                         d.child(
                             div()
@@ -4910,6 +4924,28 @@ impl Oxide {
                     .text_color(accent)
                     .child(self.ws().name.clone())
             })
+            .child({
+                // Which tab, for when the tab bar is hidden. Pulled left to
+                // sit against the workspace chip as one "where am I" unit.
+                let color = theme.ansi[6];
+                let mut chip_bg = color;
+                chip_bg.a = 0.16;
+                let label = match self.config.status_bar.tab {
+                    StatusBarTab::Number => {
+                        format!("{}/{}", self.ws().active_tab + 1, self.ws().tabs.len())
+                    }
+                    StatusBarTab::Name => self.tab_title(self.tab(), cx),
+                };
+                div()
+                    .flex_none()
+                    .ml(px(-6.0))
+                    .px_2()
+                    .py_0p5()
+                    .rounded_sm()
+                    .bg(chip_bg)
+                    .text_color(color)
+                    .child(label)
+            })
             .child(
                 div()
                     .flex()
@@ -5237,6 +5273,7 @@ impl Render for Oxide {
         let status_bar = self
             .status_bar_override
             .unwrap_or(self.config.status_bar.enabled);
+        let tab_bar = self.tab_bar_override.unwrap_or(self.config.tabs.enabled);
         let bar_on_top = self.config.status_bar.position == StatusBarPosition::Top;
 
         let tree_focused = self.tree_focus(cx).is_focused(window);
@@ -5353,6 +5390,33 @@ impl Render for Oxide {
             .on_action(
                 cx.listener(|this, _: &SelectTab9, window, cx| this.select_tab(8, window, cx)),
             )
+            .on_action(cx.listener(|this, _: &SelectWorkspace1, window, cx| {
+                this.select_workspace(0, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SelectWorkspace2, window, cx| {
+                this.select_workspace(1, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SelectWorkspace3, window, cx| {
+                this.select_workspace(2, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SelectWorkspace4, window, cx| {
+                this.select_workspace(3, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SelectWorkspace5, window, cx| {
+                this.select_workspace(4, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SelectWorkspace6, window, cx| {
+                this.select_workspace(5, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SelectWorkspace7, window, cx| {
+                this.select_workspace(6, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SelectWorkspace8, window, cx| {
+                this.select_workspace(7, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SelectWorkspace9, window, cx| {
+                this.select_workspace(8, window, cx);
+            }))
             .on_action(cx.listener(|this, _: &SplitRight, window, cx| {
                 this.split_active(Direction::Right, window, cx);
             }))
@@ -5399,6 +5463,11 @@ impl Render for Oxide {
                     .status_bar_override
                     .unwrap_or(this.config.status_bar.enabled);
                 this.status_bar_override = Some(!current);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ToggleTabBar, _w, cx| {
+                let current = this.tab_bar_override.unwrap_or(this.config.tabs.enabled);
+                this.tab_bar_override = Some(!current);
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &OpenSettings, window, cx| {
@@ -5521,7 +5590,7 @@ impl Render for Oxide {
                             .overflow_hidden()
                             .flex()
                             .flex_col()
-                            .child(self.render_tab_bar(cx))
+                            .when(tab_bar, |d| d.child(self.render_tab_bar(cx)))
                             .child({
                                 // Zoomed: just that leaf, at full size. The
                                 // hidden panes aren't laid out, so their

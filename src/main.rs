@@ -86,6 +86,7 @@ pub(crate) fn menus() -> Vec<Menu> {
                 MenuItem::action("Toggle File Tree", ToggleDrawer),
                 MenuItem::action("Focus File Tree", FocusTree),
                 MenuItem::action("Toggle Status Bar", ToggleStatusBar),
+                MenuItem::action("Toggle Tab Bar", ToggleTabBar),
                 MenuItem::separator(),
                 MenuItem::action("Increase Font Size", FontIncrease),
                 MenuItem::action("Decrease Font Size", FontDecrease),
