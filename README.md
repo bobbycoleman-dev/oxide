@@ -2,7 +2,10 @@
   <img src="assets/icon_1024.png" width="176" alt="Oxide icon — a corroded iron terminal prompt" />
 </p>
 
-<h1 align="center">Oxide</h1>
+<h1 align="center">Oxide Terminal</h1>
+<p align="center">
+  <a href="https://oxideterminal.com"> www.oxideterminal.com</a>
+</p>
 
 <p align="center">
   A native macOS terminal emulator, written entirely in Rust.<br/>
