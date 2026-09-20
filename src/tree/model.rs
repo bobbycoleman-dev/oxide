@@ -10,6 +10,8 @@ pub struct Node {
     /// None = not yet scanned.
     pub children: Option<Vec<PathBuf>>,
     pub is_hidden: bool,
+    /// Matched by a gitignore rule (or inside an ignored directory); shown dimmed.
+    pub is_ignored: bool,
     /// Entries hidden behind the huge-directory cap.
     pub truncated: usize,
 }
@@ -112,6 +114,7 @@ mod tests {
             expanded,
             children,
             is_hidden: name.starts_with('.'),
+            is_ignored: false,
             truncated: 0,
         }
     }

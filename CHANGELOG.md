@@ -28,6 +28,9 @@ write for users: what changed and why it matters, not which files moved.
 - Long file names in the tree wrapped onto a second line and overlapped the row
   below. They now stay on one line and end in an ellipsis, with the full name
   on hover. Long workspace names get the same treatment.
+- Gitignored files vanished from the file tree entirely, with no way to bring
+  them back. They now stay in the tree, dimmed. Set `respect_gitignore = false`
+  under `[tree]` to show them like any other file.
 
 ## [0.5.5] - 2026-09-18
 

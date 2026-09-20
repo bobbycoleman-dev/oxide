@@ -386,6 +386,7 @@ impl FileTree {
             expanded: true,
             children: None,
             is_hidden: false,
+            is_ignored: false,
             truncated: 0,
         });
         let node = self.nodes.get_mut(&root).unwrap();
@@ -434,12 +435,17 @@ impl FileTree {
                 }
             }
         }
-        for (path, node) in result.entries {
+        // A walk rooted inside an ignored directory doesn't test that root
+        // against its parents' rules, so everything under it inherits the flag.
+        let dir_ignored = self.nodes.get(&dir).is_some_and(|n| n.is_ignored);
+        for (path, mut node) in result.entries {
+            node.is_ignored |= dir_ignored;
             match self.nodes.get_mut(&path) {
                 Some(existing) => {
                     existing.name = node.name;
                     existing.is_dir = node.is_dir;
                     existing.is_hidden = node.is_hidden;
+                    existing.is_ignored = node.is_ignored;
                 }
                 None => {
                     self.nodes.insert(path, node);
@@ -1019,8 +1025,10 @@ impl FileTree {
                 RowKind::Entry => blend(theme.foreground, theme.background, 0.15),
                 _ => dim,
             };
-            let icon_color = if row.is_dir { theme.ansi[4] } else { dim };
+            let ignored = self.nodes.get(&row.path).is_some_and(|n| n.is_ignored);
+            let icon_color = if row.is_dir && !ignored { theme.ansi[4] } else { dim };
             let text_color = match (&row.kind, self.git_color(&row.path)) {
+                _ if ignored => dim,
                 (RowKind::Entry, Some(color)) => color,
                 _ => text_color,
             };

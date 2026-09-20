@@ -186,7 +186,7 @@ integration    = true         # OSC 133 markers + silent cd from the file tree.
 [tree]
 width             = 280
 show_hidden       = false
-respect_gitignore = true
+respect_gitignore = true      # dim gitignored files in the drawer
 indent            = 16
 icons             = true      # nerd-font icons in the drawer
 follow_cwd        = true      # re-root the tree when the shell cd's

@@ -30,7 +30,7 @@ with a file-tree drawer you drive like vim and a status bar that knows where you
 - **File tree drawer** — follows the focused pane, so switching splits re-roots it to
   that shell's directory. Modeless vim navigation (`j`/`k`/`gg`/`G`, nvim-tree style `h`/`l`),
   type-to-filter with `/`, and file operations: `a` add, `r` rename, `d` delete (to Trash).
-  Respects `.gitignore`, watches the filesystem, and follows the shell's `cd` automatically.
+  Dims gitignored files, watches the filesystem, and follows the shell's `cd` automatically.
 - **The tree/terminal seam** — `y` inserts the selected path at the prompt, quoted and
   relative; `cmd-click` a `path:line:col` in output to open it in `$EDITOR` at that line
   (nvim, VS Code, emacs, Sublime, Helix dialects built in); rows are coloured by git status;

@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use super::model::Node;
@@ -13,21 +14,29 @@ pub struct ScanResult {
 
 /// Blocking directory read — call on the background pool. Hidden entries are
 /// always included (minus .DS_Store) and filtered at render time, so toggling
-/// hidden files doesn't need a rescan; gitignore filtering happens here.
+/// hidden files doesn't need a rescan. Gitignored entries are kept and
+/// flagged so the tree can dim them rather than drop them.
 pub fn read_dir_sorted(dir: &Path, respect_gitignore: bool) -> ScanResult {
     let mut entries: Vec<(PathBuf, Node)> = Vec::new();
 
-    let walk = ignore::WalkBuilder::new(dir)
-        .max_depth(Some(1))
-        .hidden(false)
-        .parents(respect_gitignore)
-        .git_ignore(respect_gitignore)
-        .git_global(respect_gitignore)
-        .git_exclude(respect_gitignore)
-        .follow_links(false)
-        .build();
+    let walk = |gitignore: bool| {
+        ignore::WalkBuilder::new(dir)
+            .max_depth(Some(1))
+            .hidden(false)
+            .parents(gitignore)
+            .git_ignore(gitignore)
+            .git_global(gitignore)
+            .git_exclude(gitignore)
+            .follow_links(false)
+            .build()
+            .flatten()
+    };
+    // The walker only reports what survives its rules, so the ignored set is
+    // whatever a filtered pass leaves out. Depth 1, so the second pass is cheap.
+    let kept: Option<HashSet<PathBuf>> =
+        respect_gitignore.then(|| walk(true).map(|e| e.into_path()).collect());
 
-    for entry in walk.flatten() {
+    for entry in walk(false) {
         let path = entry.path();
         if path == dir {
             continue;
@@ -47,6 +56,7 @@ pub fn read_dir_sorted(dir: &Path, respect_gitignore: bool) -> ScanResult {
                 expanded: false,
                 children: None,
                 is_hidden: name.starts_with('.'),
+                is_ignored: kept.as_ref().is_some_and(|k| !k.contains(path)),
                 truncated: 0,
             },
         ));
@@ -112,6 +122,29 @@ fn take_number(chars: &mut std::iter::Peekable<impl Iterator<Item = char>>) -> u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gitignored_entries_are_flagged_not_dropped() {
+        let dir = std::env::temp_dir().join(format!("oxide-scan-ignore-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // The ignore crate only honors .gitignore inside a git repo.
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::write(dir.join(".gitignore"), "/secret.sh\n").unwrap();
+        std::fs::write(dir.join("secret.sh"), "").unwrap();
+        std::fs::write(dir.join("kept.rs"), "").unwrap();
+
+        let flag = |respect: bool, name: &str| {
+            read_dir_sorted(&dir, respect)
+                .entries
+                .iter()
+                .find(|(_, n)| n.name == name)
+                .map(|(_, n)| n.is_ignored)
+        };
+        assert_eq!(flag(true, "secret.sh"), Some(true));
+        assert_eq!(flag(true, "kept.rs"), Some(false));
+        assert_eq!(flag(false, "secret.sh"), Some(false));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn natural_order() {
