@@ -4,25 +4,72 @@
 
 <h1 align="center">Oxide Terminal</h1>
 <p align="center">
-  <a href="https://oxideterminal.com"> www.oxideterminal.com</a>
-</p>
-
-<p align="center">
   A native macOS terminal emulator, written entirely in Rust.<br/>
   <em>Rust is iron oxide. It's a whole thing.</em>
 </p>
 
 <p align="center">
-  <a href="https://github.com/bobbycoleman-dev/oxide/actions/workflows/ci.yml"><img src="https://github.com/bobbycoleman-dev/oxide/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://oxideterminal.com">Website</a> ·
+  <a href="https://oxideterminal.com/docs/">Docs</a> ·
+  <a href="https://oxideterminal.com/changelog/">Changelog</a> ·
+  <a href="https://oxideterminal.com/compare/">Compare</a> ·
+  <a href="https://discord.gg/APV9FYGgeh">Discord</a>
 </p>
 
----
+<p align="center">
+  <a href="https://github.com/bobbycoleman-dev/oxide/releases/latest"><img src="https://img.shields.io/github/v/release/bobbycoleman-dev/oxide?color=e2725b" alt="Latest release" /></a>
+  <a href="https://github.com/bobbycoleman-dev/oxide/actions/workflows/ci.yml"><img src="https://github.com/bobbycoleman-dev/oxide/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/bobbycoleman-dev/oxide" alt="MIT license" /></a>
+  <a href="https://discord.gg/APV9FYGgeh"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Join the Discord" /></a>
+</p>
+
+<p align="center">
+  <img src="assets/screenshots/main.webp" alt="Oxide Terminal: the file tree drawer with its workspaces panel, tabs above a terminal running cargo build and cargo test, and a git-aware status bar" />
+</p>
 
 Oxide is a GPU-rendered terminal built on [GPUI](https://www.gpui.rs) (Zed's UI framework) and
 [`alacritty_terminal`](https://crates.io/crates/alacritty_terminal) (Alacritty's PTY + VT parser),
 with a file-tree drawer you drive like vim and a status bar that knows where your shell is.
+The things you'd normally bolt on — a file tree, tmux-style workspaces, a powerline prompt,
+a vim copy mode — are built in, and all of it is configured in one TOML file that reloads
+when you save. No account, no AI, no telemetry: the only thing Oxide asks the network is
+whether GitHub has a newer release.
+
+## Install
+
+```sh
+brew install --cask bobbycoleman-dev/tap/oxide-terminal
+```
+
+Or grab the DMG from the [latest release](https://github.com/bobbycoleman-dev/oxide/releases/latest)
+and drag Oxide to Applications. Builds are Developer ID signed and notarized, so there's no
+right-click-to-open dance, and Oxide keeps itself up to date afterwards — it checks on launch
+and every six hours, or on demand via **Oxide → Check for Updates…**
+
+- macOS 12 or later, Apple Silicon or Intel
+- No font to install — JetBrainsMono Nerd Font Mono is bundled. Set `font.family` to use your own.
+- zsh or bash for the built-in prompt and shell integration. Other shells run fine and keep
+  their own prompt.
+
+Oxide never writes to your dotfiles. Full instructions are in the
+[install docs](https://oxideterminal.com/docs/install/).
+
+## A closer look
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/screenshots/splits.webp" alt="Two split panes: Neovim editing a file on the left, a local HTTP server logging requests on the right" /><br/><sub><b>Splits</b> — a file opened from the tree in <code>$EDITOR</code>, a dev server beside it.</sub></td>
+    <td width="50%"><img src="assets/screenshots/command-palette.webp" alt="The command palette filtered to drawer actions, each listed with its key binding" /><br/><sub><b>Command palette</b> (<code>cmd-shift-p</code>) — every action, fuzzy-searchable, with its binding.</sub></td>
+  </tr>
+  <tr>
+    <td><img src="assets/screenshots/theme-picker.webp" alt="The theme picker listing presets with colour swatches, the window repainted in the selected oxide theme" /><br/><sub><b>Theme picker</b> (<code>cmd-alt-t</code>) — repaints the whole window as you move through it.</sub></td>
+    <td><img src="assets/screenshots/rename-tab.webp" alt="The rename tab prompt, with the tab bar and file tree behind it" /><br/><sub><b>Rename a tab</b> with <code>ctrl-w ,</code> or a double-click; an empty name restores the automatic title.</sub></td>
+  </tr>
+</table>
 
 ## Features
+
+The short tour. Every feature has a page in the [docs](https://oxideterminal.com/docs/).
 
 - **Real terminal** — full VT emulation via Alacritty's parser: truecolor, wide glyphs and
   combining marks, bracketed paste, mouse reporting (SGR), alternate-screen scrolling, OSC 8
@@ -103,39 +150,10 @@ with a file-tree drawer you drive like vim and a status bar that knows where you
   to clear scrollback, and optional dimming of the whole window when another app is
   frontmost.
 
-## Requirements
-
-- macOS (Apple Silicon or Intel)
-- [Rust](https://rustup.rs) (2024 edition)
-- Full Xcode with the Metal toolchain (GPUI compiles Metal shaders at build time):
-
-  ```sh
-  sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
-  xcodebuild -downloadComponent MetalToolchain   # if the build asks for it
-  ```
-- A [Nerd Font](https://www.nerdfonts.com) is *bundled* (JetBrainsMono Nerd Font Mono); install your own and set `font.family` to use it instead
-
-## Build & install
-
-```sh
-git clone git@github.com:bobbycoleman-dev/oxide.git
-cd oxide
-cargo run                     # development
-
-./scripts/bundle.sh           # release build -> target/Oxide.app (ad-hoc signed)
-cp -R target/Oxide.app /Applications/
-
-# maintainers: cut a release
-./scripts/bump.sh 0.6.0       # Cargo.toml, Cargo.lock, CHANGELOG.md; then commit
-./scripts/release.sh          # notarized DMG + GitHub release, notes from CHANGELOG.md
-
-# optional CLI shim: `oxide [dir]` from any terminal
-sudo cp scripts/oxide-cli /usr/local/bin/oxide && sudo chmod +x /usr/local/bin/oxide
-```
-
-The first build compiles GPUI and its Metal shaders — expect several minutes.
-
 ## Keys
+
+The everyday ones. The [full keymap](https://oxideterminal.com/docs/keybindings/) lists every
+action id, and a `[keymap]` table in your config rebinds any of them.
 
 | Keys | Action |
 |---|---|
@@ -155,7 +173,7 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 | `ctrl-w ,` / `cmd-shift-t` | rename tab (double-click works too) / reopen the last closed tab |
 | `ctrl-w r` | set the pane's startup command (run when its pinned workspace is restored) |
 | `cmd-1..9` | jump to tab |
-| `⌃tab` / `⇧⌘[` `⇧⌘]` | previous / next tab |
+| `⌃tab` `⇧⌘]` / `⌃⇧tab` `⇧⌘[` | next / previous tab |
 | `ctrl-w p` | focus the workspaces panel (`tab` toggles tree ↔ workspaces) |
 | `ctrl-w v` / `ctrl-w s` | split right / down (`⇧V` / `⇧S` for left / up) |
 | `cmd-d` / `cmd-shift-d` | split right / down |
@@ -169,7 +187,8 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 | `cmd-c` / `cmd-v` | copy / paste (bracketed) |
 | `cmd +` / `-` / `0` | font size |
 
-**In the tree** (bare keys are free — there's no text input to collide with):
+<details>
+<summary><b>In the tree</b> — bare keys are free; there's no text input to collide with</summary>
 
 | Keys | Action |
 |---|---|
@@ -184,7 +203,10 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 | `I` / `R` | toggle hidden / refresh |
 | `esc` | dismiss input → clear filter → back to terminal |
 
-**In copy mode** (`ctrl-w [`; keys never reach the shell):
+</details>
+
+<details>
+<summary><b>In copy mode</b> — <code>ctrl-w [</code>; keys never reach the shell</summary>
 
 | Keys | Action |
 |---|---|
@@ -197,7 +219,10 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 | `y` / `yy` / `⏎` | yank the selection (or the line) and leave |
 | `esc` / `q` | clear the selection, then leave |
 
-**In the workspaces panel:**
+</details>
+
+<details>
+<summary><b>In the workspaces panel</b></summary>
 
 | Keys | Action |
 |---|---|
@@ -208,10 +233,13 @@ The first build compiles GPUI and its Metal shaders — expect several minutes.
 | `e` | edit every pane's startup command — also on right-click |
 | `esc` | dismiss input → back to terminal |
 
+</details>
+
 ## Configuration
 
 `~/.config/oxide/config.toml` — a fully commented default is generated on first run.
-Font and colors apply live; `[shell]` and `[prompt]` apply to new sessions.
+Font, colors, keys, and notifications apply live; `[shell]` and `[prompt]` apply to new
+sessions. [Every option, with defaults →](https://oxideterminal.com/docs/configuration/)
 
 ```toml
 [font]
@@ -248,6 +276,33 @@ enabled = false               # keep your own prompt (starship, p10k, ...)
 "cmd-j" = "pane::split_down"  # keystroke = "action id"; "" unbinds
 ```
 
+## Build from source
+
+You'll need [Rust](https://rustup.rs) (2024 edition) and full Xcode with the Metal toolchain —
+GPUI compiles Metal shaders at build time:
+
+```sh
+sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+xcodebuild -downloadComponent MetalToolchain   # if the build asks for it
+```
+
+```sh
+git clone https://github.com/bobbycoleman-dev/oxide.git
+cd oxide
+cargo run                     # development
+
+./scripts/bundle.sh           # release build -> target/Oxide.app (ad-hoc signed)
+cp -R target/Oxide.app /Applications/
+
+# optional CLI shim: `oxide [dir]` from any terminal
+sudo cp scripts/oxide-cli /usr/local/bin/oxide && sudo chmod +x /usr/local/bin/oxide
+```
+
+The first build compiles GPUI and its Metal shaders — expect several minutes. A `cargo run`
+binary isn't an app bundle, so it never auto-updates and its notifications can't be clicked;
+run the bundle from `scripts/bundle.sh` for the real thing. Cutting a release is covered in
+[RELEASING.md](RELEASING.md).
+
 ## Architecture
 
 One binary crate. The PTY reader/parser runs on its own thread
@@ -269,6 +324,17 @@ The tree follows `cd` by polling the PTY's foreground process group cwd
   and it's re-run on restore. `on_exit` needs shell integration with zsh or
   bash; other shells get the command typed in and nothing more.
 - Left/right Option can't be distinguished; `option_as_meta` treats `left`/`right` as `both`.
+- macOS only. A Linux port is mapped out ([LINUX_PORT.md](LINUX_PORT.md)) but not written.
+
+## Community
+
+Questions, ideas, or just want to see what's coming? Join the
+[Oxide Terminal Discord](https://discord.gg/APV9FYGgeh). Bugs and feature requests go in
+[issues](https://github.com/bobbycoleman-dev/oxide/issues/new) — **Help → Report an Issue** in
+the menu bar goes to the same place. Wondering how Oxide stacks up against iTerm2, Ghostty,
+kitty, WezTerm, Alacritty, or Warp? There's an [honest comparison](https://oxideterminal.com/compare/).
+
+If Oxide earns a place in your dock, you can [buy me a coffee](https://www.buymeacoffee.com/bobbycoleman).
 
 ## License
 
