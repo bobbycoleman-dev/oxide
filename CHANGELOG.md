@@ -11,6 +11,8 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-09-19
+
 ### Changed
 
 - Closing a markdown preview (or What's New) returns to the tab you opened it
