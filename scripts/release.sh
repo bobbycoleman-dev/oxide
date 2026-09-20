@@ -20,9 +20,14 @@ fi
 TAG="v$VERSION"
 DMG="target/Oxide-${VERSION}.dmg"
 UPDATE_DMG="target/Oxide-${VERSION}-update.dmg"
+CASK="../homebrew-tap/Casks/oxide-terminal.rb"
 
 if gh release view "$TAG" >/dev/null 2>&1; then
   echo "error: release $TAG already exists" >&2
+  exit 1
+fi
+if [[ ! -f "$CASK" ]]; then
+  echo "error: $CASK not found (clone homebrew-tap next to this repo)" >&2
   exit 1
 fi
 
@@ -33,3 +38,13 @@ cp "$DMG" "$UPDATE_DMG"
 # GitHub lists assets in upload order.
 echo "==> publishing $TAG"
 printf '%s\n' "$NOTES" | gh release create "$TAG" "$UPDATE_DMG" "$DMG" --title "Oxide $TAG" --notes-file -
+
+# The cask pins the website DMG's version and checksum; new brew installs get
+# whatever it says, so bump it with every release.
+echo "==> bumping homebrew cask"
+SHA=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
+TAP=$(dirname "$(dirname "$CASK")")
+git -C "$TAP" pull --ff-only
+sed -i '' -E -e "s/^  version \".*\"/  version \"$VERSION\"/" -e "s/^  sha256 \".*\"/  sha256 \"$SHA\"/" "$CASK"
+git -C "$TAP" commit -m "oxide-terminal $VERSION" Casks/oxide-terminal.rb
+git -C "$TAP" push
