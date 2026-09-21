@@ -11,6 +11,8 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+## [0.5.8] - 2026-09-21
+
 ### Added
 
 - `m` in the file tree moves the selected file or directory (also **Move…** on
