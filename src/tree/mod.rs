@@ -19,6 +19,7 @@ use gpui::{
 use crate::config::{Config, Theme};
 use crate::git::{self, GitFileStatus};
 use crate::keymap::actions::*;
+use crate::line_edit::LineEdit;
 use crate::terminal::colors::blend;
 use model::{Node, RowKind, VisibleRow, rebuild_visible, remove_subtree};
 use watch::TreeWatcher;
@@ -79,8 +80,9 @@ const GIT_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
 /// What the drawer's footer input line is collecting, when active.
 enum InputMode {
     Filter,
-    Add { parent: PathBuf, buffer: String },
-    Rename { target: PathBuf, buffer: String },
+    Add { parent: PathBuf, buffer: LineEdit },
+    Rename { target: PathBuf, buffer: LineEdit },
+    Move { target: PathBuf, buffer: LineEdit },
     ConfirmDelete { target: PathBuf },
 }
 
@@ -739,9 +741,12 @@ impl FileTree {
     }
 
     fn on_add(&mut self, _: &TreeAdd, _w: &mut Window, cx: &mut Context<Self>) {
+        // An open directory takes the new entry; a closed one gets a sibling.
+        // Otherwise a tree of nothing but directories has no row that adds
+        // at the top level.
         let parent = match self.selected_row() {
             Some(row) if row.kind == RowKind::Entry => {
-                if row.is_dir {
+                if row.is_dir && row.expanded {
                     row.path.clone()
                 } else {
                     row.path
@@ -754,7 +759,7 @@ impl FileTree {
         };
         self.input = Some(InputMode::Add {
             parent,
-            buffer: String::new(),
+            buffer: LineEdit::default(),
         });
         cx.notify();
     }
@@ -770,7 +775,26 @@ impl FileTree {
                 .unwrap_or_default();
             self.input = Some(InputMode::Rename {
                 target: row.path.clone(),
-                buffer,
+                buffer: LineEdit::new(buffer),
+            });
+            cx.notify();
+        }
+    }
+
+    fn on_move(&mut self, _: &TreeMove, _w: &mut Window, cx: &mut Context<Self>) {
+        if let Some(row) = self.selected_row()
+            && row.kind == RowKind::Entry
+            && row.path != self.root
+        {
+            let buffer = row
+                .path
+                .strip_prefix(&self.root)
+                .unwrap_or(&row.path)
+                .to_string_lossy()
+                .to_string();
+            self.input = Some(InputMode::Move {
+                target: row.path.clone(),
+                buffer: LineEdit::at_start(buffer),
             });
             cx.notify();
         }
@@ -832,40 +856,42 @@ impl FileTree {
             InputMode::Add { parent, buffer } => match ks.key.as_str() {
                 "escape" => {}
                 "enter" => {
-                    let name = buffer.trim();
+                    let name = buffer.text.trim();
                     if !name.is_empty() {
                         let (parent, name) = (parent.clone(), name.to_string());
                         self.create_entry(parent, name, cx);
                     }
                 }
-                "backspace" => {
-                    buffer.pop();
-                    self.input = Some(input);
-                }
                 _ => {
-                    if plain && let Some(c) = key_char {
-                        buffer.push_str(&c);
-                    }
+                    buffer.handle(ks);
                     self.input = Some(input);
                 }
             },
             InputMode::Rename { target, buffer } => match ks.key.as_str() {
                 "escape" => {}
                 "enter" => {
-                    let name = buffer.trim();
+                    let name = buffer.text.trim();
                     if !name.is_empty() && !name.contains('/') {
                         let (target, name) = (target.clone(), name.to_string());
                         self.rename_entry(target, name, cx);
                     }
                 }
-                "backspace" => {
-                    buffer.pop();
+                _ => {
+                    buffer.handle(ks);
                     self.input = Some(input);
                 }
-                _ => {
-                    if plain && let Some(c) = key_char {
-                        buffer.push_str(&c);
+            },
+            InputMode::Move { target, buffer } => match ks.key.as_str() {
+                "escape" => {}
+                "enter" => {
+                    if !buffer.text.trim().is_empty() {
+                        let dest = resolve_dest(&self.root, &buffer.text);
+                        let target = target.clone();
+                        self.move_entry(target, dest, cx);
                     }
+                }
+                _ => {
+                    buffer.handle(ks);
                     self.input = Some(input);
                 }
             },
@@ -928,6 +954,48 @@ impl FileTree {
         }
     }
 
+    /// `mv` semantics: an existing directory as the destination means "into
+    /// it"; a missing parent is created; nothing is overwritten.
+    fn move_entry(&mut self, target: PathBuf, dest: PathBuf, cx: &mut Context<Self>) {
+        let dest = if dest.is_dir() {
+            match target.file_name() {
+                Some(name) => dest.join(name),
+                None => return,
+            }
+        } else {
+            dest
+        };
+        if dest == target {
+            return;
+        }
+        if dest.exists() {
+            eprintln!("oxide: move {target:?}: {dest:?} already exists");
+            return;
+        }
+        let (Some(old_parent), Some(new_parent)) = (
+            target.parent().map(Path::to_path_buf),
+            dest.parent().map(Path::to_path_buf),
+        ) else {
+            return;
+        };
+        let result =
+            std::fs::create_dir_all(&new_parent).and_then(|_| std::fs::rename(&target, &dest));
+        match result {
+            Ok(()) => {
+                remove_subtree(&mut self.nodes, &target);
+                if let Some(node) = self.nodes.get_mut(&new_parent) {
+                    node.expanded = true;
+                }
+                self.pending_select = Some(dest);
+                self.scan_dir(old_parent.clone(), cx);
+                if new_parent != old_parent && self.nodes.contains_key(&new_parent) {
+                    self.scan_dir(new_parent, cx);
+                }
+            }
+            Err(e) => eprintln!("oxide: move {target:?}: {e}"),
+        }
+    }
+
     /// Move to ~/.Trash when possible (recoverable); hard-delete only as a
     /// cross-volume fallback.
     fn delete_entry(&mut self, target: PathBuf, cx: &mut Context<Self>) {
@@ -961,23 +1029,56 @@ impl FileTree {
         self.scan_dir(parent, cx);
     }
 
-    fn footer_text(&self) -> Option<String> {
+    /// The footer line: a label, the text either side of the caret when
+    /// something is being typed, and a hint.
+    fn footer_text(&self) -> Option<(String, Option<(String, String)>, String)> {
+        let edit = |label: &str, b: &LineEdit, hint: &str| {
+            let (before, after) = b.split();
+            Some((
+                label.into(),
+                Some((before.into(), after.into())),
+                hint.into(),
+            ))
+        };
         match &self.input {
-            Some(InputMode::Filter) => Some(format!("filter: {}▏", self.filter)),
-            Some(InputMode::Add { buffer, .. }) => {
-                Some(format!("new: {buffer}▏   (end with / for a directory)"))
-            }
-            Some(InputMode::Rename { buffer, .. }) => Some(format!("rename: {buffer}▏")),
-            Some(InputMode::ConfirmDelete { target }) => Some(format!(
-                "delete {}? (y/n)",
-                target
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_default()
+            Some(InputMode::Filter) => Some((
+                "filter: ".into(),
+                Some((self.filter.clone(), String::new())),
+                String::new(),
             )),
-            None if !self.filter.is_empty() => {
-                Some(format!("filter: {}   (esc clears)", self.filter))
+            Some(InputMode::Add { parent, buffer }) => {
+                let dir = parent
+                    .strip_prefix(&self.root)
+                    .ok()
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .map(|p| format!("{}/", p.to_string_lossy()))
+                    .unwrap_or_else(|| "./".into());
+                edit(
+                    &format!("new in {dir}: "),
+                    buffer,
+                    "   (end with / for a directory)",
+                )
             }
+            Some(InputMode::Rename { buffer, .. }) => edit("rename: ", buffer, ""),
+            Some(InputMode::Move { buffer, .. }) => {
+                edit("move to: ", buffer, "   (relative to the tree root)")
+            }
+            Some(InputMode::ConfirmDelete { target }) => Some((
+                format!(
+                    "delete {}? (y/n)",
+                    target
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default()
+                ),
+                None,
+                String::new(),
+            )),
+            None if !self.filter.is_empty() => Some((
+                format!("filter: {}", self.filter),
+                None,
+                "   (esc clears)".into(),
+            )),
             None => None,
         }
     }
@@ -1144,7 +1245,7 @@ impl FileTree {
 
         // Keep the menu on screen when the click lands near an edge.
         let viewport = window.viewport_size();
-        let (menu_w, menu_h) = (200.0, 180.0);
+        let (menu_w, menu_h) = (200.0, 210.0);
         let x = f32::from(menu.position.x).min(f32::from(viewport.width) - menu_w - 8.0);
         let y = f32::from(menu.position.y).min(f32::from(viewport.height) - menu_h - 8.0);
 
@@ -1270,6 +1371,17 @@ impl FileTree {
                             }
                         }),
                     ))
+                    .child(item("tree-menu-move", "Move…").on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener({
+                            let ix = menu.ix;
+                            move |tree, _: &gpui::MouseDownEvent, window, cx| {
+                                tree.context_menu = None;
+                                tree.select(ix, cx);
+                                tree.on_move(&TreeMove, window, cx);
+                            }
+                        }),
+                    ))
                     .child(div().h(px(1.0)).my_1().bg(border))
                     .child(item("tree-menu-finder", "Reveal in Finder").on_mouse_down(
                         MouseButton::Left,
@@ -1291,6 +1403,23 @@ impl FileTree {
         )
         .with_priority(1)
         .into_any_element()
+    }
+}
+
+/// Where a typed move destination points: absolute and `~` paths as written,
+/// anything else relative to the tree root.
+fn resolve_dest(root: &Path, input: &str) -> PathBuf {
+    let input = input.trim();
+    let home = crate::app::home_dir();
+    if let Some(rest) = input.strip_prefix("~/").or((input == "~").then_some(""))
+        && let Some(home) = home
+    {
+        return home.join(rest);
+    }
+    if input.starts_with('/') {
+        PathBuf::from(input)
+    } else {
+        root.join(input)
     }
 }
 
@@ -1363,6 +1492,7 @@ impl Render for FileTree {
             .on_action(cx.listener(Self::on_filter))
             .on_action(cx.listener(Self::on_add))
             .on_action(cx.listener(Self::on_rename))
+            .on_action(cx.listener(Self::on_move))
             .on_action(cx.listener(Self::on_delete))
             .on_action(cx.listener(Self::on_escape))
             .on_action(cx.listener(Self::on_down))
@@ -1396,7 +1526,7 @@ impl Render for FileTree {
                 .flex_1()
                 .track_scroll(self.scroll.clone()),
             )
-            .when_some(self.footer_text(), |d, text| {
+            .when_some(self.footer_text(), |d, (label, edit, hint)| {
                 d.child(
                     div()
                         .flex_none()
@@ -1405,7 +1535,20 @@ impl Render for FileTree {
                         .border_t_1()
                         .border_color(blend(theme.foreground, theme.background, 0.85))
                         .text_color(theme.ansi[3])
-                        .child(text),
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .items_center()
+                        .child(label)
+                        .when_some(edit, |d, (before, after)| {
+                            // A 1px caret between the halves, not a glyph:
+                            // a glyph would take a whole monospace cell and
+                            // read as a space.
+                            d.child(before)
+                                .child(div().flex_none().w(px(1.5)).h(px(14.0)).bg(theme.ansi[3]))
+                                .child(after)
+                        })
+                        .child(hint),
                 )
             })
             .when(self.context_menu.is_some(), |d| {
@@ -1427,6 +1570,18 @@ mod tests {
             expanded: is_dir,
             kind: RowKind::Entry,
         }
+    }
+
+    #[test]
+    fn move_destinations_resolve_against_the_root() {
+        let root = Path::new("/r");
+        assert_eq!(resolve_dest(root, "src/a.rs"), PathBuf::from("/r/src/a.rs"));
+        assert_eq!(
+            resolve_dest(root, " /tmp/a.rs "),
+            PathBuf::from("/tmp/a.rs")
+        );
+        let home = resolve_dest(root, "~/a.rs");
+        assert!(home.is_absolute() && home.ends_with("a.rs") && !home.starts_with("/r"));
     }
 
     #[test]

@@ -664,12 +664,15 @@ impl Oxide {
         }
         if let Some(previous) = crate::update::note_launch_version() {
             let current = env!("CARGO_PKG_VERSION");
-            this.push_toast(
+            // Long enough to read after the window settles, then gone:
+            // What's New stays in the Help menu.
+            let id = this.push_toast(
                 ToastKind::Info,
                 format!("updated v{previous} → v{current} — click for what's new"),
                 true,
                 false,
             );
+            this.expire_toast(id, 20, cx);
         }
         this.refresh_git_status(cx);
 
@@ -1593,6 +1596,10 @@ impl Oxide {
     fn toast(&mut self, kind: ToastKind, message: String, cx: &mut Context<Self>) {
         let id = self.push_toast(kind, message, false, false);
         let secs = if kind == ToastKind::Error { 8 } else { 4 };
+        self.expire_toast(id, secs, cx);
+    }
+
+    fn expire_toast(&mut self, id: usize, secs: u64, cx: &mut Context<Self>) {
         let timer = cx.background_executor().timer(Duration::from_secs(secs));
         cx.spawn(async move |this, cx| {
             timer.await;
@@ -1757,13 +1764,32 @@ impl Oxide {
                     .text_size(px(12.0))
                     .text_color(fg)
                     .cursor_pointer()
+                    .flex()
+                    .flex_row()
+                    .items_start()
+                    .gap_2()
                     .on_mouse_down(
                         gpui::MouseButton::Left,
                         cx.listener(move |this, _: &gpui::MouseDownEvent, window, cx| {
                             this.click_toast(id, window, cx)
                         }),
                     )
-                    .child(t.message.clone())
+                    .child(div().min_w_0().child(t.message.clone()))
+                    // Dismiss without following the toast's click action.
+                    .child(
+                        div()
+                            .id(("toast-close", id))
+                            .flex_none()
+                            .text_color(blend(fg, bg, 0.4))
+                            .on_mouse_down(
+                                gpui::MouseButton::Left,
+                                cx.listener(move |this, _: &gpui::MouseDownEvent, _w, cx| {
+                                    cx.stop_propagation();
+                                    this.dismiss_toast(id, cx);
+                                }),
+                            )
+                            .child("×"),
+                    )
             }))
     }
 

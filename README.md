@@ -76,7 +76,8 @@ The short tour. Every feature has a page in the [docs](https://oxideterminal.com
   hyperlinks, OSC 52 clipboard. vim, htop, and tmux just work.
 - **File tree drawer** — follows the focused pane, so switching splits re-roots it to
   that shell's directory. Modeless vim navigation (`j`/`k`/`gg`/`G`, nvim-tree style `h`/`l`),
-  type-to-filter with `/`, and file operations: `a` add, `r` rename, `d` delete (to Trash).
+  type-to-filter with `/`, and file operations: `a` add, `r` rename, `m` move, `d` delete
+  (to Trash).
   Dims gitignored files, watches the filesystem, and follows the shell's `cd` automatically.
 - **The tree/terminal seam** — `y` inserts the selected path at the prompt, quoted and
   relative; `cmd-click` a `path:line:col` in output to open it in `$EDITOR` at that line
@@ -127,7 +128,7 @@ The short tour. Every feature has a page in the [docs](https://oxideterminal.com
 - **Configurable keys** — a `[keymap]` table in config.toml rebinds anything; typos get a
   toast with a suggestion, and a bare key that would steal from your shell is refused.
 - **Toasts, not dialogs** — config errors, update problems, and other notices land as
-  toasts in the bottom-right corner; click to dismiss. The first launch after an update
+  toasts in the bottom-right corner; click or `×` to dismiss. The first launch after an update
   shows one that opens the changelog in a new tab.
 - **Tabs** — a Zed-style in-app tab bar, so tabs work everywhere (including under
   tiling window managers). `cmd-t` opens one in the current directory or `~/`
@@ -204,7 +205,7 @@ action id, and a `[keymap]` table in your config rebinds any of them.
 | `cmd-c` | copy the path |
 | `c` / `-` | re-root at selection / at parent (cd's the shell too) |
 | `/` | filter (`esc` clears) |
-| `a` / `r` / `d` | add (`dir/` with trailing slash) / rename / delete to Trash |
+| `a` / `r` / `m` / `d` | add (`dir/` with trailing slash) / rename / move / delete to Trash |
 | `I` / `R` | toggle hidden / refresh |
 | `esc` | dismiss input → clear filter → back to terminal |
 

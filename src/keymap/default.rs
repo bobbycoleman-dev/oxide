@@ -160,6 +160,7 @@ pub static DEFAULTS: &[DefaultBinding] = &[
     b("/", "tree::filter", FileTree),
     b("a", "tree::add", FileTree),
     b("r", "tree::rename", FileTree),
+    b("m", "tree::move", FileTree),
     b("d", "tree::delete", FileTree),
     // The tree as an input device: hand the selection to the shell.
     b("y", "tree::yank_path", FileTree),

@@ -138,6 +138,7 @@ oxide_actions! {
     TreeFilter       => "tree::filter",         "Tree: Filter",              "File Tree", ["search"], FileTree;
     TreeAdd          => "tree::add",            "Tree: New File or Folder",  "File Tree", ["create"], FileTree;
     TreeRename       => "tree::rename",         "Tree: Rename",              "File Tree", [], FileTree;
+    TreeMove         => "tree::move",           "Tree: Move…",               "File Tree", ["mv", "relocate"], FileTree;
     TreeDelete       => "tree::delete",         "Tree: Delete to Trash",     "File Tree", ["remove"], FileTree;
     TreeEscape       => "tree::escape",         "Tree: Dismiss",             "File Tree", [], FileTree;
     TreeYankPath     => "tree::yank_path",      "Tree: Insert Path at Prompt", "File Tree", ["paste", "relative"], FileTree;

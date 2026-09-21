@@ -11,6 +11,31 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+### Added
+
+- `m` in the file tree moves the selected file or directory (also **Move…** on
+  right-click). The input is prefilled with its path relative to the tree root,
+  cursor at the start so a directory can be typed in front; edit and press enter. An existing directory as the destination moves the
+  entry into it, missing directories are created, `~/` and absolute paths work,
+  and nothing is ever overwritten.
+- The file tree's add, rename, and move inputs have a cursor: arrows, home/end
+  (`cmd-←`/`cmd-→`, `ctrl-a`/`ctrl-e`), and forward delete work, so you can
+  put a directory in front of a prefilled name instead of retyping it.
+
+### Changed
+
+- `a` in the file tree creates beside a collapsed directory, not inside it;
+  an expanded directory still takes the new entry. Before, a tree of nothing
+  but directories had no way to add at the top level. The input now says
+  where the new entry will go.
+
+### Fixed
+
+- The "updated to vX" toast stayed until clicked. It now fades after
+  twenty seconds, and every toast has an `×` to dismiss it without following
+  its click action (the update toast opens What's New; Help → What's New
+  gets you there later).
+
 ## [0.5.7] - 2026-09-20
 
 ### Added
