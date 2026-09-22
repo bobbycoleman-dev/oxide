@@ -374,8 +374,9 @@ struct Toast {
 }
 
 #[derive(Clone, PartialEq)]
-// The download/install states are only reached on macOS.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+// Each platform reaches only its own states: Available on Linux, the
+// download/install pair on macOS.
+#[allow(dead_code)]
 enum UpdateState {
     Idle,
     Checking,

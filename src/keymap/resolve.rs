@@ -551,7 +551,7 @@ mod tests {
     #[test]
     fn pretty_keys_follows_the_platform() {
         let expected = if cfg!(target_os = "macos") {
-            "⇧⌃P"
+            "⌃⇧P"
         } else {
             "Ctrl+Shift+P"
         };
