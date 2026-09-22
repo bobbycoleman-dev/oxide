@@ -367,7 +367,7 @@ impl FileTree {
         _cx: &mut Context<Self>,
     ) {
         if let Some(row) = self.selected_row().filter(|r| r.kind == RowKind::Entry) {
-            reveal_in_finder(&row.path);
+            _cx.reveal_path(&row.path);
         }
     }
 
@@ -996,25 +996,14 @@ impl FileTree {
         }
     }
 
-    /// Move to ~/.Trash when possible (recoverable); hard-delete only as a
-    /// cross-volume fallback.
+    /// Move to the trash when possible (recoverable — `~/.Trash` on macOS,
+    /// the XDG trash on Linux); hard-delete only as a fallback, for a volume
+    /// with no trash directory.
     fn delete_entry(&mut self, target: PathBuf, cx: &mut Context<Self>) {
         let Some(parent) = target.parent().map(Path::to_path_buf) else {
             return;
         };
-        let trashed = directories::BaseDirs::new().and_then(|dirs| {
-            let name = target.file_name()?.to_string_lossy().to_string();
-            let trash = dirs.home_dir().join(".Trash");
-            let mut dest = trash.join(&name);
-            if dest.exists() {
-                let stamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
-                dest = trash.join(format!("{name}-{stamp}"));
-            }
-            std::fs::rename(&target, &dest).ok()
-        });
+        let trashed = trash::delete(&target).ok();
         if trashed.is_none() {
             let result = if target.is_dir() {
                 std::fs::remove_dir_all(&target)
@@ -1127,7 +1116,11 @@ impl FileTree {
                 _ => dim,
             };
             let ignored = self.nodes.get(&row.path).is_some_and(|n| n.is_ignored);
-            let icon_color = if row.is_dir && !ignored { theme.ansi[4] } else { dim };
+            let icon_color = if row.is_dir && !ignored {
+                theme.ansi[4]
+            } else {
+                dim
+            };
             let text_color = match (&row.kind, self.git_color(&row.path)) {
                 _ if ignored => dim,
                 (RowKind::Entry, Some(color)) => color,
@@ -1216,13 +1209,13 @@ impl FileTree {
     }
 }
 
-/// Show a path in Finder, selected.
-fn reveal_in_finder(path: &Path) {
-    let _ = std::process::Command::new("/usr/bin/open")
-        .arg("-R")
-        .arg(path)
-        .spawn();
-}
+/// The context-menu label for `App::reveal_path`: Finder on macOS, the
+/// default file manager (via `org.freedesktop.FileManager1`) on Linux.
+const REVEAL_LABEL: &str = if cfg!(target_os = "macos") {
+    "Reveal in Finder"
+} else {
+    "Reveal in File Manager"
+};
 
 impl FileTree {
     fn render_context_menu(&self, window: &Window, cx: &Context<Self>) -> impl IntoElement {
@@ -1383,13 +1376,13 @@ impl FileTree {
                         }),
                     ))
                     .child(div().h(px(1.0)).my_1().bg(border))
-                    .child(item("tree-menu-finder", "Reveal in Finder").on_mouse_down(
+                    .child(item("tree-menu-finder", REVEAL_LABEL).on_mouse_down(
                         MouseButton::Left,
                         cx.listener({
                             let path = path.clone();
                             move |tree, _: &gpui::MouseDownEvent, _w, cx| {
                                 tree.context_menu = None;
-                                reveal_in_finder(&path);
+                                cx.reveal_path(&path);
                                 cx.notify();
                             }
                         }),

@@ -1,11 +1,16 @@
 //! Desktop notifications for finished commands and for programs that post
 //! their own (OSC 9 / OSC 777).
 //!
-//! Delivery: from an installed `.app` bundle, `UNUserNotificationCenter`
+//! Delivery on macOS: from an installed `.app` bundle, `UNUserNotificationCenter`
 //! through the `objc` runtime — real notifications, with a click that
 //! routes back to the pane. Outside a bundle (`cargo run`) the center has no
 //! bundle to attach to and aborts the process, so `osascript` posts a
 //! notification instead; those can't be clicked back into Oxide.
+//!
+//! Delivery on Linux: `notify-send` (libnotify), which talks to whatever
+//! implements `org.freedesktop.Notifications` — mako, dunst, swaync, the
+//! GNOME and KDE shells. Where the daemon supports actions, a click on the
+//! notification routes back to the pane the same way.
 //!
 //! The decision of *whether* to notify is a pure function so it can be
 //! tested without posting anything.
@@ -77,6 +82,7 @@ fn route_clicked(key: RouteKey) {
 /// then filed in Notification Center without a banner. No-op outside a
 /// bundle, where the center can't be used at all.
 pub fn init() {
+    #[cfg(target_os = "macos")]
     if crate::update::installed_bundle().is_some() {
         macos::init();
     }
@@ -84,13 +90,17 @@ pub fn init() {
 
 /// Post a notification. `route` is attached so a click can find its pane.
 pub fn post(title: &str, body: &str, route: Option<RouteKey>) {
+    #[cfg(target_os = "macos")]
     if crate::update::installed_bundle().is_some() {
         macos::post(title, body, route);
     } else {
         post_via_osascript(title, body);
     }
+    #[cfg(not(target_os = "macos"))]
+    linux::post(title, body, route);
 }
 
+#[cfg(target_os = "macos")]
 fn post_via_osascript(title: &str, body: &str) {
     // AppleScript string literals: escape backslash and double quote.
     let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
@@ -107,6 +117,66 @@ fn post_via_osascript(title: &str, body: &str) {
         .spawn();
 }
 
+#[cfg(not(target_os = "macos"))]
+mod linux {
+    //! `notify-send` from libnotify. With a daemon that supports actions,
+    //! `-A` attaches a default action and `-w` keeps notify-send alive
+    //! until the notification closes, printing the action's key if it was
+    //! clicked — that's the click routing. An older libnotify (before
+    //! 0.7.9) rejects `-A`, so a failed spawn falls back to a plain send.
+
+    use std::process::{Command, Stdio};
+
+    use super::RouteKey;
+
+    fn base_command(title: &str, body: &str) -> Command {
+        let mut cmd = Command::new("notify-send");
+        cmd.args([
+            "--app-name=Oxide",
+            "--icon=oxide",
+            // Lets daemons that key on the desktop file find the icon/name.
+            "-h",
+            "string:desktop-entry:oxide",
+            "--",
+        ])
+        .arg(title)
+        .arg(body)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null());
+        cmd
+    }
+
+    pub fn post(title: &str, body: &str, route: Option<RouteKey>) {
+        let title = title.to_string();
+        let body = body.to_string();
+        // Blocks for as long as the notification is showing: off the main
+        // thread. One thread per notification, gone when it's dismissed.
+        std::thread::Builder::new()
+            .name("oxide-notify".into())
+            .spawn(move || {
+                let mut with_action = base_command(&title, &body);
+                with_action.args(["-A", "default=Open", "-w"]);
+                match with_action.stdout(Stdio::piped()).output() {
+                    Ok(out) if out.status.success() => {
+                        let clicked = String::from_utf8_lossy(&out.stdout);
+                        if clicked.trim() == "default"
+                            && let Some(route) = route
+                        {
+                            super::route_clicked(route);
+                        }
+                    }
+                    // Unknown option (old libnotify), or no daemon: try the
+                    // plain form once so the message at least shows.
+                    _ => {
+                        let _ = base_command(&title, &body).stdout(Stdio::null()).status();
+                    }
+                }
+            })
+            .ok();
+    }
+}
+
+#[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
 mod macos {
     //! UNUserNotificationCenter over the raw objc runtime. Everything here

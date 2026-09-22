@@ -9,9 +9,6 @@ gpui = "=0.2.2"
 alacritty_terminal = "=0.26.0"
 # Same version alacritty_terminal uses; drives our own PTY event loop.
 polling = "3"
-# Already pulled in by gpui; used for UNUserNotificationCenter.
-objc = "0.2"
-block = "0.1"
 futures = "0.3"
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
@@ -30,6 +27,14 @@ two-face = { version = "0.5", default-features = false, features = ["syntect-oni
 notify = "6"
 notify-debouncer-full = "0.3"
 ignore = "0.4"
+trash = "5.2.9"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Already pulled in by gpui; used for UNUserNotificationCenter. Kept off the
+# Linux build: objc links against Apple's runtime (`objc_msgSend`), which
+# GNU libobjc lacks, and block wants BlocksRuntime — both fail at link time.
+objc = "0.2"
+block = "0.1"
 
 [profile.release]
 lto = "fat"

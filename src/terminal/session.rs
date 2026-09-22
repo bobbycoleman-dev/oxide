@@ -194,7 +194,22 @@ impl TerminalSession {
     }
 
     /// The cwd of the foreground process group on the PTY, via tcgetpgrp +
+    /// proc_pidinfo (macOS) or procfs (Linux). Works with no shell
+    /// cooperation at all.
+    #[cfg(target_os = "linux")]
+    pub fn foreground_cwd(&self) -> Option<PathBuf> {
+        let pgrp = unsafe { libc::tcgetpgrp(self.master_fd) };
+        if pgrp <= 0 {
+            return None;
+        }
+        // Unreadable (another user's process, or one that already exited)
+        // maps to None, the same contract as the macOS lookup.
+        std::fs::read_link(format!("/proc/{pgrp}/cwd")).ok()
+    }
+
+    /// The cwd of the foreground process group on the PTY, via tcgetpgrp +
     /// proc_pidinfo. Works with no shell cooperation at all.
+    #[cfg(target_os = "macos")]
     pub fn foreground_cwd(&self) -> Option<PathBuf> {
         unsafe {
             let pgrp = libc::tcgetpgrp(self.master_fd);

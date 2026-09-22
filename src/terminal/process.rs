@@ -1,10 +1,12 @@
 //! What's running in the foreground of a PTY, and whether it's `ssh`.
 //!
-//! The name comes from `proc_pidinfo(PROC_PIDTBSDINFO)` on the terminal's
-//! foreground process group — the same lookup the cwd poll uses, so it
-//! needs no shell cooperation. The ssh host comes from the process's
-//! argument vector (`KERN_PROCARGS2`), which macOS only lets us read for
-//! our own processes; a remote-owned or setuid one degrades to name-only.
+//! The name comes from the terminal's foreground process group — the same
+//! lookup the cwd poll uses, so it needs no shell cooperation: on macOS
+//! `proc_pidinfo(PROC_PIDTBSDINFO)`, on Linux `/proc/<pid>/comm`. The ssh
+//! host comes from the process's argument vector (`KERN_PROCARGS2` on
+//! macOS, `/proc/<pid>/cmdline` on Linux), which the kernel only lets us
+//! read for our own processes; a remote-owned or setuid one degrades to
+//! name-only.
 
 use std::os::fd::RawFd;
 
@@ -64,6 +66,54 @@ pub fn foreground(master_fd: RawFd) -> Option<ForegroundProcess> {
     Some(ForegroundProcess { name, ssh_host })
 }
 
+/// The executable's name from procfs. `comm` is what the kernel calls the
+/// process (the same 15-char-truncated field `ps` shows); the `exe` link
+/// has the untruncated basename, so prefer that when it's readable and
+/// agrees with `comm`'s prefix — a script's `exe` says `python3`, and
+/// `comm` says the script, so a disagreement keeps `comm`.
+#[cfg(target_os = "linux")]
+fn process_name(pid: i32) -> Option<String> {
+    let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+    let comm = comm.trim();
+    if comm.is_empty() {
+        return None;
+    }
+    let exe = std::fs::read_link(format!("/proc/{pid}/exe"))
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .map(|n| n.trim_end_matches(" (deleted)").to_string());
+    Some(match exe {
+        // A login shell renames itself `-zsh`; comm keeps the dash.
+        Some(full) if full.len() > comm.len() && full.starts_with(comm.trim_start_matches('-')) => {
+            if comm.starts_with('-') {
+                format!("-{full}")
+            } else {
+                full
+            }
+        }
+        _ => comm.to_string(),
+    })
+}
+
+/// The process's argv, from `/proc/<pid>/cmdline`. None when the kernel
+/// won't tell us (another user's process) or the process is a zombie.
+#[cfg(target_os = "linux")]
+fn process_args(pid: i32) -> Option<Vec<String>> {
+    let raw = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+    Some(parse_cmdline(&raw))
+}
+
+/// `/proc/<pid>/cmdline`: NUL-terminated arguments, back to back. A
+/// process that rewrote its argv may leave the trailing NUL off.
+#[cfg(any(target_os = "linux", test))]
+fn parse_cmdline(raw: &[u8]) -> Vec<String> {
+    raw.split(|b| *b == 0)
+        .filter(|s| !s.is_empty())
+        .map(|s| String::from_utf8_lossy(s).into_owned())
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
 fn process_name(pid: i32) -> Option<String> {
     unsafe {
         let mut info: libc::proc_bsdinfo = std::mem::zeroed();
@@ -97,6 +147,7 @@ fn process_name(pid: i32) -> Option<String> {
 
 /// The process's argv, via `sysctl(KERN_PROCARGS2)`. None when the kernel
 /// won't tell us (another user's process).
+#[cfg(target_os = "macos")]
 fn process_args(pid: i32) -> Option<Vec<String>> {
     unsafe {
         let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
@@ -133,6 +184,7 @@ fn process_args(pid: i32) -> Option<Vec<String>> {
 /// `KERN_PROCARGS2` layout: `argc` as a native int, the executable path,
 /// NUL padding, then `argc` NUL-terminated arguments (the environment
 /// follows, which we ignore).
+#[cfg(any(target_os = "macos", test))]
 fn parse_procargs2(buf: &[u8]) -> Option<Vec<String>> {
     if buf.len() < 4 {
         return None;
@@ -266,6 +318,35 @@ mod tests {
         buf.extend_from_slice(b"ssh\0-p\0host\0HOME=/x\0");
         assert_eq!(parse_procargs2(&buf).unwrap(), args("ssh -p host"));
         assert!(parse_procargs2(b"\0\0").is_none());
+    }
+
+    #[test]
+    fn cmdline_splits_on_nul() {
+        assert_eq!(parse_cmdline(b"ssh\0-p\0host\0"), args("ssh -p host"));
+        assert_eq!(
+            parse_cmdline(b"ssh\0host"),
+            args("ssh host"),
+            "missing trailing NUL"
+        );
+        assert!(parse_cmdline(b"").is_empty());
+    }
+
+    /// The procfs path against our own process: name and argv agree with
+    /// what std reports.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn procfs_reads_our_own_process() {
+        let pid = std::process::id() as i32;
+        let name = process_name(pid).expect("own process name");
+        let exe = std::env::current_exe().unwrap();
+        let exe_name = exe.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(
+            exe_name.starts_with(&name) || name == exe_name,
+            "name {name:?} vs exe {exe_name:?}"
+        );
+        let args = process_args(pid).expect("own argv");
+        let expected: Vec<String> = std::env::args().collect();
+        assert_eq!(args, expected);
     }
 
     #[test]

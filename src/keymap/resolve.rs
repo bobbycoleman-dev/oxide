@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 use gpui::{DummyKeyboardMapper, KeyBinding, KeyBindingContextPredicate, Keystroke};
 
-use super::default::DEFAULTS;
+use super::default::defaults;
 use super::registry;
 use crate::config::schema::KeymapConfig;
 
@@ -157,7 +157,7 @@ pub fn resolve(config: &KeymapConfig) -> ResolvedKeymap {
     let mut errors = Vec::new();
 
     if !config.replace_defaults {
-        for d in DEFAULTS {
+        for d in defaults() {
             let (keys, _) = normalise_keys(d.keys).expect("default keystrokes parse");
             entries.push(Entry {
                 keys,
@@ -240,8 +240,38 @@ pub fn resolve(config: &KeymapConfig) -> ResolvedKeymap {
     }
 }
 
-/// Human-readable keystrokes for UI: `"ctrl-w v"` → `"⌃W V"`.
+/// Human-readable keystrokes for UI: `"ctrl-w v"` → `"⌃W V"` on macOS,
+/// `"Ctrl+W V"` elsewhere.
 pub fn pretty_keys(keys: &str) -> String {
+    if cfg!(target_os = "macos") {
+        pretty_keys_mac(keys)
+    } else {
+        pretty_keys_linux(keys)
+    }
+}
+
+/// The special-key names both styles share.
+fn pretty_key_name(key: &str, modified: bool) -> String {
+    match key {
+        "up" => "↑".to_string(),
+        "down" => "↓".to_string(),
+        "left" => "←".to_string(),
+        "right" => "→".to_string(),
+        "enter" => "⏎".to_string(),
+        "escape" => "⎋".to_string(),
+        "tab" => "⇥".to_string(),
+        "backspace" => "⌫".to_string(),
+        "delete" => "⌦".to_string(),
+        "space" => "␣".to_string(),
+        "pageup" => "PgUp".to_string(),
+        "pagedown" => "PgDn".to_string(),
+        // ⌘Q reads right; a bare "D" would look like shift-d.
+        k if k.chars().count() == 1 && modified => k.to_uppercase(),
+        k => k.to_string(),
+    }
+}
+
+fn pretty_keys_mac(keys: &str) -> String {
     keys.split_whitespace()
         .map(|token| {
             let Ok(ks) = Keystroke::parse(token) else {
@@ -265,23 +295,43 @@ pub fn pretty_keys(keys: &str) -> String {
                 out.push_str("fn");
             }
             let modified = m.control || m.alt || m.shift || m.platform || m.function;
-            let key = match ks.key.as_str() {
-                "up" => "↑".to_string(),
-                "down" => "↓".to_string(),
-                "left" => "←".to_string(),
-                "right" => "→".to_string(),
-                "enter" => "⏎".to_string(),
-                "escape" => "⎋".to_string(),
-                "tab" => "⇥".to_string(),
-                "backspace" => "⌫".to_string(),
-                "delete" => "⌦".to_string(),
-                "space" => "␣".to_string(),
-                // ⌘Q reads right; a bare "D" would look like shift-d.
-                k if k.chars().count() == 1 && modified => k.to_uppercase(),
-                k => k.to_string(),
-            };
-            out.push_str(&key);
+            out.push_str(&pretty_key_name(&ks.key, modified));
             out
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// `Ctrl+Shift+P`, the GTK/KDE convention. Super is spelled out because
+/// nothing ships bound to it and a user who binds it should see what they
+/// wrote.
+fn pretty_keys_linux(keys: &str) -> String {
+    keys.split_whitespace()
+        .map(|token| {
+            let Ok(ks) = Keystroke::parse(token) else {
+                return token.to_string();
+            };
+            let m = ks.modifiers;
+            let mut parts: Vec<&str> = Vec::new();
+            if m.control {
+                parts.push("Ctrl");
+            }
+            if m.alt {
+                parts.push("Alt");
+            }
+            if m.shift {
+                parts.push("Shift");
+            }
+            if m.platform {
+                parts.push("Super");
+            }
+            if m.function {
+                parts.push("Fn");
+            }
+            let modified = !parts.is_empty();
+            let key = pretty_key_name(&ks.key, modified);
+            parts.push(&key);
+            parts.join("+")
         })
         .collect::<Vec<_>>()
         .join(" ")
@@ -306,13 +356,22 @@ mod tests {
             .any(|e| e.keys == keys && e.action == action && e.ctx == ctx)
     }
 
+    /// The palette binding on this platform: `cmd-shift-p` / `ctrl-shift-p`.
+    fn palette_keys() -> &'static str {
+        if cfg!(target_os = "macos") {
+            "cmd-shift-p"
+        } else {
+            "ctrl-shift-p"
+        }
+    }
+
     #[test]
     fn defaults_resolve_cleanly() {
         let r = resolve(&KeymapConfig::default());
         assert!(r.errors.is_empty(), "{:?}", r.errors);
-        assert_eq!(r.entries.len(), DEFAULTS.len());
-        assert_eq!(r.bindings().len(), DEFAULTS.len());
-        assert!(has(&r, "cmd-shift-p", "app::palette", KeyCtx::Root));
+        assert_eq!(r.entries.len(), defaults().count());
+        assert_eq!(r.bindings().len(), defaults().count());
+        assert!(has(&r, palette_keys(), "app::palette", KeyCtx::Root));
     }
 
     #[test]
@@ -321,27 +380,45 @@ mod tests {
         assert!(r.errors.is_empty(), "{:?}", r.errors);
         assert!(has(&r, "cmd-j", "pane::split_down", KeyCtx::Root));
         // Unmentioned bindings survive.
-        assert!(has(&r, "cmd-d", "pane::split_right", KeyCtx::Root));
+        assert!(has(&r, "ctrl-w v", "pane::split_right", KeyCtx::Root));
         assert!(has(&r, "j", "tree::down", KeyCtx::FileTree));
+    }
+
+    /// The tree-focus binding on this platform, and the same keys with the
+    /// modifiers in another order.
+    fn focus_tree_keys() -> (&'static str, &'static str) {
+        if cfg!(target_os = "macos") {
+            ("cmd-shift-e", "shift-cmd-e")
+        } else {
+            ("ctrl-shift-e", "shift-ctrl-e")
+        }
     }
 
     #[test]
     fn empty_id_unbinds_a_default() {
-        let r = resolve(&cfg(&[("cmd-d", "")]));
+        let (focus_tree, _) = focus_tree_keys();
+        assert!(has(
+            &resolve(&KeymapConfig::default()),
+            focus_tree,
+            "drawer::focus_tree",
+            KeyCtx::Root
+        ));
+        let r = resolve(&cfg(&[(focus_tree, "")]));
         assert!(r.errors.is_empty(), "{:?}", r.errors);
-        assert!(!has(&r, "cmd-d", "pane::split_right", KeyCtx::Root));
-        // Only that key, only that context: ctrl-w v still splits.
-        assert!(has(&r, "ctrl-w v", "pane::split_right", KeyCtx::Root));
+        assert!(!has(&r, focus_tree, "drawer::focus_tree", KeyCtx::Root));
+        // Only that key, only that context: ctrl-w t still focuses the tree.
+        assert!(has(&r, "ctrl-w t", "drawer::focus_tree", KeyCtx::Root));
     }
 
     #[test]
     fn rebinding_a_default_key_replaces_it() {
-        let r = resolve(&cfg(&[("cmd-d", "pane::split_down")]));
-        assert!(!has(&r, "cmd-d", "pane::split_right", KeyCtx::Root));
-        assert!(has(&r, "cmd-d", "pane::split_down", KeyCtx::Root));
+        let (focus_tree, reordered) = focus_tree_keys();
+        let r = resolve(&cfg(&[(focus_tree, "pane::split_down")]));
+        assert!(!has(&r, focus_tree, "drawer::focus_tree", KeyCtx::Root));
+        assert!(has(&r, focus_tree, "pane::split_down", KeyCtx::Root));
         // Spelling differences in modifier order don't defeat the match.
-        let r = resolve(&cfg(&[("shift-cmd-e", "")]));
-        assert!(!has(&r, "cmd-shift-e", "drawer::focus_tree", KeyCtx::Root));
+        let r = resolve(&cfg(&[(reordered, "")]));
+        assert!(!has(&r, focus_tree, "drawer::focus_tree", KeyCtx::Root));
     }
 
     #[test]
@@ -430,7 +507,10 @@ mod tests {
         let r = resolve(&KeymapConfig::default());
         assert_eq!(r.display_for("pane::split_right").unwrap().keys, "ctrl-w v");
         let r = resolve(&cfg(&[("cmd-j", "pane::split_right")]));
-        assert_eq!(r.display_for("pane::split_right").unwrap().keys, "cmd-j");
+        // Compared normalised: GPUI spells the platform modifier per OS
+        // (`cmd` on macOS, `super` on Linux) when it unparses.
+        let (cmd_j, _) = normalise_keys("cmd-j").unwrap();
+        assert_eq!(r.display_for("pane::split_right").unwrap().keys, cmd_j);
         assert!(r.display_for("app::about").is_none());
     }
 
@@ -448,11 +528,33 @@ mod tests {
 
     #[test]
     fn pretty_keys_uses_mac_glyphs() {
-        assert_eq!(pretty_keys("ctrl-w v"), "⌃W v");
-        assert_eq!(pretty_keys("d"), "d");
-        assert_eq!(pretty_keys("shift-d"), "⇧D");
-        assert_eq!(pretty_keys("cmd-shift-p"), "⇧⌘P");
-        assert_eq!(pretty_keys("cmd-alt-left"), "⌥⌘←");
-        assert_eq!(pretty_keys("escape"), "⎋");
+        assert_eq!(pretty_keys_mac("ctrl-w v"), "⌃W v");
+        assert_eq!(pretty_keys_mac("d"), "d");
+        assert_eq!(pretty_keys_mac("shift-d"), "⇧D");
+        assert_eq!(pretty_keys_mac("cmd-shift-p"), "⇧⌘P");
+        assert_eq!(pretty_keys_mac("cmd-alt-left"), "⌥⌘←");
+        assert_eq!(pretty_keys_mac("escape"), "⎋");
+    }
+
+    #[test]
+    fn pretty_keys_spells_modifiers_out_on_linux() {
+        assert_eq!(pretty_keys_linux("ctrl-w v"), "Ctrl+W v");
+        assert_eq!(pretty_keys_linux("d"), "d");
+        assert_eq!(pretty_keys_linux("shift-d"), "Shift+D");
+        assert_eq!(pretty_keys_linux("ctrl-shift-p"), "Ctrl+Shift+P");
+        assert_eq!(pretty_keys_linux("ctrl-alt-left"), "Ctrl+Alt+←");
+        assert_eq!(pretty_keys_linux("cmd-q"), "Super+Q");
+        assert_eq!(pretty_keys_linux("ctrl-pagedown"), "Ctrl+PgDn");
+        assert_eq!(pretty_keys_linux("escape"), "⎋");
+    }
+
+    #[test]
+    fn pretty_keys_follows_the_platform() {
+        let expected = if cfg!(target_os = "macos") {
+            "⌃⇧P"
+        } else {
+            "Ctrl+Shift+P"
+        };
+        assert_eq!(pretty_keys("ctrl-shift-p"), expected);
     }
 }

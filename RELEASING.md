@@ -87,6 +87,46 @@ gh release create v0.5.8 target/Oxide-0.5.8.dmg target/Oxide-0.5.8-update.dmg \
   --notes "$(sed -n '/^## \[0.5.8\]/,/^## \[/p' CHANGELOG.md | sed '1d;$d')"
 ```
 
+### 4. The Linux build (on the Linux box)
+
+GPUI can't be cross-compiled, so the Linux tarball is built on the Linux
+machine and attached to the release `release.sh` just created. The tag
+points at the release commit, which is main's HEAD, so a plain pull lands
+on it:
+
+```sh
+ssh linux-box
+cd ~/Code/oxide-app/oxide
+git pull --ff-only && git fetch --tags    # HEAD is now v0.5.8
+./scripts/release-linux.sh
+```
+
+This runs `linux-package.sh` (release build, strip, tarball with the
+`.desktop` entry, icons and `install.sh`), uploads
+`oxide-<version>-linux-x86_64.tar.gz` to the release, and bumps
+`packaging/aur/oxide-terminal-bin/PKGBUILD` to the new version and checksum.
+It refuses to run if HEAD isn't the tagged commit or the release doesn't
+exist yet. Commit that bump, then publish the AUR package:
+
+```sh
+git commit -am "aur: oxide-terminal-bin 0.5.8" && git push
+cd packaging/aur/oxide-terminal-bin && makepkg --printsrcinfo > .SRCINFO
+cp PKGBUILD .SRCINFO ~/aur/oxide-terminal-bin/
+cd ~/aur/oxide-terminal-bin && git add -A && git commit -m "v0.5.8" && git push
+```
+
+Installed Linux copies look for the `-linux-x86_64.tar.gz` asset, so the
+update pill only appears once this step is done; the macOS updater ignores
+the extra asset (it only matches `.dmg` names).
+
+One-time setup on the Linux box:
+
+- `gh auth login` (the upload goes through `gh`).
+- An [AUR account](https://aur.archlinux.org/register) with your SSH public
+  key added, then the package clone — the first push creates the package:
+  `git clone ssh://aur@aur.archlinux.org/oxide-terminal-bin.git ~/aur/oxide-terminal-bin`.
+  Add `aur.archlinux.org` to `~/.ssh/known_hosts` on first contact.
+
 ## What happens after publishing
 
 Installed copies check GitHub on launch and every 6 hours (or immediately via
@@ -106,4 +146,5 @@ relaunch. Nothing else to do on the publishing side.
   overwrite `target/Oxide.app`, and the submitted ticket only staples to the
   exact bytes that were uploaded.
 - Development builds (`cargo run`) never auto-check for updates; only
-  installed `.app` bundles do.
+  installed `.app` bundles do — and on Linux, release builds outside a
+  `target/` directory.

@@ -37,6 +37,8 @@ whether GitHub has a newer release.
 
 ## Install
 
+**macOS**
+
 ```sh
 brew install --cask bobbycoleman-dev/tap/oxide-terminal
 ```
@@ -46,7 +48,26 @@ and drag Oxide to Applications. Builds are Developer ID signed and notarized, so
 right-click-to-open dance, and Oxide keeps itself up to date afterwards — it checks on launch
 and every six hours, or on demand via **Oxide → Check for Updates…**
 
-- macOS 12 or later, Apple Silicon or Intel
+**Linux** (Wayland or X11, x86_64)
+
+```sh
+# Arch and derivatives: the AUR package
+yay -S oxide-terminal-bin
+
+# any distro: the release tarball
+tar xzf oxide-<version>-linux-x86_64.tar.gz
+cd oxide-<version>-linux-x86_64 && ./install.sh        # into ~/.local, no root
+```
+
+The tarball is on the same [release page](https://github.com/bobbycoleman-dev/oxide/releases/latest).
+`install.sh` puts `oxide` on your PATH and adds the launcher entry and icon;
+`--prefix /usr/local` (with sudo) installs system-wide, `--uninstall` removes it.
+Installed copies announce a newer release in the top-right corner; the AUR or the
+tarball does the update.
+
+- macOS 12 or later, Apple Silicon or Intel; or Linux with a Vulkan driver
+  (any GPU from the last decade — Mesa's `vulkan-radeon` / `vulkan-intel`, or
+  `nvidia-utils`) and `notify-send` (libnotify) for desktop notifications.
 - No font to install — JetBrainsMono Nerd Font Mono is bundled. Set `font.family` to use your own.
 - zsh or bash for the built-in prompt and shell integration. Other shells run fine and keep
   their own prompt.
@@ -160,38 +181,43 @@ The short tour. Every feature has a page in the [docs](https://oxideterminal.com
 The everyday ones. The [full keymap](https://oxideterminal.com/docs/keybindings/) lists every
 action id, and a `[keymap]` table in your config rebinds any of them.
 
-| Keys | Action |
-|---|---|
-| `ctrl-w h` / `ctrl-w l` / `ctrl-w w` | focus tree / terminal / toggle |
-| `cmd-b` | toggle the drawer |
-| `ctrl-w t` / `cmd-shift-e` | focus the file tree from anywhere |
-| `cmd-f` | search scrollback (`⏎` older, `⇧⏎` newer, `esc` close; `cmd-alt-r` / `c` / `w` toggle regex / case / whole word) |
-| `ctrl-w [` / `cmd-shift-v` | copy mode — vim keys in the scrollback, `y` yanks, `esc` leaves |
-| `cmd-k` | clear scrollback |
-| `cmd-↑` / `cmd-↓` | jump to previous / next prompt |
-| `cmd-r` | command history (`⏎` insert, `⌘⏎` run) |
-| `cmd-p` | fuzzy file finder (`⏎` open, `⌘⏎` insert path, `⌥⏎` reveal) |
-| `cmd-shift-r` | reveal the shell's directory in the tree |
-| `cmd-click` | open a URL, or a `path:line` in `$EDITOR` |
-| `cmd-shift-c` | copy the last command's output |
-| `cmd-t` / `cmd-n` | new tab / new window |
-| `ctrl-w ,` / `cmd-shift-t` | rename tab (double-click works too) / reopen the last closed tab |
-| `ctrl-w r` | set the pane's startup command (run when its pinned workspace is restored) |
-| `cmd-1..9` | jump to tab |
-| `cmd-alt-1..9` | jump to workspace |
-| `⌃tab` `⇧⌘]` / `⌃⇧tab` `⇧⌘[` | next / previous tab |
-| `ctrl-w p` | focus the workspaces panel (`tab` toggles tree ↔ workspaces) |
-| `ctrl-w v` / `ctrl-w s` | split right / down (`⇧V` / `⇧S` for left / up) |
-| `cmd-d` / `cmd-shift-d` | split right / down |
-| `ctrl-w h` `j` `k` `l` | move between panes (`h` from the leftmost focuses the tree) |
-| `cmd-opt-←↓↑→` | move between panes |
-| `ctrl-w q` / `cmd-w` | close pane (closes the window when it's the last one) |
-| `ctrl-w <` `>` `-` `+` | resize the pane by a few cells (`ctrl-w =` equalises) |
-| `ctrl-w z` / `ctrl-w b` | zoom the pane to the full tab / broadcast input to every pane in the tab |
-| `ctrl-w o` / `ctrl-w x` | close the other panes / swap the pane with its neighbour |
-| `cmd-shift-p` / `cmd-alt-t` | command palette / theme picker |
-| `cmd-c` / `cmd-v` | copy / paste (bracketed) |
-| `cmd +` / `-` / `0` | font size |
+The `ctrl-w` chords are the same everywhere. Where macOS uses `cmd`, Linux uses
+`ctrl-shift` (the usual terminal convention — plain `ctrl-c` stays the shell's) and
+`alt-1..9` for tabs, because Super belongs to the window manager.
+
+| macOS | Linux | Action |
+|---|---|---|
+| `ctrl-w h` / `ctrl-w l` / `ctrl-w w` | same | focus tree / terminal / toggle |
+| `cmd-b` | `ctrl-shift-b` | toggle the drawer |
+| `ctrl-w t` / `cmd-shift-e` | `ctrl-w t` / `ctrl-shift-e` | focus the file tree from anywhere |
+| `cmd-f` | `ctrl-shift-f` | search scrollback (`⏎` older, `⇧⏎` newer, `esc` close; `cmd-alt-r` / `c` / `w` — `ctrl-alt-r` / `c` / `w` on Linux — toggle regex / case / whole word) |
+| `ctrl-w [` / `cmd-shift-v` | `ctrl-w [` | copy mode — vim keys in the scrollback, `y` yanks, `esc` leaves |
+| `cmd-k` | `ctrl-shift-k` | clear scrollback |
+| `cmd-↑` / `cmd-↓` | `ctrl-shift-↑` / `↓` | jump to previous / next prompt |
+| `cmd-r` | `ctrl-shift-r` | command history (`⏎` insert, `⌘⏎` / `ctrl-⏎` run) |
+| `cmd-p` | `ctrl-shift-o` | fuzzy file finder (`⏎` open, `⌘⏎` / `ctrl-⏎` insert path, `⌥⏎` reveal) |
+| `cmd-shift-r` | `ctrl-shift-alt-r` | reveal the shell's directory in the tree |
+| `cmd-click` | `ctrl-click` | open a URL, or a `path:line` in `$EDITOR` |
+| `cmd-shift-c` | `ctrl-shift-alt-c` | copy the last command's output |
+| `cmd-t` / `cmd-n` | `ctrl-shift-t` / `ctrl-shift-n` | new tab / new window |
+| `ctrl-w ,` / `cmd-shift-t` | `ctrl-w ,` / `ctrl-shift-alt-t` | rename tab (double-click works too) / reopen the last closed tab |
+| `ctrl-w r` | same | set the pane's startup command (run when its pinned workspace is restored) |
+| `cmd-1..9` | `alt-1..9` | jump to tab |
+| `cmd-alt-1..9` | `ctrl-alt-1..9` | jump to workspace |
+| `⌃tab` `⇧⌘]` / `⌃⇧tab` `⇧⌘[` | `ctrl-tab` `ctrl-pgdn` / `ctrl-shift-tab` `ctrl-pgup` | next / previous tab |
+| `ctrl-w p` | same | focus the workspaces panel (`tab` toggles tree ↔ workspaces) |
+| `ctrl-w v` / `ctrl-w s` | same | split right / down (`⇧V` / `⇧S` for left / up) |
+| `cmd-d` / `cmd-shift-d` | — | split right / down |
+| `ctrl-w h` `j` `k` `l` | same | move between panes (`h` from the leftmost focuses the tree) |
+| `cmd-opt-←↓↑→` | — | move between panes |
+| `ctrl-w q` / `cmd-w` | `ctrl-w q` / `ctrl-shift-w` | close pane (closes the window when it's the last one) |
+| `ctrl-w <` `>` `-` `+` | same | resize the pane by a few cells (`ctrl-w =` equalises) |
+| `ctrl-w z` / `ctrl-w b` | same | zoom the pane to the full tab / broadcast input to every pane in the tab |
+| `ctrl-w o` / `ctrl-w x` | same | close the other panes / swap the pane with its neighbour |
+| `cmd-shift-p` / `cmd-alt-t` | `ctrl-shift-p` / `ctrl-w shift-t` | command palette / theme picker |
+| `cmd-c` / `cmd-v` | `ctrl-shift-c` / `ctrl-shift-v` | copy / paste (bracketed); Linux also pastes the primary selection on middle-click |
+| `cmd +` / `-` / `0` | `ctrl +` / `-` / `0` | font size |
+| `cmd-q` | `ctrl-shift-q` | quit |
 
 <details>
 <summary><b>In the tree</b> — bare keys are free; there's no text input to collide with</summary>
@@ -202,7 +228,8 @@ action id, and a `[keymap]` table in your config rebinds any of them.
 | `l` / `h` | expand & descend / collapse & ascend (nvim-tree semantics) |
 | `enter` / `o` | open dir, or file in `$EDITOR` |
 | `y` / `Y` | insert the path at the prompt (relative / absolute) |
-| `cmd-c` | copy the path |
+| `cmd-c` (`ctrl-shift-c`) | copy the path |
+| `cmd-shift-o` (`ctrl-shift-o`) | reveal in Finder / the file manager |
 | `c` / `-` | re-root at selection / at parent (cd's the shell too) |
 | `/` | filter (`esc` clears) |
 | `a` / `r` / `m` / `d` | add (`dir/` with trailing slash) / rename / move / delete to Trash |
@@ -290,12 +317,20 @@ enabled = false               # keep your own prompt (starship, p10k, ...)
 
 ## Build from source
 
-You'll need [Rust](https://rustup.rs) (2024 edition) and full Xcode with the Metal toolchain —
-GPUI compiles Metal shaders at build time:
+You'll need [Rust](https://rustup.rs) (2024 edition). On macOS, also full Xcode with the Metal
+toolchain — GPUI compiles Metal shaders at build time:
 
 ```sh
 sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
 xcodebuild -downloadComponent MetalToolchain   # if the build asks for it
+```
+
+On Linux, the GPUI build dependencies (Arch shown; Debian/Ubuntu equivalents are in
+`.github/workflows/ci.yml`):
+
+```sh
+sudo pacman -S --needed base-devel fontconfig freetype2 libxkbcommon libxkbcommon-x11 \
+  libxcb wayland vulkan-icd-loader libnotify
 ```
 
 ```sh
@@ -303,16 +338,22 @@ git clone https://github.com/bobbycoleman-dev/oxide.git
 cd oxide
 cargo run                     # development
 
+# macOS
 ./scripts/bundle.sh           # release build -> target/Oxide.app (ad-hoc signed)
 cp -R target/Oxide.app /Applications/
+sudo cp scripts/oxide-cli /usr/local/bin/oxide && sudo chmod +x /usr/local/bin/oxide   # optional `oxide [dir]` shim
 
-# optional CLI shim: `oxide [dir]` from any terminal
-sudo cp scripts/oxide-cli /usr/local/bin/oxide && sudo chmod +x /usr/local/bin/oxide
+# Linux
+./scripts/linux-package.sh    # release build -> target/oxide-<version>-linux-<arch>.tar.gz
+tar xzf target/oxide-*-linux-*.tar.gz -C /tmp && /tmp/oxide-*-linux-*/install.sh
 ```
 
-The first build compiles GPUI and its Metal shaders — expect several minutes. A `cargo run`
-binary isn't an app bundle, so it never auto-updates and its notifications can't be clicked;
-run the bundle from `scripts/bundle.sh` for the real thing. Cutting a release is covered in
+The first build compiles GPUI — expect several minutes. A `cargo run` binary is a debug
+build: fine for poking at a change, but a full-screen program like nvim will feel sluggish
+in it (an unoptimised GPUI redraw doesn't fit in a 60 Hz frame; the release build uses a
+quarter of the CPU). It also never checks for updates, and on macOS it isn't an app bundle,
+so its notifications can't be clicked. Use `scripts/bundle.sh` / `scripts/linux-package.sh`
+for the real thing. Cutting a release is covered in
 [RELEASING.md](RELEASING.md).
 
 ## Architecture
@@ -323,7 +364,10 @@ the GPUI main thread briefly locks it during paint to copy the visible grid out,
 then shapes and paints batched text runs directly — no per-cell elements.
 Directory scans, git queries, and file watching run on the background pool.
 The tree follows `cd` by polling the PTY's foreground process group cwd
-(`tcgetpgrp` + `proc_pidinfo`), so it works with zero shell cooperation.
+(`tcgetpgrp` + `proc_pidinfo` on macOS, `/proc/<pid>/cwd` on Linux), so it works
+with zero shell cooperation. Platform differences are confined to a handful of
+`cfg` sites: the process lookups, notifications (`UNUserNotificationCenter` /
+`notify-send`), the updater, the keymap tables, and the window chrome.
 
 ## Known limitations
 
@@ -336,7 +380,11 @@ The tree follows `cd` by polling the PTY's foreground process group cwd
   and it's re-run on restore. `on_exit` needs shell integration with zsh or
   bash; other shells get the command typed in and nothing more.
 - Left/right Option can't be distinguished; `option_as_meta` treats `left`/`right` as `both`.
-- macOS only. A Linux port is mapped out ([LINUX_PORT.md](LINUX_PORT.md)) but not written.
+- Linux: `bell = "sound"` falls back to the visual flash; there's no in-place
+  self-update (the pill opens the release page); `window.titlebar` is ignored — the
+  compositor owns decorations, and under a compositor without server-side
+  decorations (GNOME) the window has none; Oxide can't yet be an
+  `xdg-terminal-exec` target because it has no `-e command` flag.
 
 ## Community
 

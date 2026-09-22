@@ -1,7 +1,13 @@
 #!/bin/bash
-# CLI shim: `oxide [dir] [--no-startup-commands]` opens the app bundle from
-# another terminal.
-# Install: cp scripts/oxide-cli /usr/local/bin/oxide && chmod +x /usr/local/bin/oxide
+# CLI shim: `oxide [dir] [--no-startup-commands]` opens Oxide from another
+# terminal.
+#
+# macOS install: cp scripts/oxide-cli /usr/local/bin/oxide && chmod +x /usr/local/bin/oxide
+#
+# Linux doesn't need it: the binary itself is `oxide` on PATH and takes the
+# same arguments. Install this ahead of it (say, in ~/.local/bin) only if
+# you want the macOS behaviour of returning to the shell immediately
+# instead of holding the terminal until the window closes.
 #
 # With no directory given the app opens at the current one. Flags pass
 # through untouched; --no-startup-commands restores pinned workspaces
@@ -14,4 +20,35 @@ for arg in "$@"; do
     *) dir="$arg" ;;
   esac
 done
-open -a Oxide --args "${dir:-$PWD}" "${flags[@]}"
+
+case "$(uname -s)" in
+  Darwin)
+    open -a Oxide --args "${dir:-$PWD}" "${flags[@]}"
+    ;;
+  *)
+    # The real binary: OXIDE_BIN, or the first `oxide` on PATH that isn't
+    # this script. Detach from the calling terminal so the window outlives
+    # the shell that launched it.
+    self="$(readlink -f "$0")"
+    bin="${OXIDE_BIN:-}"
+    if [[ -z "$bin" ]]; then
+      IFS=: read -ra dirs <<< "$PATH"
+      for d in "${dirs[@]}"; do
+        candidate="$d/oxide"
+        if [[ -x "$candidate" && "$(readlink -f "$candidate")" != "$self" ]]; then
+          bin="$candidate"
+          break
+        fi
+      done
+    fi
+    if [[ -z "$bin" || ! -x "$bin" ]]; then
+      echo "oxide: can't find the oxide binary on PATH (set OXIDE_BIN)" >&2
+      exit 1
+    fi
+    if command -v setsid >/dev/null 2>&1; then
+      setsid -f "$bin" "${dir:-$PWD}" "${flags[@]}" >/dev/null 2>&1 </dev/null
+    else
+      nohup "$bin" "${dir:-$PWD}" "${flags[@]}" >/dev/null 2>&1 </dev/null &
+    fi
+    ;;
+esac
