@@ -348,9 +348,12 @@ sudo cp scripts/oxide-cli /usr/local/bin/oxide && sudo chmod +x /usr/local/bin/o
 tar xzf target/oxide-*-linux-*.tar.gz -C /tmp && /tmp/oxide-*-linux-*/install.sh
 ```
 
-The first build compiles GPUI — expect several minutes. A `cargo run` binary never checks
-for updates, and on macOS it isn't an app bundle, so its notifications can't be clicked;
-run the bundle from `scripts/bundle.sh` for the real thing. Cutting a release is covered in
+The first build compiles GPUI — expect several minutes. A `cargo run` binary is a debug
+build: fine for poking at a change, but a full-screen program like nvim will feel sluggish
+in it (an unoptimised GPUI redraw doesn't fit in a 60 Hz frame; the release build uses a
+quarter of the CPU). It also never checks for updates, and on macOS it isn't an app bundle,
+so its notifications can't be clicked. Use `scripts/bundle.sh` / `scripts/linux-package.sh`
+for the real thing. Cutting a release is covered in
 [RELEASING.md](RELEASING.md).
 
 ## Architecture
