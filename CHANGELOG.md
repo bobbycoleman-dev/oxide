@@ -11,6 +11,8 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-22
+
 ### Added
 
 - **Linux.** Oxide now builds and runs on Linux (Wayland and X11, Vulkan), as
