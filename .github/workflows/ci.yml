@@ -47,6 +47,16 @@ jobs:
             libx11-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev \
             libxcb-xfixes0-dev libssl-dev libnotify-bin \
             fish zsh dash
+      # The cross-shell tests drive real zsh and fish sessions, and both trip
+      # over the runner image on first use: zsh's compinit finds group-writable
+      # completion dirs and stops at an "insecure directories" prompt (which
+      # then swallows the test's first keystroke), and fish's first runs race
+      # each other creating ~/.local/share/fish and print warnings, which the
+      # tests read as the shell rejecting the command.
+      - name: Make zsh and fish quiet on first use
+        run: |
+          zsh -c 'autoload -Uz compaudit; compaudit' 2>/dev/null | xargs -r sudo chmod g-w,o-w || true
+          fish -c true
       - name: Install Rust
         run: rustup toolchain install stable --profile minimal && rustup default stable
       - uses: Swatinem/rust-cache@v2

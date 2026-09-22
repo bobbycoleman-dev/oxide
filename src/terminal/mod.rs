@@ -2264,10 +2264,10 @@ impl TerminalPane {
             {
                 // Linux: a selection is the primary selection, always —
                 // middle-click pastes it. The clipboard proper only on
-                // request (copy_on_select), as on macOS.
-                if cfg!(target_os = "linux") {
-                    cx.write_to_primary(ClipboardItem::new_string(text.clone()));
-                }
+                // request (copy_on_select), as on macOS. GPUI only has the
+                // primary-selection calls on the platforms that have one.
+                #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+                cx.write_to_primary(ClipboardItem::new_string(text.clone()));
                 if self.config.copy_on_select {
                     cx.write_to_clipboard(ClipboardItem::new_string(text));
                 }
@@ -2284,6 +2284,10 @@ impl TerminalPane {
 
     /// Middle click: the X11/Wayland primary-selection paste. Programs
     /// tracking the mouse get the button instead.
+    #[cfg_attr(
+        not(any(target_os = "linux", target_os = "freebsd")),
+        allow(unused_variables)
+    )]
     fn on_middle_click(
         &mut self,
         event: &MouseDownEvent,
@@ -2297,9 +2301,7 @@ impl TerminalPane {
             self.send_mouse_report(1, col, row, true, &event.modifiers);
             return;
         }
-        if !cfg!(target_os = "linux") {
-            return;
-        }
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         if let Some(text) = cx.read_from_primary().and_then(|item| item.text()) {
             self.paste_text(text, cx);
         }
