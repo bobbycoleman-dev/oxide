@@ -87,6 +87,33 @@ gh release create v0.5.8 target/Oxide-0.5.8.dmg target/Oxide-0.5.8-update.dmg \
   --notes "$(sed -n '/^## \[0.5.8\]/,/^## \[/p' CHANGELOG.md | sed '1d;$d')"
 ```
 
+### 4. The Linux build (on the Linux box)
+
+GPUI can't be cross-compiled, so the Linux tarball is built on a Linux
+machine and attached to the release `release.sh` just created:
+
+```sh
+git fetch --tags && git checkout v0.5.8
+./scripts/release-linux.sh
+```
+
+This runs `linux-package.sh` (release build, strip, tarball with the
+`.desktop` entry, icons and `install.sh`), uploads
+`oxide-<version>-linux-x86_64.tar.gz` to the release, and bumps
+`packaging/aur/oxide-terminal-bin/PKGBUILD` to the new version and checksum.
+Commit that bump, then publish the AUR package:
+
+```sh
+cd packaging/aur/oxide-terminal-bin
+makepkg --printsrcinfo > .SRCINFO
+cp PKGBUILD .SRCINFO ~/aur/oxide-terminal-bin/   # your AUR clone (ssh://aur@aur.archlinux.org/oxide-terminal-bin.git)
+cd ~/aur/oxide-terminal-bin && git commit -am "v0.5.8" && git push
+```
+
+Installed Linux copies look for the `-linux-x86_64.tar.gz` asset, so the
+update pill only appears once this step is done; the macOS updater ignores
+the extra asset (it only matches `.dmg` names).
+
 ## What happens after publishing
 
 Installed copies check GitHub on launch and every 6 hours (or immediately via
@@ -106,4 +133,5 @@ relaunch. Nothing else to do on the publishing side.
   overwrite `target/Oxide.app`, and the submitted ticket only staples to the
   exact bytes that were uploaded.
 - Development builds (`cargo run`) never auto-check for updates; only
-  installed `.app` bundles do.
+  installed `.app` bundles do — and on Linux, release builds outside a
+  `target/` directory.

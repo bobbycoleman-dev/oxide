@@ -43,7 +43,7 @@ pub fn load() -> (Config, Option<String>) {
                 if let Some(dir) = path.parent() {
                     let _ = std::fs::create_dir_all(dir);
                 }
-                let _ = std::fs::write(&path, DEFAULT_CONFIG_FILE);
+                let _ = std::fs::write(&path, default_config_file());
             }
             (Config::default(), None)
         }
@@ -143,6 +143,35 @@ pub fn watch() -> Option<(
     Some((debouncer, rx))
 }
 
+/// The generated config, with the key names in its comments spelled for
+/// this platform. The template is written in macOS terms; on Linux each
+/// `cmd-…` mention becomes its `LINUX` keymap equivalent so the comments
+/// don't describe keys that don't exist here.
+pub fn default_config_file() -> String {
+    if cfg!(target_os = "macos") {
+        return DEFAULT_CONFIG_FILE.to_string();
+    }
+    let mut text = DEFAULT_CONFIG_FILE.to_string();
+    for (mac, linux) in LINUX_KEY_SPELLINGS {
+        text = text.replace(mac, linux);
+    }
+    text
+}
+
+/// Template-comment key names and their Linux spellings, longest first so
+/// `cmd-shift-p` isn't rewritten as `ctrl-shift-shift-p`.
+const LINUX_KEY_SPELLINGS: &[(&str, &str)] = &[
+    (
+        "\"cmd-shift-p\" = \"app::palette\"",
+        "\"ctrl-shift-p\" = \"app::palette\"",
+    ),
+    ("\"cmd-d\"       = \"\"  ", "\"ctrl-shift-k\" = \"\""),
+    ("the n in cmd-n", "the n in alt-n"),
+    ("cmd-t", "ctrl-shift-t"),
+    ("cmd-b", "ctrl-shift-b"),
+    ("cmd-r", "ctrl-shift-r"),
+];
+
 const DEFAULT_CONFIG_FILE: &str = r##"# Oxide configuration.
 # This file was generated on first run; every value shown is the default.
 # Font and color changes apply live; [shell] and [prompt] changes apply to
@@ -241,7 +270,7 @@ startup_timeout      = "5s"   # give up on a pane's command if its shell isn't r
 #          | last-horizon | lumon | lupine | matte-black | miasma | osaka-jade
 #          | retro-82 | ristretto | rose-pine-dawn | solitude | vantablack | white
 preset = "catppuccin-mocha"
-# Follow the macOS appearance instead, switching between two presets:
+# Follow the system appearance instead, switching between two presets:
 # follow_system = true
 # preset_dark   = "catppuccin-mocha"
 # preset_light  = "catppuccin-latte"
@@ -256,7 +285,7 @@ preset = "catppuccin-mocha"
 
 # The prompt is compiled into a zsh init script and injected via ZDOTDIR.
 # Your own ~/.zshrc is sourced first; only PROMPT is overridden.
-# Requires zsh (the macOS default shell); other shells keep their own prompt.
+# Requires zsh or bash; other shells keep their own prompt.
 [prompt]
 enabled              = true
 separator            = ""   # powerline right arrow
@@ -291,3 +320,29 @@ options = { hide_on_success = true }
 # [[prompt.segments]]
 # kind = "duration"
 "##;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_config_parses_and_speaks_this_platforms_keys() {
+        let text = default_config_file();
+        let parsed: Result<Config, _> = toml::from_str(&text);
+        assert!(parsed.is_ok(), "{:?}", parsed.err());
+        if cfg!(target_os = "macos") {
+            assert!(text.contains("cmd-shift-p"));
+        } else {
+            assert!(
+                !text.contains("cmd-"),
+                "a cmd- key survived localisation:\n{}",
+                text.lines()
+                    .filter(|l| l.contains("cmd-"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+            assert!(text.contains("\"ctrl-shift-p\" = \"app::palette\""));
+            assert!(text.contains("the n in alt-n"));
+        }
+    }
+}

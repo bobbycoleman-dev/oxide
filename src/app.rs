@@ -165,6 +165,11 @@ pub struct Oxide {
     /// unless this launch opted out (`--no-startup-commands`, or shift held).
     run_startup_commands: bool,
     startup_skipped_at_launch: bool,
+    /// When the window opened. Wayland (and X11) only report modifier
+    /// state through events, which start once the window has keyboard
+    /// focus — after `new` has already asked. The first modifier event
+    /// inside `SHIFT_AT_LAUNCH_WINDOW` stands in for "was shift held".
+    opened_at: Instant,
     _config_watcher: Option<
         notify_debouncer_full::Debouncer<
             notify::RecommendedWatcher,
@@ -369,11 +374,24 @@ struct Toast {
 }
 
 #[derive(Clone, PartialEq)]
+// The download/install states are only reached on macOS.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 enum UpdateState {
     Idle,
     Checking,
+    /// Linux: a newer release exists; `url` is its page. No in-place
+    /// install — packages come from the AUR or a tarball.
+    Available {
+        version: String,
+        url: String,
+    },
+    /// macOS: downloading the DMG.
     Downloading(String),
-    Ready { version: String, dmg: PathBuf },
+    /// macOS: DMG on disk, one click from a swap-and-relaunch.
+    Ready {
+        version: String,
+        dmg: PathBuf,
+    },
 }
 
 pub fn home_dir() -> Option<PathBuf> {
@@ -449,9 +467,16 @@ fn editor_snippet(
     at: Option<(u32, Option<u32>)>,
     override_cmd: Option<&str>,
 ) -> String {
+    // No $EDITOR: the desktop's default text editor. macOS `open -t`;
+    // Linux `xdg-open`, which picks the MIME handler.
+    let fallback = if cfg!(target_os = "macos") {
+        "open -t"
+    } else {
+        "xdg-open"
+    };
     let Some((line, col)) = at else {
         return format!(
-            "if [ -n \"${{EDITOR:-}}\" ]; then $EDITOR {path_expr}; else open -t {path_expr}; fi"
+            "if [ -n \"${{EDITOR:-}}\" ]; then $EDITOR {path_expr}; else {fallback} {path_expr}; fi"
         );
     };
     if let Some(template) = override_cmd {
@@ -471,7 +496,7 @@ fn editor_snippet(
          code*|cursor*|zed*|codium*) $EDITOR --goto {path_expr}:{line}{colspec};; \
          emacs*) $EDITOR +{line}{colspec} {path_expr};; \
          subl*|hx*|micro*) $EDITOR {path_expr}:{line}{colspec};; \
-         *) $EDITOR {path_expr};; esac; else open -t {path_expr}; fi"
+         *) $EDITOR {path_expr};; esac; else {fallback} {path_expr}; fi"
     )
 }
 
@@ -641,6 +666,7 @@ impl Oxide {
             window_active: window.is_window_active(),
             run_startup_commands: false,
             startup_skipped_at_launch: false,
+            opened_at: Instant::now(),
             _config_watcher: config_watcher,
             _subscriptions: subscriptions,
         };
@@ -676,9 +702,9 @@ impl Oxide {
         }
         this.refresh_git_status(cx);
 
-        // Auto-check for updates: installed bundles only (not cargo run),
+        // Auto-check for updates: installed copies only (not cargo run),
         // shortly after launch and then every 6 hours.
-        if crate::update::installed_bundle().is_some() && !cfg!(debug_assertions) {
+        if crate::update::is_installed() && !cfg!(debug_assertions) {
             cx.spawn(async move |this, cx| {
                 loop {
                     let timer = match this.update(cx, |_, cx| {
@@ -763,43 +789,64 @@ impl Oxide {
                 }
             };
             let version = info.version.clone();
-            if this
-                .update(cx, |this, cx| {
-                    this.update = UpdateState::Downloading(version.clone());
+            // Linux: announce and point at the release; the package manager
+            // (or the tarball) does the install.
+            #[cfg(not(target_os = "macos"))]
+            {
+                this.update(cx, |this, cx| {
+                    this.update = UpdateState::Available {
+                        version,
+                        url: info.url,
+                    };
                     cx.notify();
                 })
-                .is_err()
-            {
-                return;
+                .ok();
             }
-            let bg2 = cx.background_executor().clone();
-            let downloaded = bg2
-                .spawn(async move { crate::update::download(&info) })
-                .await;
-            this.update(cx, |this, cx| {
-                match downloaded {
-                    Ok(dmg) => {
-                        this.update = UpdateState::Ready {
-                            version: version.clone(),
-                            dmg,
-                        };
-                    }
-                    Err(e) => {
-                        // The check just succeeded, so this isn't "offline":
-                        // worth saying even on the automatic path.
-                        this.update = UpdateState::Idle;
-                        this.toast(ToastKind::Error, e, cx);
-                    }
+            #[cfg(target_os = "macos")]
+            {
+                if this
+                    .update(cx, |this, cx| {
+                        this.update = UpdateState::Downloading(version.clone());
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    return;
                 }
-                cx.notify();
-            })
-            .ok();
+                let bg2 = cx.background_executor().clone();
+                let downloaded = bg2
+                    .spawn(async move { crate::update::download(&info) })
+                    .await;
+                this.update(cx, |this, cx| {
+                    match downloaded {
+                        Ok(dmg) => {
+                            this.update = UpdateState::Ready {
+                                version: version.clone(),
+                                dmg,
+                            };
+                        }
+                        Err(e) => {
+                            // The check just succeeded, so this isn't "offline":
+                            // worth saying even on the automatic path.
+                            this.update = UpdateState::Idle;
+                            this.toast(ToastKind::Error, e, cx);
+                        }
+                    }
+                    cx.notify();
+                })
+                .ok();
+            }
         })
         .detach();
         cx.notify();
     }
 
     fn install_update(&mut self, cx: &mut Context<Self>) {
+        if let UpdateState::Available { url, .. } = &self.update {
+            cx.open_url(url);
+            return;
+        }
+        #[cfg(target_os = "macos")]
         if let UpdateState::Ready { dmg, .. } = &self.update {
             match crate::update::install_and_restart(dmg) {
                 Ok(()) => {
@@ -1567,7 +1614,9 @@ impl Oxide {
         let resolved = Rc::new(keymap::resolve(&self.config.keymap));
         cx.clear_key_bindings();
         cx.bind_keys(resolved.bindings());
-        cx.set_menus(crate::menus());
+        if cfg!(target_os = "macos") {
+            cx.set_menus(crate::menus());
+        }
         let banner = resolved.error_banner();
         self.keymap = resolved;
         banner
@@ -3272,7 +3321,7 @@ impl Oxide {
                                 if let Some(Overlay::FileFinder(f)) = &mut this.overlay {
                                     f.selected = ix;
                                 }
-                                let action = if ev.modifiers.platform {
+                                let action = if crate::terminal::open_modifier(&ev.modifiers) {
                                     FinderAction::Insert
                                 } else if ev.modifiers.alt {
                                     FinderAction::Reveal
@@ -3580,7 +3629,11 @@ impl Oxide {
                             if let Some(Overlay::History(h)) = &mut this.overlay {
                                 h.selected = ix;
                             }
-                            this.history_confirm(ev.modifiers.platform, window, cx);
+                            this.history_confirm(
+                                crate::terminal::open_modifier(&ev.modifiers),
+                                window,
+                                cx,
+                            );
                         }),
                     )
                     .child(
@@ -4212,6 +4265,33 @@ impl Oxide {
             .iter()
             .flat_map(|t| t.layout.leaves())
             .any(|id| self.pane_startup(id, cx).is_some())
+    }
+
+    /// Shift held while the window comes up, seen late (see `opened_at`):
+    /// cancel every pane's still-pending startup command, as if the flag
+    /// had been read at launch.
+    fn on_launch_modifiers(&mut self, modifiers: gpui::Modifiers, cx: &mut Context<Self>) {
+        const SHIFT_AT_LAUNCH_WINDOW: Duration = Duration::from_millis(1500);
+        if !modifiers.shift
+            || self.startup_skipped_at_launch
+            || !self.run_startup_commands
+            || self.opened_at.elapsed() > SHIFT_AT_LAUNCH_WINDOW
+        {
+            return;
+        }
+        self.startup_skipped_at_launch = true;
+        self.run_startup_commands = false;
+        let mut cancelled = false;
+        for pane in self.panes.values() {
+            cancelled |= pane.update(cx, |pane, cx| pane.cancel_startup(cx));
+        }
+        if cancelled || self.any_startup_commands(cx) {
+            self.toast(
+                ToastKind::Info,
+                "startup commands skipped for this launch".into(),
+                cx,
+            );
+        }
     }
 
     fn any_startup_commands(&self, cx: &Context<Self>) -> bool {
@@ -5220,13 +5300,16 @@ pub fn open_oxide_window(
         gpui::WindowBackgroundAppearance::Opaque
     };
 
+    // `window.titlebar` is a macOS setting: on Linux the compositor owns
+    // decorations (GPUI asks for server-side ones; Hyprland and friends draw
+    // none anyway), so the window is always the bare content.
     let titlebar = match config.window.titlebar {
-        TitlebarMode::Hidden => gpui::TitlebarOptions {
+        TitlebarMode::Hidden if cfg!(target_os = "macos") => gpui::TitlebarOptions {
             title: Some("oxide".into()),
             appears_transparent: true,
             traffic_light_position: Some(gpui::point(px(12.0), px(10.0))),
         },
-        TitlebarMode::Native => gpui::TitlebarOptions {
+        _ => gpui::TitlebarOptions {
             title: Some("oxide".into()),
             appears_transparent: false,
             traffic_light_position: None,
@@ -5242,6 +5325,9 @@ pub fn open_oxide_window(
             focus: true,
             window_background,
             window_min_size: Some(gpui::size(px(400.0), px(300.0))),
+            // Wayland app_id / X11 WM_CLASS: what window rules and the
+            // .desktop file's StartupWMClass match on. macOS ignores it.
+            app_id: Some("oxide".into()),
             ..Default::default()
         },
         |window, cx| cx.new(|cx| Oxide::new(config, config_error, cwd, restore, window, cx)),
@@ -5304,7 +5390,10 @@ impl Render for Oxide {
 
         let tree_focused = self.tree_focus(cx).is_focused(window);
         let accent = theme.ansi[4];
-        let hidden_titlebar = config.window.titlebar == TitlebarMode::Hidden;
+        // The 30px band is where macOS draws its traffic lights over our
+        // content; Linux windows have no such inset.
+        let hidden_titlebar =
+            cfg!(target_os = "macos") && config.window.titlebar == TitlebarMode::Hidden;
 
         let mut root_bg = theme.background;
         root_bg.a = config.window.opacity.clamp(0.1, 1.0);
@@ -5316,6 +5405,11 @@ impl Render for Oxide {
             .flex()
             .flex_col()
             .bg(root_bg)
+            .on_modifiers_changed(
+                cx.listener(|this, ev: &gpui::ModifiersChangedEvent, _w, cx| {
+                    this.on_launch_modifiers(ev.modifiers, cx);
+                }),
+            )
             .font_family(config.font.family.primary().to_string())
             .text_size(px(13.0))
             .text_color(theme.foreground)
@@ -5637,6 +5731,27 @@ impl Render for Oxide {
             })
             .child(self.render_toasts(status_bar && !bar_on_top, cx))
             .map(|d| match &self.update {
+                UpdateState::Available { version, .. } => d.child(
+                    div()
+                        .id("update-available")
+                        .absolute()
+                        .top(px(5.0))
+                        .right(px(8.0))
+                        .px_3()
+                        .py_0p5()
+                        .rounded_full()
+                        .bg(accent)
+                        .text_size(px(11.0))
+                        .text_color(theme.background)
+                        .cursor_pointer()
+                        .on_mouse_down(
+                            gpui::MouseButton::Left,
+                            cx.listener(|this, _: &gpui::MouseDownEvent, _w, cx| {
+                                this.install_update(cx);
+                            }),
+                        )
+                        .child(format!("↑ v{version} available — click for the release")),
+                ),
                 UpdateState::Downloading(version) => d.child(
                     div()
                         .absolute()
@@ -5708,6 +5823,10 @@ mod edit_command_tests {
         "/bin/ksh",
         "/bin/tcsh",
         "/bin/csh",
+        "/usr/bin/fish",
+        "/usr/bin/nu",
+        "/usr/bin/elvish",
+        "/usr/bin/xonsh",
         "/opt/homebrew/bin/bash",
         "/opt/homebrew/bin/fish",
         "/opt/homebrew/bin/nu",
@@ -5772,8 +5891,12 @@ mod edit_command_tests {
     #[test]
     fn edit_command_opens_the_right_path_in_every_installed_shell() {
         let shells = installed_shells();
+        // macOS ships zsh, bash, sh, dash, ksh, tcsh and csh; a Linux box
+        // may have nothing beyond sh and bash (CI installs fish, zsh and
+        // dash on top).
+        let minimum = if cfg!(target_os = "macos") { 3 } else { 2 };
         assert!(
-            shells.len() >= 3,
+            shells.len() >= minimum,
             "expected several shells to test against, found {shells:?}"
         );
         // A space is the everyday hard case — "Application Support" and the

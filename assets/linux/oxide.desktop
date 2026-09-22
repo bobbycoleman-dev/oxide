@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Oxide
+GenericName=Terminal
+Comment=A native, GPU-rendered terminal emulator with a vim-driven file tree drawer, splits and workspaces
+Exec=oxide
+Icon=oxide
+Terminal=false
+Categories=System;TerminalEmulator;
+Keywords=terminal;shell;command;prompt;
+StartupWMClass=oxide

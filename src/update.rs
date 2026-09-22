@@ -1,16 +1,22 @@
 //! Self-update from GitHub releases.
 //!
-//! Blocking helpers — call on the background pool. The install step swaps the
-//! bundle from a detached shell after the app quits, then relaunches.
+//! Blocking helpers — call on the background pool. On macOS the install step
+//! swaps the bundle from a detached shell after the app quits, then
+//! relaunches. On Linux there is no in-place install (packages come from the
+//! AUR or a tarball), so a newer release is only announced: the pill opens
+//! the release page.
 
-use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 
 const RELEASES_API: &str = "https://api.github.com/repos/bobbycoleman-dev/oxide/releases/latest";
 
 pub struct ReleaseInfo {
     pub version: String,
-    pub dmg_url: String,
+    /// macOS: the DMG to download. Linux: the release page to open.
+    pub url: String,
 }
 
 fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
@@ -32,7 +38,8 @@ pub fn is_newer(remote: &str, local: &str) -> bool {
     }
 }
 
-/// Query the latest release. Returns None when there's no DMG asset yet.
+/// Query the latest release. Returns None when there's no asset for this
+/// platform yet (a DMG on macOS, a Linux tarball on Linux).
 pub fn fetch_latest() -> Result<Option<ReleaseInfo>, String> {
     let out = Command::new("curl")
         .args([
@@ -56,19 +63,45 @@ pub fn fetch_latest() -> Result<Option<ReleaseInfo>, String> {
     let Some(tag) = json["tag_name"].as_str() else {
         return Ok(None);
     };
-    let Some(dmg_url) = dmg_url(&json) else {
+    let Some(url) = release_url(&json) else {
         return Ok(None);
     };
     Ok(Some(ReleaseInfo {
         version: tag.trim_start_matches('v').to_string(),
-        dmg_url: dmg_url.to_string(),
+        url: url.to_string(),
     }))
+}
+
+#[cfg(target_os = "macos")]
+fn release_url(release: &serde_json::Value) -> Option<&str> {
+    dmg_url(release)
+}
+
+/// The Linux build is attached after the macOS release (it's built on a
+/// separate machine), so a release only counts once its tarball is up:
+/// otherwise the pill would point at a page with nothing to install.
+#[cfg(not(target_os = "macos"))]
+fn release_url(release: &serde_json::Value) -> Option<&str> {
+    linux_tarball_present(release, std::env::consts::ARCH)
+        .then(|| release["html_url"].as_str())
+        .flatten()
+}
+
+#[cfg(any(not(target_os = "macos"), test))]
+fn linux_tarball_present(release: &serde_json::Value, arch: &str) -> bool {
+    let suffix = format!("-linux-{arch}.tar.gz");
+    release["assets"].as_array().is_some_and(|assets| {
+        assets
+            .iter()
+            .any(|a| a["name"].as_str().is_some_and(|n| n.ends_with(&suffix)))
+    })
 }
 
 /// Releases carry the same DMG twice: `Oxide-x.y.z-update.dmg` for the
 /// updater and `Oxide-x.y.z.dmg` for the website, so GitHub's per-asset
 /// download counts keep installs and updates apart. Older releases only have
 /// the plain one.
+#[cfg(any(target_os = "macos", test))]
 fn dmg_url(release: &serde_json::Value) -> Option<&str> {
     let assets = release["assets"].as_array()?;
     let named = |suffix: &str| {
@@ -103,6 +136,7 @@ fn updated_from(previous: Option<&str>, current: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+#[cfg(target_os = "macos")]
 fn updates_dir() -> Option<PathBuf> {
     let dir = directories::BaseDirs::new()?
         .home_dir()
@@ -111,6 +145,7 @@ fn updates_dir() -> Option<PathBuf> {
     Some(dir)
 }
 
+#[cfg(target_os = "macos")]
 pub fn download(info: &ReleaseInfo) -> Result<PathBuf, String> {
     let dir = updates_dir().ok_or("no cache directory")?;
     let dest = dir.join(format!("Oxide-{}.dmg", info.version));
@@ -121,7 +156,7 @@ pub fn download(info: &ReleaseInfo) -> Result<PathBuf, String> {
     let status = Command::new("curl")
         .args(["-fsSL", "--max-time", "600", "-o"])
         .arg(&partial)
-        .arg(&info.dmg_url)
+        .arg(&info.url)
         .status()
         .map_err(|e| format!("download failed: {e}"))?;
     if !status.success() {
@@ -139,6 +174,23 @@ pub fn installed_bundle() -> Option<PathBuf> {
     (bundle.extension().and_then(|e| e.to_str()) == Some("app")).then(|| bundle.to_path_buf())
 }
 
+/// Whether this is an installed copy rather than a development build: the
+/// gate for the automatic update check. macOS: running from a `.app`
+/// bundle. Linux: a release build whose executable isn't under a cargo
+/// `target/` directory (a package or a tarball install).
+pub fn is_installed() -> bool {
+    if cfg!(target_os = "macos") {
+        return installed_bundle().is_some();
+    }
+    if cfg!(debug_assertions) {
+        return false;
+    }
+    std::env::current_exe()
+        .ok()
+        .is_some_and(|exe| !exe.components().any(|c| c.as_os_str() == "target"))
+}
+
+#[cfg(target_os = "macos")]
 fn sh_quote(p: &Path) -> String {
     format!("'{}'", p.to_string_lossy().replace('\'', r"'\''"))
 }
@@ -146,6 +198,7 @@ fn sh_quote(p: &Path) -> String {
 /// Kick off the swap-and-relaunch script. The caller should quit the app
 /// immediately after this returns Ok — the script waits for us to exit,
 /// replaces the bundle, and reopens it.
+#[cfg(target_os = "macos")]
 pub fn install_and_restart(dmg: &Path) -> Result<(), String> {
     let Some(bundle) = installed_bundle() else {
         // Not running from an installed bundle (e.g. cargo run): hand the DMG
@@ -207,6 +260,19 @@ mod tests {
         let old = serde_json::json!({"assets": [{"name": "Oxide-0.5.0.dmg", "browser_download_url": "site"}]});
         assert_eq!(dmg_url(&old), Some("site"));
         assert_eq!(dmg_url(&serde_json::json!({"assets": []})), None);
+    }
+
+    #[test]
+    fn linux_release_needs_its_tarball() {
+        let with = serde_json::json!({"assets": [
+            {"name": "Oxide-1.0.0.dmg"},
+            {"name": "oxide-1.0.0-linux-x86_64.tar.gz"},
+        ]});
+        assert!(linux_tarball_present(&with, "x86_64"));
+        assert!(!linux_tarball_present(&with, "aarch64"), "other arch");
+        let mac_only = serde_json::json!({"assets": [{"name": "Oxide-1.0.0.dmg"}]});
+        assert!(!linux_tarball_present(&mac_only, "x86_64"));
+        assert!(!linux_tarball_present(&serde_json::json!({}), "x86_64"));
     }
 
     #[test]

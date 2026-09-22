@@ -11,6 +11,30 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+### Added
+
+- **Linux.** Oxide now builds and runs on Linux (Wayland and X11, Vulkan), as
+  an AUR package (`oxide-terminal-bin`) or a release tarball with an install
+  script. Everything that isn't the window chrome works the same: the tree
+  follows `cd` and tab titles follow the foreground command through procfs,
+  finished commands notify through `notify-send` (and a click on the
+  notification brings the pane back where the daemon supports it), deleted
+  files go to the XDG trash, "Reveal in File Manager" opens your file
+  manager, and a newer release shows up in the top-right pill (it opens the
+  release page; the package manager does the install).
+- A Linux keymap: `ctrl-shift-*` where macOS uses `cmd-*` (copy, paste, new
+  tab, search, palette…), `alt-1..9` for tabs and `ctrl-alt-1..9` for
+  workspaces, `ctrl-click` to open links and paths. Super is never bound —
+  it belongs to the window manager. The `ctrl-w` chords are identical on
+  both. Palette and overlay hints read `Ctrl+Shift+P` rather than `⇧⌘P`.
+- Linux: selecting text sets the primary selection, and middle-click pastes
+  it.
+- Shift held while Oxide launches skips startup commands on Linux too; the
+  key state arrives with keyboard focus rather than at launch, so it's read
+  in the first moment after the window opens.
+- Linux: closing the last window quits, rather than lingering with nothing
+  to reopen from.
+
 ## [0.5.8] - 2026-09-21
 
 ### Added

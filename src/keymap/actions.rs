@@ -7,6 +7,14 @@
 
 use super::registry::oxide_actions;
 
+/// `App::reveal_path` lands in Finder on macOS and the default file manager
+/// on Linux; the action id keeps its historical name either way.
+const REVEAL_TITLE: &str = if cfg!(target_os = "macos") {
+    "Tree: Reveal in Finder"
+} else {
+    "Tree: Reveal in File Manager"
+};
+
 oxide_actions! {
     // --- Application ---
     Quit            => "app::quit",              "Quit Oxide",              "Application", ["exit"], Root;
@@ -145,7 +153,7 @@ oxide_actions! {
     TreeYankAbsolute => "tree::yank_path_absolute", "Tree: Insert Absolute Path at Prompt", "File Tree", ["paste"], FileTree;
     TreeCopyPath     => "tree::copy_path",      "Tree: Copy Path",           "File Tree", ["clipboard"], FileTree;
     TreeCdHere       => "tree::cd",             "Tree: cd the Shell Here",   "File Tree", ["change directory"], FileTree;
-    TreeRevealFinder => "tree::reveal_in_finder", "Tree: Reveal in Finder",  "File Tree", ["open in finder"], FileTree;
+    TreeRevealFinder => "tree::reveal_in_finder", REVEAL_TITLE,              "File Tree", ["open in finder", "file manager"], FileTree;
 
     // --- Overlay navigation (theme picker, palette) ---
     PickerNext    => "overlay::next",    "Overlay: Next Item",     "Overlay", [], Overlay;

@@ -154,6 +154,17 @@ fn main() {
         // Oxide is frontmost.
         notifications::init();
 
+        // Linux has no Dock to reopen from, and a windowless process is
+        // just a stray one under a tiling WM: closing the last window quits.
+        if cfg!(target_os = "linux") {
+            cx.on_window_closed(|cx| {
+                if cx.windows().is_empty() {
+                    cx.quit();
+                }
+            })
+            .detach();
+        }
+
         // Bundle the default font so a machine with no Nerd Font installed
         // still gets crisp monospace and every powerline/tree glyph. GPUI
         // consults in-memory fonts before system ones, so a user-installed
@@ -199,7 +210,11 @@ fn main() {
         cx.on_action(|_: &OpenHelp, cx| cx.open_url(&format!("{WEBSITE_URL}/docs/")));
         cx.on_action(|_: &ReportIssue, cx| cx.open_url(&format!("{WEBSITE_URL}/issues/new")));
 
-        cx.set_menus(menus());
+        // The menu bar is a macOS thing; Linux keeps the actions reachable
+        // through the palette and the keymap.
+        if cfg!(target_os = "macos") {
+            cx.set_menus(menus());
+        }
 
         // Notification clicks arrive on the AppKit main thread through a
         // channel; whichever window owns the routed pane brings it forward.

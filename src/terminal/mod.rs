@@ -45,9 +45,36 @@ pub use osc::{Marker, MarkerKind};
 pub use process::ForegroundProcess;
 use session::{SessionEvent, SessionOptions, TermSize, TerminalSession, resolve_shell};
 
+#[cfg(target_os = "macos")]
 #[link(name = "AppKit", kind = "framework")]
 unsafe extern "C" {
     fn NSBeep();
+}
+
+/// The modifier that turns a click into "open this": cmd on macOS, ctrl on
+/// Linux — Super+click is the compositor's window-move on every major Linux
+/// desktop, so it never reaches the app. Mouse handlers test this directly,
+/// outside the keymap.
+pub fn open_modifier(m: &gpui::Modifiers) -> bool {
+    if cfg!(target_os = "macos") {
+        m.platform
+    } else {
+        m.control
+    }
+}
+
+/// The system alert sound. Linux has no single "beep" API (XDG sound themes,
+/// ALSA, PipeWire…), so `bell = "sound"` degrades to the visual flash there.
+fn system_beep() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe { NSBeep() };
+        true
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
 }
 
 pub enum TerminalEvent {
@@ -768,8 +795,8 @@ impl TerminalPane {
             }
             AlacEvent::Bell => match self.config.bell {
                 BellMode::None => {}
-                BellMode::Sound => unsafe { NSBeep() },
-                BellMode::Visual => {
+                BellMode::Sound if system_beep() => {}
+                BellMode::Sound | BellMode::Visual => {
                     self.bell_until = Some(Instant::now() + Duration::from_millis(150));
                     let timer = cx.background_executor().timer(Duration::from_millis(160));
                     cx.spawn(async move |this, cx| {
@@ -1506,6 +1533,19 @@ impl TerminalPane {
         cx.notify();
     }
 
+    /// Drop a queued startup command before it fires (shift held at launch,
+    /// noticed only once the window has keyboard focus). Returns whether
+    /// one was pending.
+    pub fn cancel_startup(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.startup_phase != StartupPhase::Pending {
+            return false;
+        }
+        self.startup_phase = StartupPhase::Done;
+        self.startup_generation += 1;
+        cx.notify();
+        true
+    }
+
     /// No markers to say the prompt is up: treat the first output as "the
     /// rc files are running" and fire shortly after. Racy by nature, which
     /// is why the marker path is preferred.
@@ -1936,13 +1976,19 @@ impl TerminalPane {
     }
 
     fn paste(&mut self, _: &Paste, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
+            return;
+        };
+        self.paste_text(text, cx);
+    }
+
+    /// Hand `text` to the shell as a paste (bracketed when the program
+    /// asked for it).
+    fn paste_text(&mut self, text: String, cx: &mut Context<Self>) {
         if self.vi.is_some() {
             return; // nothing reaches the shell in copy mode
         }
         let Some(session) = &self.session else { return };
-        let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
-            return;
-        };
         let bracketed = session
             .term
             .lock()
@@ -2099,7 +2145,7 @@ impl TerminalPane {
         let Some((point, side, col, row)) = self.grid_point(event.position) else {
             return;
         };
-        if event.modifiers.platform {
+        if open_modifier(&event.modifiers) {
             match self.target_at(point).map(|(t, _)| t) {
                 Some(ClickTarget::Url(url)) => cx.open_url(&url),
                 Some(ClickTarget::Path { path, line, col }) => {
@@ -2153,8 +2199,9 @@ impl TerminalPane {
         cx: &mut Context<Self>,
     ) {
         if event.pressed_button.is_none() {
-            // cmd-hover: underline whatever a click would open.
-            let span = if event.modifiers.platform {
+            // cmd-hover (ctrl-hover on Linux): underline whatever a click
+            // would open.
+            let span = if open_modifier(&event.modifiers) {
                 self.grid_point(event.position)
                     .and_then(|(point, _, _, row)| {
                         self.target_at(point).map(|(_, token)| HoverSpan {
@@ -2211,12 +2258,19 @@ impl TerminalPane {
     fn on_mouse_up(&mut self, event: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
         if self.selecting {
             self.selecting = false;
-            if self.config.copy_on_select
-                && let Some(session) = &self.session
+            if let Some(session) = &self.session
                 && let Some(text) = session.term.lock().selection_to_string()
                 && !text.is_empty()
             {
-                cx.write_to_clipboard(ClipboardItem::new_string(text));
+                // Linux: a selection is the primary selection, always —
+                // middle-click pastes it. The clipboard proper only on
+                // request (copy_on_select), as on macOS.
+                if cfg!(target_os = "linux") {
+                    cx.write_to_primary(ClipboardItem::new_string(text.clone()));
+                }
+                if self.config.copy_on_select {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                }
             }
             return;
         }
@@ -2225,6 +2279,29 @@ impl TerminalPane {
         };
         if self.mouse_mode_active(event.modifiers.shift) {
             self.send_mouse_report(0, col, row, false, &event.modifiers);
+        }
+    }
+
+    /// Middle click: the X11/Wayland primary-selection paste. Programs
+    /// tracking the mouse get the button instead.
+    fn on_middle_click(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        window.focus(&self.focus_handle);
+        if let Some((_, _, col, row)) = self.grid_point(event.position)
+            && self.mouse_mode_active(event.modifiers.shift)
+        {
+            self.send_mouse_report(1, col, row, true, &event.modifiers);
+            return;
+        }
+        if !cfg!(target_os = "linux") {
+            return;
+        }
+        if let Some(text) = cx.read_from_primary().and_then(|item| item.text()) {
+            self.paste_text(text, cx);
         }
     }
 
@@ -2380,12 +2457,13 @@ impl Render for TerminalPane {
             .on_action(cx.listener(Self::copy_last_block))
             .on_key_down(cx.listener(Self::on_key_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+            .on_mouse_down(MouseButton::Middle, cx.listener(Self::on_middle_click))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
             .on_modifiers_changed(
                 cx.listener(|this, ev: &gpui::ModifiersChangedEvent, _w, cx| {
-                    if !ev.modifiers.platform && this.hover.is_some() {
+                    if !open_modifier(&ev.modifiers) && this.hover.is_some() {
                         this.hover = None;
                         cx.notify();
                     }

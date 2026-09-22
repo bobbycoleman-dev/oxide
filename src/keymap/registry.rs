@@ -44,7 +44,7 @@ pub struct ActionMeta {
 /// }
 /// ```
 macro_rules! oxide_actions {
-    ($( $name:ident => $id:literal, $title:literal, $category:literal, [$($alias:literal),* $(,)?], $ctx:ident; )*) => {
+    ($( $name:ident => $id:literal, $title:expr, $category:literal, [$($alias:literal),* $(,)?], $ctx:ident; )*) => {
         gpui::actions!(oxide, [$($name),*]);
 
         pub static REGISTRY: &[$crate::keymap::registry::ActionMeta] = &[
