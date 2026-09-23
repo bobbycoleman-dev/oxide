@@ -51,8 +51,10 @@ and every six hours, or on demand via **Oxide → Check for Updates…**
 **Linux** (Wayland or X11, x86_64)
 
 ```sh
-# Arch and derivatives: the AUR package
-yay -S oxide-terminal-bin
+# Arch and derivatives: a pacman package from the PKGBUILD in this repo
+# (an AUR package will follow once AUR registration reopens)
+git clone https://github.com/bobbycoleman-dev/oxide.git
+cd oxide/packaging/aur/oxide-terminal-bin && makepkg -si
 
 # any distro: the release tarball
 tar xzf oxide-<version>-linux-x86_64.tar.gz
@@ -62,8 +64,8 @@ cd oxide-<version>-linux-x86_64 && ./install.sh        # into ~/.local, no root
 The tarball is on the same [release page](https://github.com/bobbycoleman-dev/oxide/releases/latest).
 `install.sh` puts `oxide` on your PATH and adds the launcher entry and icon;
 `--prefix /usr/local` (with sudo) installs system-wide, `--uninstall` removes it.
-Installed copies announce a newer release in the top-right corner; the AUR or the
-tarball does the update.
+Installed copies announce a newer release in the top-right corner; `git pull` and
+`makepkg -si` again, or a fresh tarball, does the update.
 
 - macOS 12 or later, Apple Silicon or Intel; or Linux with a Vulkan driver
   (any GPU from the last decade — Mesa's `vulkan-radeon` / `vulkan-intel`, or

@@ -16,8 +16,9 @@ write for users: what changed and why it matters, not which files moved.
 ### Added
 
 - **Linux.** Oxide now builds and runs on Linux (Wayland and X11, Vulkan), as
-  an AUR package (`oxide-terminal-bin`) or a release tarball with an install
-  script. Everything that isn't the window chrome works the same: the tree
+  a pacman package (`makepkg -si` from `packaging/aur/oxide-terminal-bin`;
+  the AUR listing follows once registration reopens) or a release tarball
+  with an install script. Everything that isn't the window chrome works the same: the tree
   follows `cd` and tab titles follow the foreground command through procfs,
   finished commands notify through `notify-send` (and a click on the
   notification brings the pane back where the daemon supports it), deleted
