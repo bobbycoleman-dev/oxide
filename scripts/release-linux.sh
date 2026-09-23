@@ -21,10 +21,20 @@ ARCH=$(uname -m)
 TARBALL="target/oxide-${VERSION}-linux-${ARCH}.tar.gz"
 PKGBUILD="packaging/aur/oxide-terminal-bin/PKGBUILD"
 
-if [[ "$(git describe --tags --exact-match 2>/dev/null || true)" != "$TAG" ]]; then
-  echo "error: HEAD is not tagged $TAG. Check out the release commit first:" >&2
-  echo "       git fetch --tags && git checkout $TAG" >&2
+# The binary must be what the tag describes. HEAD may sit past the tag as
+# long as nothing that goes into the build changed since — docs commits
+# after a release are fine, a source change is not.
+if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+  echo "error: no tag $TAG. Run release.sh on the Mac first, then: git fetch --tags" >&2
   exit 1
+fi
+if [[ "$(git describe --tags --exact-match 2>/dev/null || true)" != "$TAG" ]]; then
+  if ! git diff --quiet "$TAG" HEAD -- Cargo.toml Cargo.lock src assets scripts/linux-package.sh; then
+    echo "error: HEAD differs from $TAG in the sources. Build from the tag:" >&2
+    echo "       git checkout $TAG" >&2
+    exit 1
+  fi
+  echo "note: HEAD is past $TAG but the sources are identical; building anyway"
 fi
 
 scripts/linux-package.sh

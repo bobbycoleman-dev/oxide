@@ -97,7 +97,7 @@ on it:
 ```sh
 ssh linux-box
 cd ~/Code/oxide-app/oxide
-git pull --ff-only && git fetch --tags    # HEAD is now v0.6.0
+git pull --ff-only && git fetch --tags    # HEAD is at (or just past) v0.6.0
 ./scripts/release-linux.sh
 ```
 
@@ -105,8 +105,9 @@ This runs `linux-package.sh` (release build, strip, tarball with the
 `.desktop` entry, icons and `install.sh`), uploads
 `oxide-<version>-linux-x86_64.tar.gz` to the release, and bumps
 `packaging/aur/oxide-terminal-bin/PKGBUILD` to the new version and checksum.
-It refuses to run if HEAD isn't the tagged commit or the release doesn't
-exist yet. Commit that bump, then publish the AUR package:
+It refuses to run if the release doesn't exist yet, or if anything that
+goes into the build (`Cargo.*`, `src/`, `assets/`) changed since the tag —
+commits after the release that only touch docs are fine. Commit that bump, then publish the AUR package:
 
 ```sh
 git commit -am "aur: oxide-terminal-bin 0.6.0" && git push
