@@ -11,6 +11,10 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+### Added
+
+- `oxide --version` / `-V` prints the version, and `--help` / `-h` the usage.
+
 ## [0.6.0] - 2026-09-22
 
 ### Added

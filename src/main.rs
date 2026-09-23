@@ -135,7 +135,26 @@ pub(crate) fn startup_commands_disabled_by_cli() -> bool {
         .any(|a| a == "--no-startup-commands")
 }
 
+const USAGE: &str = "\
+usage: oxide [<directory>] [--no-startup-commands]
+
+  <directory>              open the first pane there (default: the current directory)
+  --no-startup-commands    restore pinned workspaces' layout without running their startup commands
+  -V, --version            print the version and exit
+  -h, --help               print this and exit";
+
 fn main() {
+    // Plain CLI queries: answer without touching the display or any state.
+    let mut args = std::env::args().skip(1);
+    if args.any(|a| a == "--version" || a == "-V") {
+        println!("oxide {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    if std::env::args().skip(1).any(|a| a == "--help" || a == "-h") {
+        println!("{USAGE}");
+        return;
+    }
+
     let (config, config_error) = config::load();
     // Silent-cd/run handoff files a killed shell never consumed.
     prompt::integration::clean_stale_channels();
