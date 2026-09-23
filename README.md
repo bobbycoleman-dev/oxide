@@ -4,7 +4,7 @@
 
 <h1 align="center">Oxide Terminal</h1>
 <p align="center">
-  A native macOS terminal emulator, written entirely in Rust.<br/>
+  A native terminal emulator for macOS and Linux, written entirely in Rust.<br/>
   <em>Rust is iron oxide. It's a whole thing.</em>
 </p>
 
@@ -106,7 +106,7 @@ The short tour. Every feature has a page in the [docs](https://oxideterminal.com
   relative; `cmd-click` a `path:line:col` in output to open it in `$EDITOR` at that line
   (nvim, VS Code, emacs, Sublime, Helix dialects built in); rows are coloured by git status;
   `cmd-p` fuzzy-finds any file under the root; `cmd-shift-r` reveals the shell's directory;
-  right-click a row to re-root, copy, or reveal in Finder — or, on a `.md` file, preview it
+  right-click a row to re-root, copy, or reveal in Finder / your file manager — or, on a `.md` file, preview it
   rendered in a new tab (tables, highlighted code with click-to-copy); drag rows or drop files onto a pane.
 - **Scrollback search** — `cmd-f`, live, `⏎`/`⇧⏎` to walk matches; regex, case-sensitive,
   and whole-word toggles as clickable chips (`cmd-alt-r` / `c` / `w`), and a malformed
@@ -140,7 +140,8 @@ The short tour. Every feature has a page in the [docs](https://oxideterminal.com
   `osaka-jade`, `matte-black`, `hackerman`, `rose-pine-dawn`, and a dozen more —
   25 presets in all. Any color
   individually overridable, including `selection_fg`. `follow_system = true` switches
-  between a dark and a light preset with the macOS appearance. Config reloads live.
+  between a dark and a light preset with the system appearance (macOS, or the desktop's
+  dark/light preference on Linux). Config reloads live.
 - **Split panes** — split in any direction and nest freely; navigation moves by what's
   on screen, and `exit` or `ctrl-w q` closes a pane and reclaims its space. Drag a
   divider or use `ctrl-w < > - + =` to resize. tmux reflexes: `ctrl-w z` zooms a pane
@@ -283,7 +284,7 @@ size   = 14.0
 
 [colors]
 preset = "oxide"              # or override any color individually
-follow_system = true          # ...or switch between preset_dark / preset_light with macOS
+follow_system = true          # ...or switch between preset_dark / preset_light with the system
 preset_light  = "catppuccin-latte"
 
 [cursor]
@@ -393,7 +394,7 @@ with zero shell cooperation. Platform differences are confined to a handful of
 Questions, ideas, or just want to see what's coming? Join the
 [Oxide Terminal Discord](https://discord.gg/APV9FYGgeh). Bugs and feature requests go in
 [issues](https://github.com/bobbycoleman-dev/oxide/issues/new) — **Help → Report an Issue** in
-the menu bar goes to the same place. Wondering how Oxide stacks up against iTerm2, Ghostty,
+the macOS menu bar, or *Report an Issue* in the command palette, goes to the same place. Wondering how Oxide stacks up against iTerm2, Ghostty,
 kitty, WezTerm, Alacritty, or Warp? There's an [honest comparison](https://oxideterminal.com/compare/).
 
 If Oxide earns a place in your dock, you can [buy me a coffee](https://www.buymeacoffee.com/bobbycoleman).
