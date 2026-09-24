@@ -19,7 +19,7 @@ optdepends=('vulkan-radeon: Vulkan driver for AMD GPUs'
             'xdg-utils: open links in the browser')
 provides=('oxide-terminal')
 conflicts=('oxide-terminal')
-source=("https://github.com/bobbycoleman-dev/oxide/releases/download/v${pkgver}/oxide-${pkgver}-linux-x86_64.tar.gz")
+source=("https://github.com/oxide-terminal/oxide/releases/download/v${pkgver}/oxide-${pkgver}-linux-x86_64.tar.gz")
 sha256sums=('21d00a62d82714adfba960b734709dac73761683d16ef056418729785e53b34a')
 
 package() {

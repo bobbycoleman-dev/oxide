@@ -17,9 +17,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/bobbycoleman-dev/oxide/releases/latest"><img src="https://img.shields.io/github/v/release/bobbycoleman-dev/oxide?color=e2725b" alt="Latest release" /></a>
-  <a href="https://github.com/bobbycoleman-dev/oxide/actions/workflows/ci.yml"><img src="https://github.com/bobbycoleman-dev/oxide/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/bobbycoleman-dev/oxide" alt="MIT license" /></a>
+  <a href="https://github.com/oxide-terminal/oxide/releases/latest"><img src="https://img.shields.io/github/v/release/oxide-terminal/oxide?color=e2725b" alt="Latest release" /></a>
+  <a href="https://github.com/oxide-terminal/oxide/actions/workflows/ci.yml"><img src="https://github.com/oxide-terminal/oxide/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/oxide-terminal/oxide" alt="MIT license" /></a>
   <a href="https://discord.gg/APV9FYGgeh"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Join the Discord" /></a>
 </p>
 
@@ -40,10 +40,10 @@ whether GitHub has a newer release.
 **macOS**
 
 ```sh
-brew install --cask bobbycoleman-dev/tap/oxide-terminal
+brew install --cask oxide-terminal/tap/oxide-terminal
 ```
 
-Or grab the DMG from the [latest release](https://github.com/bobbycoleman-dev/oxide/releases/latest)
+Or grab the DMG from the [latest release](https://github.com/oxide-terminal/oxide/releases/latest)
 and drag Oxide to Applications. Builds are Developer ID signed and notarized, so there's no
 right-click-to-open dance, and Oxide keeps itself up to date afterwards — it checks on launch
 and every six hours, or on demand via **Oxide → Check for Updates…**
@@ -53,7 +53,7 @@ and every six hours, or on demand via **Oxide → Check for Updates…**
 ```sh
 # Arch and derivatives: a pacman package from the PKGBUILD in this repo
 # (an AUR package will follow once AUR registration reopens)
-git clone https://github.com/bobbycoleman-dev/oxide.git
+git clone https://github.com/oxide-terminal/oxide.git
 cd oxide/packaging/aur/oxide-terminal-bin && makepkg -si
 
 # any distro: the release tarball
@@ -61,7 +61,7 @@ tar xzf oxide-<version>-linux-x86_64.tar.gz
 cd oxide-<version>-linux-x86_64 && ./install.sh        # into ~/.local, no root
 ```
 
-The tarball is on the same [release page](https://github.com/bobbycoleman-dev/oxide/releases/latest).
+The tarball is on the same [release page](https://github.com/oxide-terminal/oxide/releases/latest).
 `install.sh` puts `oxide` on your PATH and adds the launcher entry and icon;
 `--prefix /usr/local` (with sudo) installs system-wide, `--uninstall` removes it.
 Installed copies announce a newer release in the top-right corner; `git pull` and
@@ -340,7 +340,7 @@ sudo pacman -S --needed base-devel fontconfig freetype2 libxkbcommon libxkbcommo
 ```
 
 ```sh
-git clone https://github.com/bobbycoleman-dev/oxide.git
+git clone https://github.com/oxide-terminal/oxide.git
 cd oxide
 cargo run                     # development
 
@@ -402,7 +402,7 @@ with zero shell cooperation. Platform differences are confined to a handful of
 
 Questions, ideas, or just want to see what's coming? Join the
 [Oxide Terminal Discord](https://discord.gg/APV9FYGgeh). Bugs and feature requests go in
-[issues](https://github.com/bobbycoleman-dev/oxide/issues/new) — **Help → Report an Issue** in
+[issues](https://github.com/oxide-terminal/oxide/issues/new) — **Help → Report an Issue** in
 the menu bar (the ☰ menu on Linux), or *Report an Issue* in the command palette, goes to the same place. Wondering how Oxide stacks up against iTerm2, Ghostty,
 kitty, WezTerm, Alacritty, or Warp? There's an [honest comparison](https://oxideterminal.com/compare/).
 

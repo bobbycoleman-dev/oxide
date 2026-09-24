@@ -11,7 +11,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 
-const RELEASES_API: &str = "https://api.github.com/repos/bobbycoleman-dev/oxide/releases/latest";
+const RELEASES_API: &str = "https://api.github.com/repos/oxide-terminal/oxide/releases/latest";
 
 pub struct ReleaseInfo {
     pub version: String,
