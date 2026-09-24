@@ -4,3 +4,9 @@ BUG_REPORT.md
 /scripts/bump.sh
 /scripts/release.sh
 CLAUDE.md
+# makepkg output from local AUR test builds
+/packaging/aur/*/src/
+/packaging/aur/*/pkg/
+/packaging/aur/*/*.tar.gz
+/packaging/aur/*/*.pkg.tar.zst
+/packaging/aur/*/.SRCINFO
