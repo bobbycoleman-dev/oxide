@@ -9,3 +9,6 @@ Terminal=false
 Categories=System;TerminalEmulator;
 Keywords=terminal;shell;command;prompt;
 StartupWMClass=oxide
+# For xdg-terminal-exec (Omarchy's Super+Return, `omarchy launch tui`, ...).
+X-TerminalArgExec=-e
+X-TerminalArgAppId=--app-id=

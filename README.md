@@ -351,6 +351,13 @@ sudo cp scripts/oxide-cli /usr/local/bin/oxide && sudo chmod +x /usr/local/bin/o
 tar xzf target/oxide-*-linux-*.tar.gz -C /tmp && /tmp/oxide-*-linux-*/install.sh
 ```
 
+The `oxide` command takes a directory, `-e <command> [args...]` to run a
+program in the first pane instead of the shell, `--app-id <id>` for the
+window's Wayland app-id / X11 class, and `--no-startup-commands`. The first
+two are what `xdg-terminal-exec` passes, and the `.desktop` entry declares
+them, so on Linux Oxide can be the default terminal: on Omarchy, put
+`oxide.desktop` first in `~/.config/xdg-terminals.list`.
+
 The first build compiles GPUI — expect several minutes. A `cargo run` binary is a debug
 build: fine for poking at a change, but a full-screen program like nvim will feel sluggish
 in it (an unoptimised GPUI redraw doesn't fit in a 60 Hz frame; the release build uses a
@@ -386,8 +393,7 @@ with zero shell cooperation. Platform differences are confined to a handful of
 - Linux: `bell = "sound"` falls back to the visual flash; there's no in-place
   self-update (the pill opens the release page); `window.titlebar` is ignored — the
   compositor owns decorations, and under a compositor without server-side
-  decorations (GNOME) the window has none; Oxide can't yet be an
-  `xdg-terminal-exec` target because it has no `-e command` flag.
+  decorations (GNOME) the window has none.
 
 ## Community
 

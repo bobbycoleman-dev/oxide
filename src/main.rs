@@ -1,5 +1,6 @@
 mod app;
 mod changelog;
+mod cli;
 mod config;
 mod git;
 mod keymap;
@@ -126,34 +127,30 @@ pub(crate) fn menus() -> Vec<Menu> {
     ]
 }
 
-/// `--no-startup-commands`: restore pinned workspaces' layout without
-/// running anything. The out for someone whose startup command wedges the
-/// app, so it must not depend on any state the app writes.
-pub(crate) fn startup_commands_disabled_by_cli() -> bool {
-    std::env::args()
-        .skip(1)
-        .any(|a| a == "--no-startup-commands")
-}
-
-const USAGE: &str = "\
-usage: oxide [<directory>] [--no-startup-commands]
-
-  <directory>              open the first pane there (default: the current directory)
-  --no-startup-commands    restore pinned workspaces' layout without running their startup commands
-  -V, --version            print the version and exit
-  -h, --help               print this and exit";
-
 fn main() {
-    // Plain CLI queries: answer without touching the display or any state.
-    let mut args = std::env::args().skip(1);
-    if args.any(|a| a == "--version" || a == "-V") {
-        println!("oxide {}", env!("CARGO_PKG_VERSION"));
-        return;
-    }
-    if std::env::args().skip(1).any(|a| a == "--help" || a == "-h") {
-        println!("{USAGE}");
-        return;
-    }
+    // Plain CLI queries and bad arguments: answer without touching the
+    // display or any state.
+    let launch = match cli::parse(std::env::args().skip(1)) {
+        Ok(cli::Parsed::Version) => {
+            println!("oxide {}", env!("CARGO_PKG_VERSION"));
+            return;
+        }
+        Ok(cli::Parsed::Help) => {
+            println!("{}", cli::USAGE);
+            return;
+        }
+        Ok(cli::Parsed::Run(launch)) => launch,
+        Err(message) => {
+            eprintln!("oxide: {message}\n{}", cli::USAGE);
+            std::process::exit(2);
+        }
+    };
+    // `-e`: the first pane runs this instead of a shell, and pinned
+    // workspaces stay put — a TUI launched from the desktop shouldn't drag
+    // the whole saved session up with it.
+    let command = launch.command.clone();
+    let restore = command.is_none();
+    cli::install(launch);
 
     let (config, config_error) = config::load();
     // Silent-cd/run handoff files a killed shell never consumed.
@@ -166,7 +163,7 @@ fn main() {
     // nothing further to check — a closed handle can linger in cx.windows().
     app.on_reopen(|cx| {
         let (config, error) = config::load();
-        app::open_oxide_window(config, error, None, true, cx);
+        app::open_oxide_window(config, error, None, None, true, cx);
     });
     app.run(move |cx: &mut App| {
         // Must happen before launch completes, or banners never show while
@@ -223,7 +220,7 @@ fn main() {
         cx.on_action(|_: &NewWindow, cx| {
             if cx.windows().is_empty() {
                 let (config, error) = config::load();
-                app::open_oxide_window(config, error, None, false, cx);
+                app::open_oxide_window(config, error, None, None, false, cx);
             }
         });
         cx.on_action(|_: &OpenHelp, cx| cx.open_url(&format!("{WEBSITE_URL}/docs/")));
@@ -264,6 +261,6 @@ fn main() {
         })
         .detach();
 
-        app::open_oxide_window(config, config_error, None, true, cx);
+        app::open_oxide_window(config, config_error, None, command, restore, cx);
     });
 }

@@ -549,6 +549,7 @@ impl Oxide {
         config: Config,
         config_error: Option<String>,
         cwd_override: Option<PathBuf>,
+        command: Option<Vec<String>>,
         restore: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -556,16 +557,11 @@ impl Oxide {
         let config = Rc::new(config);
         let dark_appearance = appearance_is_dark(window.appearance());
         let theme = Rc::new(Theme::resolve(&config.colors, dark_appearance));
-        // `oxide <dir>` (or the CLI shim) starts rooted at that directory;
-        // otherwise start at home. Finder-launched apps inherit "/" as their
-        // working directory, which is a useless place to open a terminal.
+        // `oxide <dir>` (or the CLI shim) starts rooted at that directory,
+        // else where it was run from (what `xdg-terminal-exec --dir` sets);
+        // otherwise home. See `Cli::working_directory`.
         let cwd = cwd_override
-            .or_else(|| {
-                std::env::args()
-                    .nth(1)
-                    .map(PathBuf::from)
-                    .filter(|p| p.is_dir())
-            })
+            .or_else(|| crate::cli::cli().working_directory())
             .or_else(home_dir)
             .unwrap_or_else(|| PathBuf::from("/"));
 
@@ -675,10 +671,10 @@ impl Oxide {
         // a flag on the command line, or shift held while it launches.
         // Neither depends on any file the app writes.
         this.startup_skipped_at_launch =
-            crate::startup_commands_disabled_by_cli() || window.modifiers().shift;
+            crate::cli::cli().no_startup_commands || window.modifiers().shift;
         this.run_startup_commands =
             this.config.workspaces.run_startup_commands && !this.startup_skipped_at_launch;
-        this.bootstrap_workspaces(cwd, restore, window, cx);
+        this.bootstrap_workspaces(cwd, command, restore, window, cx);
         if let Some(message) = config_error {
             this.sticky_toast(message);
         }
@@ -908,10 +904,22 @@ impl Oxide {
     }
 
     fn create_pane(&mut self, cwd: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> PaneId {
+        self.create_pane_running(cwd, None, window, cx)
+    }
+
+    /// A pane running `command` (`-e` from the command line) instead of the
+    /// shell; `None` is the ordinary shell pane.
+    fn create_pane_running(
+        &mut self,
+        cwd: PathBuf,
+        command: Option<Vec<String>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> PaneId {
         let id = self.next_pane_id;
         self.next_pane_id += 1;
         let (config, theme) = (self.config.clone(), self.theme.clone());
-        let pane = cx.new(|cx| TerminalPane::new(config, theme, cwd, cx));
+        let pane = cx.new(|cx| TerminalPane::new(config, theme, cwd, command, cx));
         let tree_root = self.tree.read(cx).root.clone();
         pane.update(cx, |t, _| t.tree_root = Some(tree_root));
         let subscription = cx.subscribe_in(&pane, window, Self::on_terminal_event);
@@ -4544,6 +4552,7 @@ impl Oxide {
     fn bootstrap_workspaces(
         &mut self,
         initial_cwd: PathBuf,
+        command: Option<Vec<String>>,
         restore: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -4581,7 +4590,7 @@ impl Oxide {
             }
         }
         if self.workspaces.is_empty() {
-            let id = self.create_pane(initial_cwd, window, cx);
+            let id = self.create_pane_running(initial_cwd, command, window, cx);
             let name = self.next_ws_name();
             self.workspaces.push(Workspace {
                 name,
@@ -5284,10 +5293,13 @@ fn persist_preset(name: &str, variant: Option<&str>) -> Result<(), String> {
 }
 
 /// Open an Oxide window: shared by startup and the NewWindow action.
+/// `command` is the `-e` program for the first pane, only ever set for the
+/// window a launch opens; windows made from inside the app get a shell.
 pub fn open_oxide_window(
     config: Config,
     config_error: Option<String>,
     cwd: Option<PathBuf>,
+    command: Option<Vec<String>>,
     restore: bool,
     cx: &mut gpui::App,
 ) {
@@ -5328,10 +5340,19 @@ pub fn open_oxide_window(
             window_min_size: Some(gpui::size(px(400.0), px(300.0))),
             // Wayland app_id / X11 WM_CLASS: what window rules and the
             // .desktop file's StartupWMClass match on. macOS ignores it.
-            app_id: Some("oxide".into()),
+            // `--app-id` overrides it for the whole process, the way
+            // xdg-terminal-exec expects when it launches a TUI under its own id.
+            app_id: Some(
+                crate::cli::cli()
+                    .app_id
+                    .clone()
+                    .unwrap_or_else(|| "oxide".into()),
+            ),
             ..Default::default()
         },
-        |window, cx| cx.new(|cx| Oxide::new(config, config_error, cwd, restore, window, cx)),
+        |window, cx| {
+            cx.new(|cx| Oxide::new(config, config_error, cwd, command, restore, window, cx))
+        },
     )
     .expect("failed to open window");
     cx.activate(true);
@@ -5467,7 +5488,7 @@ impl Render for Oxide {
             .on_action(cx.listener(|this, _: &NewWindow, _w, cx| {
                 let cwd = this.active_pane().read(cx).cwd.clone();
                 let (config, error) = config::load();
-                open_oxide_window(config, error, cwd, false, cx);
+                open_oxide_window(config, error, cwd, None, false, cx);
             }))
             .on_action(cx.listener(|this, _: &NewTab, window, cx| {
                 this.new_tab(window, cx);

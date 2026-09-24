@@ -139,9 +139,11 @@ to another window):
 
 ## Open items / follow-ups
 
-- **`-e <command>` flag** so Oxide can be an `xdg-terminal-exec` target
-  (Omarchy's Super+Return). Small; touches `main.rs` arg parsing and
-  `Oxide::new`.
+- ~~**`-e <command>` flag** so Oxide can be an `xdg-terminal-exec` target
+  (Omarchy's Super+Return).~~ Done: `-e` and `--app-id` in `cli.rs`, the
+  first pane runs the command with no shell integration, and
+  `assets/linux/oxide.desktop` declares `X-TerminalArgExec` /
+  `X-TerminalArgAppId`. Pinned workspaces are not restored for a `-e` launch.
 - **X11** (above).
 - **`bell = "sound"`** on Linux: XDG sound theme / PipeWire, if anyone asks.
 - **Self-update on Linux**: AppImage would allow it; not planned.

@@ -10,14 +10,17 @@
 # instead of holding the terminal until the window closes.
 #
 # With no directory given the app opens at the current one. Flags pass
-# through untouched; --no-startup-commands restores pinned workspaces
-# without running their startup commands.
+# through untouched: --no-startup-commands restores pinned workspaces
+# without running their startup commands, --app-id <id> names the window,
+# and everything after -e is the command to run instead of the shell.
 dir=""
 flags=()
-for arg in "$@"; do
-  case "$arg" in
-    --*) flags+=("$arg") ;;
-    *) dir="$arg" ;;
+while (($#)); do
+  case "$1" in
+    -e) flags+=("$@"); break ;;
+    --app-id) flags+=("$1" "$2"); shift 2 ;;
+    --*) flags+=("$1"); shift ;;
+    *) dir="$1"; shift ;;
   esac
 done
 

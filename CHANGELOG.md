@@ -14,6 +14,20 @@ write for users: what changed and why it matters, not which files moved.
 ### Added
 
 - `oxide --version` / `-V` prints the version, and `--help` / `-h` the usage.
+- `oxide -e <command> [args...]` runs a program in the first pane instead of
+  the shell, and `--app-id <id>` sets the window's Wayland app-id / X11 class.
+  Together they are what `xdg-terminal-exec` passes to a terminal, so Oxide
+  can now be the system default on Linux: on Omarchy, `omarchy default
+  terminal`-style launches (Super+Return, `omarchy launch tui btop`) open in
+  Oxide. The pane closes when the program exits cleanly; a failure keeps its
+  output on screen, and the `.desktop` entry now declares both flags.
+
+### Changed
+
+- `oxide` with no directory opens at the directory it was run from, as the
+  docs always said, rather than at home. Launchers that hand the app `/`
+  (Finder) still get home. Unknown options are now an error instead of being
+  silently ignored.
 
 ## [0.6.0] - 2026-09-22
 

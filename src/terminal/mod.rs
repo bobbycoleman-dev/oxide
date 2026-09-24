@@ -296,6 +296,10 @@ pub struct TerminalPane {
     /// log entry gets it from us rather than from the grid.
     startup_label_pending: bool,
     restart_gate: RestartGate,
+    /// `-e` from the command line: this program (and its arguments) runs
+    /// in place of the shell, with none of the shell integration, and a
+    /// restart re-runs it.
+    command: Option<Vec<String>>,
 }
 
 struct SearchState {
@@ -367,10 +371,13 @@ impl Focusable for TerminalPane {
 }
 
 impl TerminalPane {
+    /// `command` (`oxide -e ...`) runs instead of the shell; `None` gives
+    /// the ordinary shell pane.
     pub fn new(
         config: Rc<Config>,
         theme: Rc<Theme>,
         working_dir: PathBuf,
+        command: Option<Vec<String>>,
         cx: &mut Context<Self>,
     ) -> Self {
         let log = CommandLog::new(config.commands.max_entries.max(1));
@@ -427,6 +434,7 @@ impl TerminalPane {
             startup_wakeup_seen: false,
             startup_label_pending: false,
             restart_gate: RestartGate::default(),
+            command,
         };
         this.spawn_session(cx);
         this.refresh_git_root(cx);
@@ -491,16 +499,29 @@ impl TerminalPane {
 
     fn spawn_session(&mut self, cx: &mut Context<Self>) {
         let shell = self.config.shell.clone();
-        let program = resolve_shell(shell.program.as_deref());
-        // Regenerated per session so a config reload applies to restarts.
-        let integration = crate::prompt::integration::setup(&self.config, &program);
         let cwd = self.cwd.clone().unwrap_or_else(|| self.initial_dir.clone());
-        let options = SessionOptions {
-            program,
-            args: integration.args_override.unwrap_or(shell.args),
-            working_directory: Some(cwd),
-            scrollback: shell.scrollback,
-            env: integration.env,
+        let options = match &self.command {
+            // A program of the user's choosing, not a shell: no dotfile
+            // shims or prompt hooks, just the terminal environment.
+            Some(command) => SessionOptions {
+                program: command[0].clone(),
+                args: command[1..].to_vec(),
+                working_directory: Some(cwd),
+                scrollback: shell.scrollback,
+                env: HashMap::new(),
+            },
+            None => {
+                let program = resolve_shell(shell.program.as_deref());
+                // Regenerated per session so a config reload applies to restarts.
+                let integration = crate::prompt::integration::setup(&self.config, &program);
+                SessionOptions {
+                    program,
+                    args: integration.args_override.unwrap_or(shell.args),
+                    working_directory: Some(cwd),
+                    scrollback: shell.scrollback,
+                    env: integration.env,
+                }
+            }
         };
         match TerminalSession::spawn(options, self.size) {
             Ok((session, mut rx)) => {
