@@ -11,6 +11,8 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-24
+
 ### Added
 
 - Linux: a ☰ button in the window's top-left corner opens the same Oxide,
