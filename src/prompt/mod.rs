@@ -451,11 +451,19 @@ if command -v git >/dev/null 2>&1; then
   fi
 fi
 
-__oxide_at_prompt=1
+# 0 until the first prompt: the rest of this file runs under the DEBUG trap
+# too, and none of it is a command the user typed.
+__oxide_at_prompt=0
 __oxide_t0=""
 __oxide_dur=""
 __oxide_exit=0
-__oxide_original_prompt_command="$PROMPT_COMMAND"
+# bash 5.1+ lets PROMPT_COMMAND be an array, and Arch's bashrc, starship,
+# and zoxide all append to it. Keep every element (a plain string is a
+# one-element array here), then drop the variable before ours replaces it:
+# an element left behind would run at top level, where the DEBUG trap
+# would log it as a command that never finishes.
+__oxide_original_prompt_commands=("${{PROMPT_COMMAND[@]}}")
+unset PROMPT_COMMAND
 
 # Note: this installs a DEBUG trap (the bash-preexec pattern) for OSC 133;C
 # and command timing; a pre-existing DEBUG trap would be replaced.
@@ -489,10 +497,13 @@ __oxide_prompt_command() {{
   fi
   printf '\033]133;D;%s\033\\' "$__oxide_exit"
   printf '\033]7;file://%s%s\033\\' "${{HOSTNAME:-localhost}}" "$PWD"
-  if [[ -n "$__oxide_original_prompt_command" ]]; then
+  local __oxide_pc
+  for __oxide_pc in "${{__oxide_original_prompt_commands[@]}}"; do
+    [[ -n "$__oxide_pc" ]] || continue
+    # Each hook sees the real exit status, as it would without us.
     ( exit "$__oxide_exit" )
-    eval "$__oxide_original_prompt_command"
-  fi
+    eval "$__oxide_pc"
+  done
 
   local __oxide_texts=() __oxide_fgs=() __oxide_bgs=() __oxide_bolds=()
 {segments}
@@ -748,6 +759,73 @@ mod cd_tests {
     /// Runs against every bash on the machine — Apple's /bin/bash 3.2 has a
     /// broken multi-char `bind -x` that needs the trampoline path, while a
     /// Homebrew bash 5 exercises the direct binding.
+    /// Arch's bashrc, starship, and zoxide each append to PROMPT_COMMAND,
+    /// which bash 5.1+ keeps as an array. Every hook must still run, and
+    /// none may be logged as a command: only the typed line gets a C marker.
+    #[test]
+    fn bash_prompt_command_array_hooks_run_but_are_not_logged() {
+        let bash = "/bin/bash";
+        if !std::path::Path::new(bash).exists() {
+            return;
+        }
+        let home = std::env::temp_dir().join(format!("oxide-pc-array-{}", std::process::id()));
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(
+            home.join(".bashrc"),
+            "PROMPT_COMMAND=('echo hook-one' 'echo hook-two')\n",
+        )
+        .unwrap();
+        let init = home.join("init.bash");
+        std::fs::write(
+            &init,
+            crate::prompt::generate_init_bash(&crate::prompt::PromptConfig::default(), false, true),
+        )
+        .unwrap();
+
+        use std::io::Write as _;
+        use std::process::{Command, Stdio};
+        let mut child = Command::new(bash)
+            .arg("--init-file")
+            .arg(&init)
+            .arg("-i")
+            .env("HOME", &home)
+            .env("TERM", "xterm-256color")
+            .env("HISTFILE", "/dev/null")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"echo user-command\nexit\n")
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let _ = std::fs::remove_dir_all(&home);
+
+        assert!(
+            text.contains("hook-one") && text.contains("hook-two"),
+            "{text}"
+        );
+        // Two typed lines, two C markers — none for the hooks, and none
+        // for the init file itself before the first prompt.
+        let starts: Vec<&str> = text.matches("133;C").collect();
+        assert_eq!(starts.len(), 2, "one C marker per typed line:\n{text}");
+        assert!(text.contains("cmdline=echo user-command"), "{text}");
+        assert!(text.contains("cmdline=exit"), "{text}");
+        assert!(!text.contains("cmdline=echo hook"), "{text}");
+        let first_c = text.find("133;C").unwrap();
+        let first_a = text.find("133;A").unwrap();
+        assert!(first_a < first_c, "startup logged as a command:\n{text}");
+    }
+
     #[test]
     fn silent_cd_in_bash() {
         for bash in ["/opt/homebrew/bin/bash", "/bin/bash"] {

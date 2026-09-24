@@ -37,6 +37,16 @@ write for users: what changed and why it matters, not which files moved.
   (Finder) still get home. Unknown options are now an error instead of being
   silently ignored.
 
+### Fixed
+
+- Linux (bash): the status bar no longer shows a `printf "\033]0;…"` title
+  hook as a command that never finishes. bash 5.1+ keeps `PROMPT_COMMAND`
+  as an array, and Arch's bashrc, starship, and zoxide all append to it;
+  Oxide's shell integration kept only the first entry and left the rest
+  running outside its hook, where they were logged as commands and stole
+  the start marker from whatever you typed next. Every entry now runs inside
+  Oxide's hook, and the init script itself is no longer logged either.
+
 ## [0.6.0] - 2026-09-22
 
 ### Added
