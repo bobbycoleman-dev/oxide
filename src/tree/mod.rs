@@ -88,6 +88,10 @@ enum InputMode {
 
 pub struct FileTree {
     pub root: PathBuf,
+    /// Linux: the window's ☰ menu button floats over the header's corner,
+    /// so the root name is indented to clear it. The window sets this from
+    /// its layout (`Oxide::app_menu_corner`).
+    pub app_menu_clearance: bool,
     nodes: HashMap<PathBuf, Node>,
     visible: Vec<VisibleRow>,
     selected: usize,
@@ -130,6 +134,7 @@ impl FileTree {
         let show_hidden = config.tree.show_hidden;
         let mut this = Self {
             root: root.clone(),
+            app_menu_clearance: false,
             nodes: HashMap::new(),
             visible: Vec::new(),
             selected: 0,
@@ -1507,6 +1512,11 @@ impl Render for FileTree {
                     .flex_none()
                     .px_3()
                     .py_2()
+                    // Linux: the window's ☰ menu button floats over this
+                    // corner; the root name steps aside so they don't overlap.
+                    .when(self.app_menu_clearance, |d| {
+                        d.pl(px(crate::app::APP_MENU_BUTTON_CLEARANCE))
+                    })
                     .text_color(blend(theme.foreground, theme.background, 0.3))
                     .child(header),
             )

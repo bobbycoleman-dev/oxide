@@ -20,27 +20,36 @@ use gpui::{App, Application, Menu, MenuItem, SystemMenuType};
 
 use crate::keymap::actions::*;
 
-const WEBSITE_URL: &str = "https://oxideterminal.com";
+pub(crate) const WEBSITE_URL: &str = "https://oxideterminal.com";
 
+/// The application menus. macOS installs them in the menu bar; Linux has no
+/// menu bar, so the same list backs the ☰ popover in the window's top-left
+/// corner, minus the entries that only AppKit can honour.
 pub(crate) fn menus() -> Vec<Menu> {
+    let mut oxide = vec![
+        MenuItem::action("About Oxide", About),
+        MenuItem::action("Check for Updates…", CheckForUpdates),
+        MenuItem::separator(),
+        MenuItem::action("Settings…", OpenSettings),
+        MenuItem::action("Select Theme…", SelectTheme),
+    ];
+    if cfg!(target_os = "macos") {
+        // Services and app hiding are AppKit concepts with no Wayland/X11
+        // equivalent; a tiling WM has nowhere to hide a window to.
+        oxide.extend([
+            MenuItem::separator(),
+            MenuItem::os_submenu("Services", SystemMenuType::Services),
+            MenuItem::separator(),
+            MenuItem::action("Hide Oxide", Hide),
+            MenuItem::action("Hide Others", HideOthers),
+        ]);
+    }
+    oxide.extend([MenuItem::separator(), MenuItem::action("Quit Oxide", Quit)]);
     vec![
         Menu {
             // The first menu takes the app's name in the menu bar.
             name: "Oxide".into(),
-            items: vec![
-                MenuItem::action("About Oxide", About),
-                MenuItem::action("Check for Updates…", CheckForUpdates),
-                MenuItem::separator(),
-                MenuItem::action("Settings…", OpenSettings),
-                MenuItem::action("Select Theme…", SelectTheme),
-                MenuItem::separator(),
-                MenuItem::os_submenu("Services", SystemMenuType::Services),
-                MenuItem::separator(),
-                MenuItem::action("Hide Oxide", Hide),
-                MenuItem::action("Hide Others", HideOthers),
-                MenuItem::separator(),
-                MenuItem::action("Quit Oxide", Quit),
-            ],
+            items: oxide,
         },
         Menu {
             name: "File".into(),
@@ -213,6 +222,8 @@ fn main() {
         cx.on_action(|_: &Quit, cx| cx.quit());
         cx.on_action(|_: &Hide, cx| cx.hide());
         cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
+        // Windows show the About panel; this is the no-window fallback,
+        // reachable from the macOS menu bar.
         cx.on_action(|_: &About, cx| cx.open_url(WEBSITE_URL));
         // App-level fallback: with no windows open there is no element tree to
         // dispatch to, so the window-scoped handler cannot run. Without this,
@@ -226,8 +237,8 @@ fn main() {
         cx.on_action(|_: &OpenHelp, cx| cx.open_url(&format!("{WEBSITE_URL}/docs/")));
         cx.on_action(|_: &ReportIssue, cx| cx.open_url(&format!("{WEBSITE_URL}/issues/new")));
 
-        // The menu bar is a macOS thing; Linux keeps the actions reachable
-        // through the palette and the keymap.
+        // The menu bar is a macOS thing; on Linux the window draws its own
+        // ☰ menu from the same list (see `Oxide::render_app_menu`).
         if cfg!(target_os = "macos") {
             cx.set_menus(menus());
         }
@@ -263,4 +274,45 @@ fn main() {
 
         app::open_oxide_window(config, config_error, None, command, restore, cx);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every menu entry must resolve to a registry row: the Linux ☰ menu
+    /// looks bindings up that way, and the palette lists the same actions.
+    #[test]
+    fn menu_actions_have_registry_rows() {
+        for menu in menus() {
+            for item in &menu.items {
+                if let MenuItem::Action { name, action, .. } = item {
+                    assert!(
+                        crate::keymap::registry::all()
+                            .iter()
+                            .any(|m| (m.build)().partial_eq(action.as_ref())),
+                        "{name} in the {} menu has no registry row",
+                        menu.name
+                    );
+                }
+            }
+        }
+    }
+
+    /// The ☰ popover can't show OS-managed submenus or hide the app, so
+    /// those entries are macOS-only.
+    #[test]
+    fn linux_menus_skip_appkit_only_entries() {
+        let appkit_only = menus()
+            .into_iter()
+            .flat_map(|m| m.items)
+            .any(|item| match item {
+                MenuItem::SystemMenu(_) => true,
+                MenuItem::Action { action, .. } => {
+                    action.partial_eq(&Hide) || action.partial_eq(&HideOthers)
+                }
+                _ => false,
+            });
+        assert_eq!(appkit_only, cfg!(target_os = "macos"));
+    }
 }

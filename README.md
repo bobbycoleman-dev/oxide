@@ -149,6 +149,9 @@ The short tour. Every feature has a page in the [docs](https://oxideterminal.com
   border and a loud status-bar pill), `ctrl-w o` closes the others, `ctrl-w x` swaps with
   the neighbour. `window.inactive_pane_opacity` dims the panes you aren't in.
 - **Command palette** — `cmd-shift-p` lists every action with its binding, fuzzy-searchable.
+- **Menus on Linux** — a ☰ button in the top-left corner holds the same Oxide / File /
+  Edit / View / Window / Help menus macOS puts in the menu bar, shortcuts included
+  (`app::menu` opens it from the keyboard).
 - **Configurable keys** — a `[keymap]` table in config.toml rebinds anything; typos get a
   toast with a suggestion, and a bare key that would steal from your shell is refused.
 - **Toasts, not dialogs** — config errors, update problems, and other notices land as
@@ -400,7 +403,7 @@ with zero shell cooperation. Platform differences are confined to a handful of
 Questions, ideas, or just want to see what's coming? Join the
 [Oxide Terminal Discord](https://discord.gg/APV9FYGgeh). Bugs and feature requests go in
 [issues](https://github.com/bobbycoleman-dev/oxide/issues/new) — **Help → Report an Issue** in
-the macOS menu bar, or *Report an Issue* in the command palette, goes to the same place. Wondering how Oxide stacks up against iTerm2, Ghostty,
+the menu bar (the ☰ menu on Linux), or *Report an Issue* in the command palette, goes to the same place. Wondering how Oxide stacks up against iTerm2, Ghostty,
 kitty, WezTerm, Alacritty, or Warp? There's an [honest comparison](https://oxideterminal.com/compare/).
 
 If Oxide earns a place in your dock, you can [buy me a coffee](https://www.buymeacoffee.com/bobbycoleman).

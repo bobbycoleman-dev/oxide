@@ -13,6 +13,11 @@ write for users: what changed and why it matters, not which files moved.
 
 ### Added
 
+- Linux: a ☰ button in the window's top-left corner opens the same Oxide,
+  File, Edit, View, Window, and Help menus macOS shows in the menu bar, each
+  entry with its shortcut. Whichever bar is in that corner (file tree header,
+  tab bar, or a top status bar) makes room for it. `app::menu` opens it from
+  the keyboard or the palette, for when every bar is hidden.
 - `oxide --version` / `-V` prints the version, and `--help` / `-h` the usage.
 - `oxide -e <command> [args...]` runs a program in the first pane instead of
   the shell, and `--app-id <id>` sets the window's Wayland app-id / X11 class.
@@ -24,6 +29,9 @@ write for users: what changed and why it matters, not which files moved.
 
 ### Changed
 
+- **About Oxide** now opens a panel in the window with the app icon, the
+  version, and a link to the site, instead of sending you straight to the
+  website. `⏎` or `esc` closes it.
 - `oxide` with no directory opens at the directory it was run from, as the
   docs always said, rather than at home. Launchers that hand the app `/`
   (Finder) still get home. Unknown options are now an error instead of being

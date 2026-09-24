@@ -8,8 +8,8 @@ use futures::StreamExt;
 use gpui::AppContext as _;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, FocusHandle, Focusable, InteractiveElement, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, px,
+    Action, Context, FocusHandle, Focusable, InteractiveElement, IntoElement, MenuItem,
+    ParentElement, Render, StatefulInteractiveElement, Styled, Subscription, Window, div, px,
 };
 
 use crate::config::schema::{ColorsConfig, StatusBarPosition, StatusBarTab, TitlebarMode};
@@ -106,6 +106,30 @@ struct WsContextMenu {
     position: gpui::Point<gpui::Pixels>,
 }
 
+/// Where the Linux ☰ menu button sits: inset from the window's top-left
+/// corner, small enough to fit inside any of the bars that can be there.
+const APP_MENU_BUTTON_LEFT: f32 = 6.0;
+const APP_MENU_BUTTON_TOP: f32 = 4.0;
+const APP_MENU_BUTTON_SIZE: f32 = 22.0;
+/// Left padding the bar under the ☰ button needs so its own content starts
+/// clear of it.
+pub const APP_MENU_BUTTON_CLEARANCE: f32 = APP_MENU_BUTTON_LEFT + APP_MENU_BUTTON_SIZE + 6.0;
+
+/// Which bar the ☰ menu button floats over, so that bar can pad for it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AppMenuCorner {
+    StatusBar,
+    Tree,
+    TabBar,
+}
+
+/// The Linux stand-in for the macOS menu bar: a popover under the ☰ button
+/// in the top-left corner. `open` is which top-level menu (Oxide, File, …)
+/// is expanded in the right-hand column; hovering a heading switches it.
+struct AppMenu {
+    open: usize,
+}
+
 /// Input modes for the workspaces panel footer, mirroring the file tree's.
 enum WsInput {
     Add { buffer: String },
@@ -124,6 +148,9 @@ pub struct Oxide {
     ws_focus: FocusHandle,
     ws_input: Option<WsInput>,
     ws_context_menu: Option<WsContextMenu>,
+    app_menu: Option<AppMenu>,
+    /// The bundled icon for the About panel, decoded once per window.
+    app_icon: std::sync::Arc<gpui::Image>,
     next_ws_number: usize,
     /// Every live pane across all workspaces and tabs.
     panes: HashMap<PaneId, gpui::Entity<TerminalPane>>,
@@ -192,6 +219,12 @@ enum Overlay {
     StartupCommand(StartupCommandState),
     /// Every pane's startup command in one workspace, from the drawer.
     StartupEditor(StartupEditorState),
+    /// Icon, version, and website: the About panel.
+    About(AboutState),
+}
+
+struct AboutState {
+    return_focus: FocusTarget,
 }
 
 struct StartupCommandState {
@@ -634,6 +667,11 @@ impl Oxide {
             ws_focus: cx.focus_handle(),
             ws_input: None,
             ws_context_menu: None,
+            app_menu: None,
+            app_icon: std::sync::Arc::new(gpui::Image::from_bytes(
+                gpui::ImageFormat::Png,
+                include_bytes!("../assets/linux/icons/hicolor/256x256/apps/oxide.png").to_vec(),
+            )),
             next_ws_number: 1,
             panes: HashMap::new(),
             next_pane_id: 0,
@@ -1462,8 +1500,10 @@ impl Oxide {
         let horizontal = axis == Axis::Horizontal;
         // While a modal or a drag is up, the deferred grab areas would paint
         // above it; they aren't needed then anyway.
-        let interactive =
-            self.overlay.is_none() && self.divider_drag.is_none() && self.ws_context_menu.is_none();
+        let interactive = self.overlay.is_none()
+            && self.divider_drag.is_none()
+            && self.ws_context_menu.is_none()
+            && self.app_menu.is_none();
         let path = path.clone();
         let line = div().flex_none().relative().bg(color);
         let line = if horizontal {
@@ -2175,6 +2215,7 @@ impl Oxide {
             Overlay::Confirm(c) => c.return_focus,
             Overlay::StartupCommand(s) => s.return_focus,
             Overlay::StartupEditor(e) => e.return_focus,
+            Overlay::About(a) => a.return_focus,
         };
         self.restore_focus(target, window, cx);
         cx.notify();
@@ -2187,7 +2228,12 @@ impl Oxide {
             Some(Overlay::History(_)) => self.history_move(delta, cx),
             Some(Overlay::FileFinder(_)) => self.finder_move(delta, cx),
             Some(Overlay::StartupEditor(_)) => self.startup_editor_move(delta, cx),
-            Some(Overlay::TabRename(_) | Overlay::Confirm(_) | Overlay::StartupCommand(_))
+            Some(
+                Overlay::TabRename(_)
+                | Overlay::Confirm(_)
+                | Overlay::StartupCommand(_)
+                | Overlay::About(_),
+            )
             | None => {}
         }
     }
@@ -2202,6 +2248,7 @@ impl Oxide {
             Some(Overlay::Confirm(_)) => self.confirm_run(window, cx),
             Some(Overlay::StartupCommand(_)) => self.startup_command_confirm(window, cx),
             Some(Overlay::StartupEditor(_)) => self.startup_editor_confirm(window, cx),
+            Some(Overlay::About(_)) => self.close_overlay(window, cx),
             None => {}
         }
     }
@@ -2248,7 +2295,8 @@ impl Oxide {
                 | Overlay::TabRename(_)
                 | Overlay::Confirm(_)
                 | Overlay::StartupCommand(_)
-                | Overlay::StartupEditor(_),
+                | Overlay::StartupEditor(_)
+                | Overlay::About(_),
             ) => self.close_overlay(window, cx),
             None => {}
         }
@@ -2661,6 +2709,89 @@ impl Oxide {
         cx.notify();
     }
 
+    // --- About ---
+
+    /// Icon, version, website. The window-level answer to `About`; with no
+    /// window open (macOS menu bar) the app-level handler opens the site.
+    fn open_about(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.overlay.is_some() {
+            self.close_overlay(window, cx);
+        }
+        let return_focus = self.current_focus_target(window, cx);
+        self.overlay = Some(Overlay::About(AboutState { return_focus }));
+        window.focus(&self.picker_focus);
+        cx.notify();
+    }
+
+    fn render_about_body(&self, cx: &Context<Self>) -> gpui::Div {
+        let theme = &self.theme;
+        let accent = theme.ansi[4];
+        let dim = blend(theme.foreground, theme.background, 0.45);
+        let border = blend(theme.foreground, theme.background, 0.85);
+        let site = crate::WEBSITE_URL.trim_start_matches("https://");
+        div()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .flex_none()
+                    .px_6()
+                    .pt_6()
+                    .pb_5()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap_1()
+                    .child(gpui::img(self.app_icon.clone()).size(px(96.0)).mb_3())
+                    .child(
+                        div()
+                            .text_size(px(20.0))
+                            .font_weight(gpui::FontWeight::BOLD)
+                            .child("Oxide"),
+                    )
+                    .child(
+                        div()
+                            .text_color(dim)
+                            .child(format!("Version {}", env!("CARGO_PKG_VERSION"))),
+                    )
+                    .child(
+                        div()
+                            .mt_2()
+                            .text_size(px(12.0))
+                            .text_color(dim)
+                            .child("A native terminal for macOS and Linux"),
+                    )
+                    .child(
+                        div()
+                            .id("about-website")
+                            .mt_1()
+                            .text_size(px(12.0))
+                            .text_color(accent)
+                            .cursor_pointer()
+                            .hover(|s| s.underline())
+                            .on_mouse_down(
+                                gpui::MouseButton::Left,
+                                cx.listener(|this, _: &gpui::MouseDownEvent, window, cx| {
+                                    this.close_overlay(window, cx);
+                                    cx.open_url(crate::WEBSITE_URL);
+                                }),
+                            )
+                            .child(site),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .px_3()
+                    .py_1()
+                    .border_t_1()
+                    .border_color(border)
+                    .text_size(px(11.0))
+                    .text_color(dim)
+                    .child("⏎ / esc close"),
+            )
+    }
+
     fn confirm_run(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !matches!(self.overlay, Some(Overlay::Confirm(_))) {
             return;
@@ -2945,6 +3076,9 @@ impl Oxide {
         let drawer = self.drawer_visible;
         registry::all().iter().filter(move |m| {
             m.id != "app::palette"
+                // The ☰ menu is the Linux stand-in for the menu bar; macOS
+                // has the real thing.
+                && (m.id != "app::menu" || cfg!(target_os = "linux"))
                 && match m.context {
                     ActionContext::Root | ActionContext::Workspaces => true,
                     ActionContext::FileTree => drawer,
@@ -3913,6 +4047,10 @@ impl Oxide {
                 .track_focus(&self.picker_focus)
                 .on_key_down(cx.listener(Self::on_overlay_key_down))
                 .child(self.render_startup_editor_body(e, cx)),
+            Overlay::About(_) => panel
+                .w(px(340.0))
+                .track_focus(&self.picker_focus)
+                .child(self.render_about_body(cx)),
         };
 
         div()
@@ -4362,6 +4500,12 @@ impl Oxide {
             .border_b_1()
             .border_color(border)
             .text_size(px(12.0));
+
+        // Linux: with the drawer hidden this bar is the top-left corner the
+        // ☰ menu button floats over; leave it room before the first tab.
+        if self.app_menu_corner() == Some(AppMenuCorner::TabBar) {
+            bar = bar.child(div().flex_none().w(px(APP_MENU_BUTTON_CLEARANCE)));
+        }
 
         for (ix, tab) in self.ws().tabs.iter().enumerate() {
             let is_active = ix == self.ws().active_tab;
@@ -5002,10 +5146,254 @@ impl Oxide {
             )
     }
 
+    /// Linux: which bar the ☰ menu button floats over. A top status bar
+    /// spans the full width, so it is the corner whenever it's shown; then
+    /// the drawer's header; then the tab bar. With all three hidden the
+    /// button floats over the terminal's padding. `None` on macOS, where
+    /// the real menu bar does this job.
+    fn app_menu_corner(&self) -> Option<AppMenuCorner> {
+        if !cfg!(target_os = "linux") {
+            return None;
+        }
+        let status_bar = self
+            .status_bar_override
+            .unwrap_or(self.config.status_bar.enabled);
+        let tab_bar = self.tab_bar_override.unwrap_or(self.config.tabs.enabled);
+        if status_bar && self.config.status_bar.position == StatusBarPosition::Top {
+            Some(AppMenuCorner::StatusBar)
+        } else if self.drawer_visible {
+            Some(AppMenuCorner::Tree)
+        } else if tab_bar {
+            Some(AppMenuCorner::TabBar)
+        } else {
+            None
+        }
+    }
+
+    /// The keymap's binding for a menu entry, for the shortcut column.
+    fn shortcut_for(&self, action: &dyn Action) -> Option<String> {
+        let meta = registry::all()
+            .iter()
+            .find(|m| (m.build)().partial_eq(action))?;
+        self.keymap
+            .display_for(meta.id)
+            .map(|e| pretty_keys(&e.keys))
+    }
+
+    /// Open the ☰ menu on its first heading, or close it. Also the
+    /// `app::menu` action, for keyboards and for when every bar is hidden.
+    fn toggle_app_menu(&mut self, cx: &mut Context<Self>) {
+        self.app_menu = match self.app_menu {
+            Some(_) => None,
+            None => Some(AppMenu { open: 0 }),
+        };
+        cx.notify();
+    }
+
+    /// Linux only: the ☰ button that stands in for the macOS menu bar. It
+    /// floats over the top-left corner, whichever bar happens to be there;
+    /// `app_menu_corner` tells that bar to pad for it.
+    fn render_app_menu_button(&self, cx: &Context<Self>) -> gpui::Stateful<gpui::Div> {
+        let theme = &self.theme;
+        let open = self.app_menu.is_some();
+        let fg = theme.foreground;
+        let dim = blend(theme.foreground, theme.background, 0.4);
+        let mut hover_bg = theme.foreground;
+        hover_bg.a = 0.1;
+        div()
+            .id("app-menu-button")
+            .absolute()
+            .top(px(APP_MENU_BUTTON_TOP))
+            .left(px(APP_MENU_BUTTON_LEFT))
+            .size(px(APP_MENU_BUTTON_SIZE))
+            .rounded_md()
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_size(px(13.0))
+            .text_color(if open { fg } else { dim })
+            .when(open, |d| d.bg(hover_bg))
+            .hover(move |s| s.bg(hover_bg).text_color(fg))
+            .cursor_pointer()
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _: &gpui::MouseDownEvent, _w, cx| {
+                    this.toggle_app_menu(cx);
+                }),
+            )
+            // nf-fa-bars from the bundled Nerd Font.
+            .child("\u{f0c9}")
+    }
+
+    /// The ☰ popover: the app menus down the left, the open one's entries
+    /// on the right, each with its binding. Built from the same `menus()`
+    /// list macOS installs in the menu bar, so the two never drift.
+    fn render_app_menu(&self, window: &Window, cx: &Context<Self>) -> gpui::Div {
+        let Some(menu) = &self.app_menu else {
+            return div();
+        };
+        let menus = crate::menus();
+        let open = menu.open.min(menus.len().saturating_sub(1));
+        let theme = &self.theme;
+        let panel_bg = blend(theme.background, gpui::black(), 0.2);
+        let border = blend(theme.foreground, theme.background, 0.8);
+        let dim = blend(theme.foreground, theme.background, 0.45);
+        let mut hover_bg = theme.selection_bg;
+        hover_bg.a = 0.6;
+        let mut open_bg = theme.ansi[4];
+        open_bg.a = 0.16;
+
+        let mut headings = div()
+            .flex_none()
+            .w(px(112.0))
+            .p_1()
+            .border_r_1()
+            .border_color(border)
+            .flex()
+            .flex_col();
+        for (ix, m) in menus.iter().enumerate() {
+            let is_open = ix == open;
+            headings = headings.child(
+                div()
+                    .id(("app-menu-heading", ix))
+                    .px_3()
+                    .py_1()
+                    .rounded_sm()
+                    .cursor_pointer()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .when(is_open, |d| d.bg(open_bg))
+                    .when(!is_open, |d| d.hover(move |s| s.bg(hover_bg)))
+                    // Hovering a heading opens it, the way a menu bar does
+                    // once one menu is down; clicking covers touchpads that
+                    // don't hover.
+                    .on_hover(cx.listener(move |this, hovered: &bool, _w, cx| {
+                        if *hovered
+                            && let Some(menu) = &mut this.app_menu
+                            && menu.open != ix
+                        {
+                            menu.open = ix;
+                            cx.notify();
+                        }
+                    }))
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _: &gpui::MouseDownEvent, _w, cx| {
+                            if let Some(menu) = &mut this.app_menu {
+                                menu.open = ix;
+                                cx.notify();
+                            }
+                        }),
+                    )
+                    .child(m.name.clone())
+                    .child(div().flex_none().text_color(dim).child("›")),
+            );
+        }
+
+        let mut items = div().flex_1().min_w(px(240.0)).p_1().flex().flex_col();
+        for (ix, item) in menus[open].items.iter().enumerate() {
+            match item {
+                MenuItem::Separator => {
+                    items = items.child(div().h(px(1.0)).my_1().mx_2().bg(border));
+                }
+                MenuItem::Action { name, action, .. } => {
+                    let keys = self.shortcut_for(action.as_ref());
+                    let action = action.boxed_clone();
+                    items = items.child(
+                        div()
+                            // Distinct per menu so hover state doesn't carry
+                            // over to the same row of the next one.
+                            .id(("app-menu-item", open * 100 + ix))
+                            .px_3()
+                            .py_1()
+                            .rounded_sm()
+                            .cursor_pointer()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_between()
+                            .gap_4()
+                            .hover(move |s| s.bg(hover_bg))
+                            .on_mouse_down(
+                                gpui::MouseButton::Left,
+                                cx.listener(move |this, _: &gpui::MouseDownEvent, window, cx| {
+                                    this.app_menu = None;
+                                    // On the focused element, so it reaches
+                                    // the same handlers a key binding would.
+                                    window.dispatch_action(action.boxed_clone(), cx);
+                                    cx.notify();
+                                }),
+                            )
+                            .child(name.clone())
+                            .when_some(keys, |d, keys| {
+                                d.child(div().flex_none().text_color(dim).child(keys))
+                            }),
+                    );
+                }
+                // Nested and OS-managed submenus: none of ours use them.
+                MenuItem::Submenu(_) | MenuItem::SystemMenu(_) => {}
+            }
+        }
+
+        let top = APP_MENU_BUTTON_TOP + APP_MENU_BUTTON_SIZE + 4.0;
+        let max_h = f32::from(window.viewport_size().height) - top - 8.0;
+
+        div()
+            .absolute()
+            .inset_0()
+            // Backdrop: the first click anywhere else just dismisses, and
+            // goes no further — not to the terminal, and not to the ☰
+            // button, which would only reopen the menu.
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _: &gpui::MouseDownEvent, _w, cx| {
+                    this.app_menu = None;
+                    cx.stop_propagation();
+                    cx.notify();
+                }),
+            )
+            .on_mouse_down(
+                gpui::MouseButton::Right,
+                cx.listener(|this, _: &gpui::MouseDownEvent, _w, cx| {
+                    this.app_menu = None;
+                    cx.stop_propagation();
+                    cx.notify();
+                }),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(APP_MENU_BUTTON_LEFT))
+                    .top(px(top))
+                    .max_h(px(max_h.max(60.0)))
+                    .overflow_hidden()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(border)
+                    .bg(panel_bg)
+                    .shadow_lg()
+                    .flex()
+                    .flex_row()
+                    .items_start()
+                    .text_size(px(13.0))
+                    .text_color(theme.foreground)
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        |_: &gpui::MouseDownEvent, _w, cx| cx.stop_propagation(),
+                    )
+                    .child(headings)
+                    .child(items),
+            )
+    }
+
     fn render_status_bar(&self, cx: &Context<Self>) -> gpui::Div {
         let theme = &self.theme;
         let dim = blend(theme.foreground, theme.background, 0.35);
         let bar_bg = blend(theme.background, gpui::black(), 0.25);
+        // Linux: on top, this bar is the corner the ☰ menu button floats over.
+        let under_menu_button = self.app_menu_corner() == Some(AppMenuCorner::StatusBar);
         let cwd_text = self
             .active_pane()
             .read(cx)
@@ -5019,6 +5407,7 @@ impl Oxide {
             .flex_none()
             .h(px(26.0))
             .px_3()
+            .when(under_menu_button, |d| d.pl(px(APP_MENU_BUTTON_CLEARANCE)))
             .flex()
             .flex_row()
             .items_center()
@@ -5410,6 +5799,16 @@ impl Render for Oxide {
         let tab_bar = self.tab_bar_override.unwrap_or(self.config.tabs.enabled);
         let bar_on_top = self.config.status_bar.position == StatusBarPosition::Top;
 
+        // Linux: the drawer pads its header for the ☰ menu button only
+        // while it is the bar in the corner.
+        let menu_over_tree = self.app_menu_corner() == Some(AppMenuCorner::Tree);
+        if self.tree.read(cx).app_menu_clearance != menu_over_tree {
+            self.tree.update(cx, |tree, cx| {
+                tree.app_menu_clearance = menu_over_tree;
+                cx.notify();
+            });
+        }
+
         let tree_focused = self.tree_focus(cx).is_focused(window);
         let accent = theme.ansi[4];
         // The 30px band is where macOS draws its traffic lights over our
@@ -5683,6 +6082,12 @@ impl Render for Oxide {
             .on_action(cx.listener(|this, _: &InstallUpdate, _w, cx| {
                 this.install_update(cx);
             }))
+            .on_action(cx.listener(|this, _: &ShowAppMenu, _w, cx| {
+                this.toggle_app_menu(cx);
+            }))
+            .on_action(cx.listener(|this, _: &About, window, cx| {
+                this.open_about(window, cx);
+            }))
             .when(status_bar && bar_on_top, |d| {
                 d.child(self.render_status_bar(cx))
             })
@@ -5752,6 +6157,12 @@ impl Render for Oxide {
                 d.child(self.render_status_bar(cx))
             })
             .child(self.render_toasts(status_bar && !bar_on_top, cx))
+            // Linux has no menu bar: the ☰ button in the corner is the
+            // same menus as a popover. Painted after the bars so it sits
+            // on top of whichever one is there.
+            .when(cfg!(target_os = "linux"), |d| {
+                d.child(self.render_app_menu_button(cx))
+            })
             .map(|d| match &self.update {
                 UpdateState::Available { version, .. } => d.child(
                     div()
@@ -5812,6 +6223,9 @@ impl Render for Oxide {
             })
             .when(self.ws_context_menu.is_some(), |d| {
                 d.child(self.render_ws_context_menu(window, cx))
+            })
+            .when(self.app_menu.is_some(), |d| {
+                d.child(self.render_app_menu(window, cx))
             })
             .when(self.divider_drag.is_some(), |d| {
                 d.child(self.render_drag_overlay(cx))

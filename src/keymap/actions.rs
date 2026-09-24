@@ -32,6 +32,7 @@ oxide_actions! {
     InstallUpdate   => "app::install_update",    "Install Downloaded Update", "Application", [], Root;
     ToggleStatusBar => "app::toggle_status_bar", "Toggle Status Bar",       "Application", [], Root;
     ToggleTabBar    => "app::toggle_tab_bar",    "Toggle Tab Bar",          "Application", ["hide tabs", "show tabs"], Root;
+    ShowAppMenu     => "app::menu",              "Show App Menu",           "Application", ["hamburger", "menu bar"], Root;
 
     // --- Window ---
     NewWindow        => "window::new",               "New Window",         "Window", [], Root;
