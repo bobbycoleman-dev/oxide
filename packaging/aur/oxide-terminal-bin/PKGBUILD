@@ -4,7 +4,7 @@
 # bumps pkgver and the checksum after each release; regenerate .SRCINFO with
 # `makepkg --printsrcinfo > .SRCINFO` before pushing to the AUR.
 pkgname=oxide-terminal-bin
-pkgver=0.6.0
+pkgver=0.6.1
 pkgrel=1
 pkgdesc="A native, GPU-rendered terminal emulator with a vim-driven file tree drawer, splits and workspaces"
 arch=('x86_64')
@@ -20,7 +20,7 @@ optdepends=('vulkan-radeon: Vulkan driver for AMD GPUs'
 provides=('oxide-terminal')
 conflicts=('oxide-terminal')
 source=("https://github.com/bobbycoleman-dev/oxide/releases/download/v${pkgver}/oxide-${pkgver}-linux-x86_64.tar.gz")
-sha256sums=('909d32a2cad695a1f5c7c5478afd13051437a65cf189e6a4b717472c0fe76c45')
+sha256sums=('21d00a62d82714adfba960b734709dac73761683d16ef056418729785e53b34a')
 
 package() {
   cd "oxide-${pkgver}-linux-x86_64"
