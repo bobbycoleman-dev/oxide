@@ -406,7 +406,7 @@ Questions, ideas, or just want to see what's coming? Join the
 the menu bar (the ☰ menu on Linux), or *Report an Issue* in the command palette, goes to the same place. Wondering how Oxide stacks up against iTerm2, Ghostty,
 kitty, WezTerm, Alacritty, or Warp? There's an [honest comparison](https://oxideterminal.com/compare/).
 
-If Oxide earns a place in your dock, you can [buy me a coffee](https://www.buymeacoffee.com/bobbycoleman).
+If Oxide earns a place in your dock, you can [sponsor it on GitHub](https://github.com/sponsors/oxide-terminal) or [buy me a coffee](https://www.buymeacoffee.com/bobbycoleman).
 
 ## License
 
