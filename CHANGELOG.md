@@ -11,6 +11,16 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+### Fixed
+
+- Linux: the release tarball starts again on Ubuntu 24.04, Debian 12 and any
+  other distro with a glibc older than 2.44. Earlier tarballs were built on
+  Arch and inherited its glibc 2.44, so everywhere else they died with a
+  `GLIBC_2.43 not found` error before a window appeared. Releases are now
+  built against glibc 2.35 — Ubuntu 22.04, Debian 12, Fedora 36 and
+  everything newer — and the packaging step refuses to ship a binary that
+  needs more. (#2)
+
 ## [0.6.1] - 2026-09-24
 
 ### Added

@@ -101,13 +101,23 @@ git pull --ff-only && git fetch --tags    # HEAD is at (or just past) v0.6.1
 ./scripts/release-linux.sh
 ```
 
-This runs `linux-package.sh` (release build, strip, tarball with the
-`.desktop` entry, icons and `install.sh`), uploads
-`oxide-<version>-linux-x86_64.tar.gz` to the release, and bumps
-`packaging/aur/oxide-terminal-bin/PKGBUILD` to the new version and checksum.
-It refuses to run if the release doesn't exist yet, or if anything that
-goes into the build (`Cargo.*`, `src/`, `assets/`) changed since the tag —
-commits after the release that only touch docs are fine. Commit that bump, then publish the AUR package:
+This runs `linux-package.sh`, uploads `oxide-<version>-linux-x86_64.tar.gz`
+to the release, and bumps `packaging/aur/oxide-terminal-bin/PKGBUILD` to the
+new version and checksum. It refuses to run if the release doesn't exist
+yet, or if anything that goes into the build (`Cargo.*`, `src/`, `assets/`,
+`packaging/docker/`) changed since the tag — commits after the release that
+only touch docs are fine.
+
+`linux-package.sh` does the release build inside the `packaging/docker`
+container (Ubuntu 22.04), not on the host. A binary links against the glibc
+of whatever built it and won't start anywhere older, and the Linux box runs
+Arch, whose glibc is newer than everyone's — that was issue #2. The
+container's glibc 2.35 covers Ubuntu 22.04, Debian 12, Fedora 36 and later,
+and the script checks the built binary against that floor and refuses to
+package one that needs more. Then strip, and the tarball with the `.desktop`
+entry, icons and `install.sh`. The first build compiles every dependency
+from scratch and takes a while; later ones reuse `target/docker/`. Commit
+that bump, then publish the AUR package:
 
 ```sh
 git commit -am "aur: oxide-terminal-bin 0.6.1" && git push
@@ -123,6 +133,12 @@ the extra asset (it only matches `.dmg` names).
 One-time setup on the Linux box:
 
 - `gh auth login` (the upload goes through `gh`).
+- Docker, for the build container. The daemon isn't enabled at boot on the
+  Arch box, so `sudo systemctl start docker` before a release. Run the
+  script as yourself, never under `sudo` (the build runs as your uid so the
+  output stays yours); if your user isn't in the `docker` group,
+  `DOCKER="sudo docker" ./scripts/release-linux.sh`. The group is
+  root-equivalent, so `sudo` for an occasional release is the safer habit.
 - An [AUR account](https://aur.archlinux.org/register) with your SSH public
   key added, then the package clone — the first push creates the package:
   `git clone ssh://aur@aur.archlinux.org/oxide-terminal-bin.git ~/aur/oxide-terminal-bin`.

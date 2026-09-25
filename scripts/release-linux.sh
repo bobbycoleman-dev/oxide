@@ -29,7 +29,7 @@ if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
   exit 1
 fi
 if [[ "$(git describe --tags --exact-match 2>/dev/null || true)" != "$TAG" ]]; then
-  if ! git diff --quiet "$TAG" HEAD -- Cargo.toml Cargo.lock src assets scripts/linux-package.sh; then
+  if ! git diff --quiet "$TAG" HEAD -- Cargo.toml Cargo.lock src assets scripts/linux-package.sh packaging/docker; then
     echo "error: HEAD differs from $TAG in the sources. Build from the tag:" >&2
     echo "       git checkout $TAG" >&2
     exit 1

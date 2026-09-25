@@ -67,8 +67,9 @@ The tarball is on the same [release page](https://github.com/oxide-terminal/oxid
 Installed copies announce a newer release in the top-right corner; `git pull` and
 `makepkg -si` again, or a fresh tarball, does the update.
 
-- macOS 12 or later, Apple Silicon or Intel; or Linux with a Vulkan driver
-  (any GPU from the last decade — Mesa's `vulkan-radeon` / `vulkan-intel`, or
+- macOS 12 or later, Apple Silicon or Intel; or Linux with glibc 2.35 or newer
+  (Ubuntu 22.04, Debian 12, Fedora 36 and later), a Vulkan driver (any GPU
+  from the last decade — Mesa's `vulkan-radeon` / `vulkan-intel`, or
   `nvidia-utils`) and `notify-send` (libnotify) for desktop notifications.
 - No font to install — JetBrainsMono Nerd Font Mono is bundled. Set `font.family` to use your own.
 - zsh or bash for the built-in prompt and shell integration. Other shells run fine and keep
