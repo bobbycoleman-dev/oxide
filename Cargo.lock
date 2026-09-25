@@ -3857,7 +3857,7 @@ dependencies = [
 
 [[package]]
 name = "oxide"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "alacritty_terminal",
  "block",

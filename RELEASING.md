@@ -14,8 +14,8 @@ commits.
 ### 2. Make the release commit
 
 ```sh
-./scripts/bump.sh 0.6.1
-git commit -am "release v0.6.1" && git push
+./scripts/bump.sh 0.6.2
+git commit -am "release v0.6.2" && git push
 ```
 
 `bump.sh` does four things, and refuses to run if **Unreleased** in
@@ -81,10 +81,10 @@ If the build succeeded but publishing failed, or you need `--target <sha>` to
 tag a different commit (`gh` rejects abbreviated SHAs; pass the full hash):
 
 ```sh
-cp target/Oxide-0.6.1.dmg target/Oxide-0.6.1-update.dmg
-gh release create v0.6.1 target/Oxide-0.6.1.dmg target/Oxide-0.6.1-update.dmg \
-  --title "Oxide v0.6.1" \
-  --notes "$(sed -n '/^## \[0.6.1\]/,/^## \[/p' CHANGELOG.md | sed '1d;$d')"
+cp target/Oxide-0.6.2.dmg target/Oxide-0.6.2-update.dmg
+gh release create v0.6.2 target/Oxide-0.6.2.dmg target/Oxide-0.6.2-update.dmg \
+  --title "Oxide v0.6.2" \
+  --notes "$(sed -n '/^## \[0.6.2\]/,/^## \[/p' CHANGELOG.md | sed '1d;$d')"
 ```
 
 ### 4. The Linux build (on the Linux box)
@@ -97,7 +97,7 @@ on it:
 ```sh
 ssh linux-box
 cd ~/Code/oxide-app/oxide
-git pull --ff-only && git fetch --tags    # HEAD is at (or just past) v0.6.1
+git pull --ff-only && git fetch --tags    # HEAD is at (or just past) v0.6.2
 ./scripts/release-linux.sh
 ```
 
@@ -120,10 +120,10 @@ from scratch and takes a while; later ones reuse `target/docker/`. Commit
 that bump, then publish the AUR package:
 
 ```sh
-git commit -am "aur: oxide-terminal-bin 0.6.1" && git push
+git commit -am "aur: oxide-terminal-bin 0.6.2" && git push
 cd packaging/aur/oxide-terminal-bin && makepkg --printsrcinfo > .SRCINFO
 cp PKGBUILD .SRCINFO ~/aur/oxide-terminal-bin/
-cd ~/aur/oxide-terminal-bin && git add -A && git commit -m "v0.6.1" && git push
+cd ~/aur/oxide-terminal-bin && git add -A && git commit -m "v0.6.2" && git push
 ```
 
 Installed Linux copies look for the `-linux-x86_64.tar.gz` asset, so the
@@ -153,7 +153,7 @@ relaunch. Nothing else to do on the publishing side.
 
 ## Gotchas
 
-- **The tag must be `v<Cargo.toml version>`** (e.g. `v0.6.1` for `0.6.1`) and
+- **The tag must be `v<Cargo.toml version>`** (e.g. `v0.6.2` for `0.6.2`) and
   the release must have a `.dmg` asset, or the updater ignores it. The updater
   prefers `-update.dmg` and falls back to the plain one, so a release with only
   a single DMG still works — it just muddles the website's download count.

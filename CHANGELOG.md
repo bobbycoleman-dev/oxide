@@ -11,6 +11,8 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-09-25
+
 ### Fixed
 
 - Linux: the release tarball starts again on Ubuntu 24.04, Debian 12 and any
