@@ -42,7 +42,12 @@ pub fn to_bytes(ks: &Keystroke, mode: &TermMode, option_as_meta: OptionAsMeta) -
     match ks.key.as_str() {
         "enter" => return Some(b"\r".to_vec()), // \r, not \n — the PTY expects CR
         "backspace" => {
-            return Some(if mods.control { vec![0x08] } else { vec![0x7f] });
+            let byte = if mods.control { 0x08 } else { 0x7f };
+            return Some(if mods.alt {
+                vec![0x1b, byte]
+            } else {
+                vec![byte]
+            });
         }
         "tab" => {
             return Some(if mods.shift {
@@ -54,8 +59,21 @@ pub fn to_bytes(ks: &Keystroke, mode: &TermMode, option_as_meta: OptionAsMeta) -
         "escape" => return Some(vec![0x1b]),
         "up" => return Some(csi_cursor('A')),
         "down" => return Some(csi_cursor('B')),
-        "right" => return Some(csi_cursor('C')),
-        "left" => return Some(csi_cursor('D')),
+        // macOS only: Terminal.app and Ghostty translate Option+arrows to ESC b / ESC f,
+        // which zsh and bash bind to word movement. Linux terminals send the CSI
+        // form and tmux, vim and fish rely on it, so leave it alone there.
+        "right" => {
+            if cfg!(target_os = "macos") && mods.alt && !mods.shift && !mods.control {
+                return Some(b"\x1bf".to_vec());
+            }
+            return Some(csi_cursor('C'));
+        }
+        "left" => {
+            if cfg!(target_os = "macos") && mods.alt && !mods.shift && !mods.control {
+                return Some(b"\x1bb".to_vec());
+            }
+            return Some(csi_cursor('D'));
+        }
         "home" => return Some(csi_cursor('H')),
         "end" => return Some(csi_cursor('F')),
         "pageup" => return Some(csi_tilde(5)),
@@ -260,5 +278,48 @@ mod tests {
     fn paste_is_sanitized_and_bracketed() {
         let out = prepare_paste("a\nb\x1b[31m", true);
         assert_eq!(out, b"\x1b[200~a\rb[31m\x1b[201~".to_vec());
+    }
+
+    #[test]
+    fn option_backspace_deletes_word() {
+        let m = TermMode::empty();
+        assert_eq!(
+            to_bytes(&ks("alt-backspace"), &m, OptionAsMeta::None),
+            Some(vec![0x1b, 0x7f])
+        );
+        assert_eq!(
+            to_bytes(&ks("alt-backspace"), &m, OptionAsMeta::Both),
+            Some(vec![0x1b, 0x7f])
+        );
+        assert_eq!(
+            to_bytes(&ks("backspace"), &m, OptionAsMeta::None),
+            Some(vec![0x7f])
+        );
+    }
+
+    #[test]
+    fn option_arrows_jump_words() {
+        let m = TermMode::empty();
+        let (left, right): (&[u8], &[u8]) = if cfg!(target_os = "macos") {
+            (b"\x1bb", b"\x1bf")
+        } else {
+            (b"\x1b[1;3D", b"\x1b[1;3C")
+        };
+        assert_eq!(
+            to_bytes(&ks("alt-left"), &m, OptionAsMeta::None),
+            Some(left.to_vec())
+        );
+        assert_eq!(
+            to_bytes(&ks("alt-right"), &m, OptionAsMeta::None),
+            Some(right.to_vec())
+        );
+        assert_eq!(
+            to_bytes(&ks("alt-shift-left"), &m, OptionAsMeta::None),
+            Some(b"\x1b[1;4D".to_vec())
+        );
+        assert_eq!(
+            to_bytes(&ks("left"), &m, OptionAsMeta::None),
+            Some(b"\x1b[D".to_vec())
+        );
     }
 }

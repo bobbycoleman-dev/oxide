@@ -11,6 +11,15 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+### Fixed
+
+- macOS: Option+Left/Right now jump by word and Option+Delete deletes the
+  previous word in zsh and bash, matching Terminal.app and Ghostty. Before,
+  Option+arrows rang the bell and printed `;3D` or `;3C`, and Option+Delete
+  only deleted one character. Works regardless of `option_as_meta`. Linux
+  keeps the standard xterm encoding for Alt+arrows, which tmux, vim and fish
+  depend on. (#3)
+
 ## [0.6.2] - 2026-09-25
 
 ### Fixed
