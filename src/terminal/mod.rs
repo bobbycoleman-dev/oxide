@@ -73,8 +73,36 @@ fn system_beep() -> bool {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        false
+        linux_beep()
     }
+}
+
+/// Plays the desktop's bell sound through `canberra-gtk-play`, falling back to
+/// `paplay` if unavailable. Runs asynchronously so audio playback never blocks the terminal.
+#[cfg(not(target_os = "macos"))]
+fn linux_beep() -> bool {
+    use std::process::{Command, Stdio};
+
+    std::thread::Builder::new()
+        .name("oxide-bell".into())
+        .spawn(|| {
+            let canberra = Command::new("canberra-gtk-play")
+                .args(["-i", "bell"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            if !matches!(canberra, Ok(status) if status.success()) {
+                let _ = Command::new("paplay")
+                    .arg("/usr/share/sounds/freedesktop/stereo/bell.oga")
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+        })
+        .ok();
+    true
 }
 
 pub enum TerminalEvent {
