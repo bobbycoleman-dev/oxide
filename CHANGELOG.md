@@ -11,6 +11,8 @@ write for users: what changed and why it matters, not which files moved.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-09-26
+
 ### Fixed
 
 - macOS: Option+Left/Right now jump by word and Option+Delete deletes the
