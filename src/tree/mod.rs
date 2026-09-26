@@ -1025,7 +1025,7 @@ impl FileTree {
 
     /// The footer line: a label, the text either side of the caret when
     /// something is being typed, and a hint.
-    fn footer_text(&self) -> Option<(String, Option<(String, String)>, String)> {
+    fn footer_text(&self) -> Option<FooterText> {
         let edit = |label: &str, b: &LineEdit, hint: &str| {
             let (before, after) = b.split();
             Some((
@@ -1221,6 +1221,10 @@ const REVEAL_LABEL: &str = if cfg!(target_os = "macos") {
 } else {
     "Reveal in File Manager"
 };
+
+/// The footer line: a label, the text either side of the caret when
+/// something is being typed, and a hint.
+type FooterText = (String, Option<(String, String)>, String);
 
 impl FileTree {
     fn render_context_menu(&self, window: &Window, cx: &Context<Self>) -> impl IntoElement {
